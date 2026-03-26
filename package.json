@@ -1,0 +1,17 @@
+{
+  "name": "vaen",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Website factory for local business websites",
+  "scripts": {
+    "build": "pnpm -r build",
+    "clean": "pnpm -r clean",
+    "lint": "pnpm -r lint",
+    "generate": "node packages/generator/dist/cli.js",
+    "review": "bash scripts/review.sh"
+  },
+  "engines": {
+    "node": ">=18",
+    "pnpm": ">=9"
+  }
+}

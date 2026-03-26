@@ -1,0 +1,17 @@
+node_modules/
+dist/
+.next/
+.turbo/
+*.tsbuildinfo
+.env
+.env.local
+.env.*.local
+generated/
+!generated/.gitkeep
+*.log
+.DS_Store
+coverage/
+.playwright/
+screenshots/
+run_diagnostics.sh
+*.txt

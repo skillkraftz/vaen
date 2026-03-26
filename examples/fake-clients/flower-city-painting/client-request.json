@@ -1,0 +1,125 @@
+{
+  "version": "1.0.0",
+  "business": {
+    "name": "Flower City Painting",
+    "type": "Residential & Commercial Painting",
+    "tagline": "Bringing color to Rochester, one home at a time",
+    "description": "Flower City Painting is a family-owned painting company serving the greater Rochester, NY area since 2015. We specialize in interior and exterior residential painting, commercial painting, and specialty finishes. Our team of experienced painters takes pride in delivering meticulous results with minimal disruption to your daily life.",
+    "yearEstablished": 2015
+  },
+  "contact": {
+    "phone": "(585) 555-0147",
+    "email": "hello@flowercitypainting.com",
+    "address": {
+      "street": "742 Park Avenue",
+      "city": "Rochester",
+      "state": "NY",
+      "zip": "14607"
+    }
+  },
+  "services": [
+    {
+      "name": "Interior Painting",
+      "description": "Complete interior painting services including walls, ceilings, trim, and doors. We handle everything from single rooms to whole-house repaints with premium paints and careful prep work.",
+      "price": "From $350/room"
+    },
+    {
+      "name": "Exterior Painting",
+      "description": "Full exterior painting and staining for homes and businesses. Includes thorough power washing, scraping, priming, and two coats of premium exterior paint built to withstand Rochester winters.",
+      "price": "From $2,500"
+    },
+    {
+      "name": "Cabinet Refinishing",
+      "description": "Give your kitchen a fresh look without a full renovation. We sand, prime, and spray your existing cabinets for a factory-smooth finish in the color of your choice.",
+      "price": "From $3,000"
+    },
+    {
+      "name": "Commercial Painting",
+      "description": "Office buildings, retail spaces, restaurants, and more. We work around your schedule to minimize business disruption, including evenings and weekends.",
+      "price": "Free estimate"
+    },
+    {
+      "name": "Deck & Fence Staining",
+      "description": "Protect and beautify your outdoor wood surfaces with professional staining and sealing. We'll help you choose the right product for Rochester's climate.",
+      "price": "From $500"
+    },
+    {
+      "name": "Color Consultation",
+      "description": "Not sure what colors to choose? Our experienced team offers free color consultations to help you find the perfect palette for your space.",
+      "price": "Free"
+    }
+  ],
+  "branding": {
+    "primaryColor": "#2d5a27",
+    "secondaryColor": "#1a3a17",
+    "accentColor": "#e8b931",
+    "fontPreference": "modern"
+  },
+  "content": {
+    "about": "Flower City Painting was founded by Mike and Lisa Chen in 2015, right here in Rochester's Park Avenue neighborhood. What started as a two-person operation has grown into a crew of 12 skilled painters who share our passion for transforming spaces. We're fully licensed, insured, and committed to using low-VOC paints whenever possible. Every project starts with a detailed walkthrough and written estimate — no surprises, no hidden fees. We treat your home like our own, laying down drop cloths, taping carefully, and cleaning up thoroughly at the end of each day.",
+    "heroHeadline": "Rochester's Trusted Painting Professionals",
+    "heroSubheadline": "Interior, exterior, and specialty painting services backed by 9 years of experience and hundreds of happy customers.",
+    "testimonials": [
+      {
+        "name": "Jennifer K.",
+        "text": "Flower City painted our entire first floor and the results are stunning. The crew was professional, tidy, and finished ahead of schedule. Mike even helped us pick the perfect shade of blue for our dining room.",
+        "rating": 5,
+        "source": "Google"
+      },
+      {
+        "name": "Tom & Maria S.",
+        "text": "We've used Flower City for both interior and exterior work. Their attention to detail is unmatched — they even noticed and fixed some wood rot we hadn't seen before painting our trim. Highly recommend!",
+        "rating": 5,
+        "source": "Google"
+      },
+      {
+        "name": "David R.",
+        "text": "Had our kitchen cabinets refinished and they look brand new. The transformation is incredible. Fair pricing and great communication throughout the project.",
+        "rating": 5,
+        "source": "Facebook"
+      },
+      {
+        "name": "Sarah L.",
+        "text": "The team at Flower City painted our office space over a weekend so we didn't miss any work days. Professional, efficient, and the space looks amazing. Will definitely use them again.",
+        "rating": 4,
+        "source": "Google"
+      }
+    ],
+    "galleryImages": [
+      {
+        "url": "https://images.unsplash.com/photo-1562259949-e8e7689d7828?w=800",
+        "alt": "Beautiful blue living room interior",
+        "caption": "Living room repaint — Park Avenue home"
+      },
+      {
+        "url": "https://images.unsplash.com/photo-1584622650111-993a426fbf0a?w=800",
+        "alt": "Freshly painted white kitchen cabinets",
+        "caption": "Cabinet refinishing — Brighton"
+      },
+      {
+        "url": "https://images.unsplash.com/photo-1560448204-e02f11c3d0e2?w=800",
+        "alt": "Exterior of a freshly painted Victorian home",
+        "caption": "Full exterior — East Avenue historic district"
+      },
+      {
+        "url": "https://images.unsplash.com/photo-1631679706909-1844bbd07221?w=800",
+        "alt": "Modern gray bedroom with white trim",
+        "caption": "Master bedroom — Pittsford"
+      }
+    ]
+  },
+  "features": {
+    "maps": true,
+    "contactForm": true,
+    "testimonials": true,
+    "gallery": true,
+    "booking": false,
+    "googleReviews": false
+  },
+  "preferences": {
+    "template": "service-core",
+    "modules": ["maps-embed", "manual-testimonials"],
+    "domain": "flowercitypainting.com",
+    "notes": "Want a clean, professional look. Green is our brand color — think nature/trees, not neon. Would love the gallery to really pop."
+  }
+}

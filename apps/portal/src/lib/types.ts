@@ -1,0 +1,55 @@
+/** Database row types matching the migration schema. */
+
+export interface Project {
+  id: string;
+  user_id: string;
+  name: string;
+  slug: string;
+  status: string;
+  contact_name: string | null;
+  contact_email: string | null;
+  contact_phone: string | null;
+  business_type: string | null;
+  notes: string | null;
+  metadata: Record<string, unknown>;
+  client_summary: string | null;
+  draft_request: Record<string, unknown> | null;
+  missing_info: MissingInfoItem[] | null;
+  recommendations: IntakeRecommendations | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface MissingInfoItem {
+  field: string;
+  label: string;
+  severity: "required" | "recommended" | "optional";
+  hint?: string;
+}
+
+export interface IntakeRecommendations {
+  template: { id: string; reason: string };
+  modules: Array<{ id: string; reason: string }>;
+  notes?: string;
+}
+
+export interface Asset {
+  id: string;
+  project_id: string;
+  file_name: string;
+  file_type: string;
+  file_size: number | null;
+  storage_path: string;
+  category: string;
+  created_at: string;
+}
+
+export interface ProjectEvent {
+  id: string;
+  project_id: string;
+  event_type: string;
+  from_status: string | null;
+  to_status: string | null;
+  metadata: Record<string, unknown>;
+  created_at: string;
+}

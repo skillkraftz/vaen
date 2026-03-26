@@ -1,0 +1,30 @@
+{
+  "name": "@vaen/generator",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "vaen-generate": "./dist/cli.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "clean": "rm -rf dist",
+    "cli": "node dist/cli.js"
+  },
+  "dependencies": {
+    "@vaen/schemas": "workspace:*",
+    "@vaen/shared": "workspace:*",
+    "@vaen/template-registry": "workspace:*",
+    "@vaen/module-registry": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0",
+    "@types/node": "^22.0.0"
+  }
+}

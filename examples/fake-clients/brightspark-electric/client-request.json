@@ -1,0 +1,25 @@
+{
+  "contact": {
+    "email": "mike@brightsparkelectric.com",
+    "phone": "(585) 412-8892"
+  },
+  "content": {
+    "about": "Customer wants more local leads from Rochester and surrounding suburbs. Currently gets most business from word of mouth. Wants a clean, modern website that looks trustworthy and ranks well on Google.\r\n\r\nInterested in highlighting emergency services, panel upgrades, EV charger installs, and commercial work. Wants customers to be able to request quotes easily.\r\n\r\nMentioned competitor sites look outdated and wants something that feels premium but still approachable.\r\n\r\nPrefers dark blue and orange branding. No existing logo but open to ideas. Has photos of past jobs.\r\n\r\nBig priority: mobile experience and fast load times."
+  },
+  "version": "1.0.0",
+  "business": {
+    "name": "BrightSpark Electric",
+    "type": "Residential & Commercial Electrician"
+  },
+  "features": {
+    "maps": true,
+    "contactForm": true
+  },
+  "services": [],
+  "preferences": {
+    "modules": [
+      "maps-embed"
+    ],
+    "template": "service-core"
+  }
+}
