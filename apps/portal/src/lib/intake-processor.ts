@@ -127,20 +127,33 @@ function generateClientSummary(
 // ── E. Draft client-request.json ─────────────────────────────────────
 
 function buildDraftRequest(project: Project): Record<string, unknown> {
+  // Extract services: try notes first, then infer from business type
+  let services: Array<{ name: string; description?: string }> = extractServicesFromNotes(project.notes);
+  if (services.length === 0) {
+    services = inferServicesFromBusinessType(project.business_type);
+  }
+
+  // If the existing draft_request already has services (user edited them), preserve those
+  const existingServices = (project.draft_request as Record<string, unknown> | null)?.services;
+  if (Array.isArray(existingServices) && existingServices.length > 0) {
+    services = existingServices as Array<{ name: string; description?: string }>;
+  }
+
   const draft: Record<string, unknown> = {
     version: "1.0.0",
     business: {
       name: project.name,
       type: project.business_type ?? "local business",
+      ...(project.business_type ? { description: `${project.name} provides professional ${project.business_type.toLowerCase()} services.` } : {}),
     },
     contact: {
       ...(project.contact_email ? { email: project.contact_email } : {}),
       ...(project.contact_phone ? { phone: project.contact_phone } : {}),
     },
-    services: [], // Needs manual population from notes/transcript
+    services,
     features: {
-      contactForm: true, // Always include contact form
-      maps: true, // Default on for local businesses
+      contactForm: true,
+      maps: true,
     },
     preferences: {
       template: "service-core",
@@ -148,16 +161,14 @@ function buildDraftRequest(project: Project): Record<string, unknown> {
     },
   };
 
-  // Try to extract services from notes
-  const services = extractServicesFromNotes(project.notes);
-  if (services.length > 0) {
-    draft.services = services;
-  }
-
-  // Add content if we have notes
+  // Add content from notes — use it for 'about' but try to make it concise
   if (project.notes) {
+    // Truncate very long notes for the about field
+    const aboutText = project.notes.length > 500
+      ? project.notes.substring(0, 500) + "..."
+      : project.notes;
     draft.content = {
-      about: project.notes,
+      about: aboutText,
     };
   }
 
@@ -165,29 +176,89 @@ function buildDraftRequest(project: Project): Record<string, unknown> {
 }
 
 /**
- * Basic service extraction from notes.
- * Looks for lines starting with - or * that could be services.
+ * Service extraction from notes/transcript.
+ * Tries multiple strategies:
+ * 1. Bullet points (- or * items)
+ * 2. Comma-separated lists after trigger phrases ("we offer", "services include", etc.)
+ * 3. Numbered lists (1. 2. 3.)
  */
-function extractServicesFromNotes(notes: string | null): Array<{ name: string }> {
+function extractServicesFromNotes(notes: string | null): Array<{ name: string; description?: string }> {
   if (!notes) return [];
 
-  const services: Array<{ name: string }> = [];
+  const services: Array<{ name: string; description?: string }> = [];
+  const seen = new Set<string>();
+
+  function add(name: string, desc?: string) {
+    const key = name.toLowerCase().trim();
+    if (key.length < 3 || key.length > 80 || key.includes("?") || seen.has(key)) return;
+    seen.add(key);
+    services.push({ name: name.trim(), ...(desc ? { description: desc.trim() } : {}) });
+  }
+
   const lines = notes.split("\n");
 
   for (const line of lines) {
     const trimmed = line.trim();
-    // Match bullet points that look like services
-    const match = trimmed.match(/^[-*•]\s+(.+)$/);
-    if (match) {
-      const name = match[1].trim();
-      // Skip lines that are clearly not services (too long, questions, etc.)
-      if (name.length > 3 && name.length < 80 && !name.includes("?")) {
-        services.push({ name });
+    // Strategy 1: bullet points
+    const bullet = trimmed.match(/^[-*•]\s+(.+)$/);
+    if (bullet) {
+      add(bullet[1]);
+      continue;
+    }
+    // Strategy 3: numbered lists
+    const numbered = trimmed.match(/^\d+[.)]\s+(.+)$/);
+    if (numbered) {
+      add(numbered[1]);
+      continue;
+    }
+  }
+
+  // Strategy 2: comma-separated lists after trigger phrases
+  const triggers = [
+    /(?:we offer|services include|we provide|we do|we specialize in|specializ(?:e|ing) in|our services|interested in|highlighting|wants to highlight|wants to offer|looking to offer|focus on|focusing on)[:\s]+(.+)/gi,
+    /(?:services?)[:\s,]+(.+)/gi,
+  ];
+  for (const re of triggers) {
+    let match;
+    while ((match = re.exec(notes)) !== null) {
+      const list = match[1];
+      // Split on commas, "and", semicolons
+      const parts = list.split(/[,;]\s*|\s+and\s+/i);
+      for (const part of parts) {
+        const clean = part.replace(/[.!]$/, "").trim();
+        if (clean.length > 2 && clean.length < 60) {
+          add(clean);
+        }
       }
     }
   }
 
   return services;
+}
+
+/**
+ * Infer likely services from business type when notes don't yield any.
+ */
+function inferServicesFromBusinessType(businessType: string | null): Array<{ name: string }> {
+  if (!businessType) return [];
+  const type = businessType.toLowerCase();
+
+  const serviceMap: Record<string, string[]> = {
+    "electric": ["Electrical Repairs", "Panel Upgrades", "Lighting Installation", "Wiring", "Electrical Inspections"],
+    "plumb": ["Drain Cleaning", "Pipe Repair", "Water Heater Installation", "Fixture Installation", "Emergency Plumbing"],
+    "paint": ["Interior Painting", "Exterior Painting", "Cabinet Painting", "Deck Staining", "Color Consultation"],
+    "landscap": ["Lawn Maintenance", "Garden Design", "Tree Trimming", "Hardscaping", "Irrigation"],
+    "roof": ["Roof Repair", "Roof Replacement", "Roof Inspection", "Gutter Installation", "Emergency Repairs"],
+    "hvac": ["AC Repair", "Furnace Installation", "Duct Cleaning", "HVAC Maintenance", "Heat Pump Service"],
+    "clean": ["Residential Cleaning", "Commercial Cleaning", "Deep Cleaning", "Move-In/Move-Out Cleaning"],
+  };
+
+  for (const [key, services] of Object.entries(serviceMap)) {
+    if (type.includes(key)) {
+      return services.map((name) => ({ name }));
+    }
+  }
+  return [];
 }
 
 // ── F. Missing info detection ────────────────────────────────────────
@@ -214,14 +285,26 @@ function detectMissingInfo(project: Project, assets: Asset[]): MissingInfoItem[]
     });
   }
 
-  // Check for services in notes
-  const services = extractServicesFromNotes(project.notes);
-  if (services.length === 0) {
+  // Check for services: from notes extraction, business-type inference, or existing draft
+  const extractedServices = extractServicesFromNotes(project.notes);
+  const inferredServices = inferServicesFromBusinessType(project.business_type);
+  const existingDraftServices = Array.isArray((project.draft_request as Record<string, unknown> | null)?.services)
+    ? (project.draft_request as Record<string, unknown>).services as unknown[]
+    : [];
+
+  if (extractedServices.length === 0 && inferredServices.length === 0 && existingDraftServices.length === 0) {
     items.push({
       field: "services",
       label: "Services List",
       severity: "required",
-      hint: "No services detected in notes. Add a bulleted list of services offered.",
+      hint: "No services detected. Add services via the Services editor or include a bulleted list in notes.",
+    });
+  } else if (extractedServices.length === 0 && existingDraftServices.length === 0 && inferredServices.length > 0) {
+    items.push({
+      field: "services",
+      label: "Services List",
+      severity: "recommended",
+      hint: `Services were inferred from business type. Review and edit them to be accurate.`,
     });
   }
 

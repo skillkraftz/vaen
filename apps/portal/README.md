@@ -99,9 +99,10 @@ src/
         page.tsx            Intake form (incremental file selection)
         actions.ts          Server action: create project + upload files
       projects/[id]/
-        page.tsx            Project detail with processing UI
-        actions.ts          Server actions: process, approve, revise, quote, export
-        intake-actions.tsx  Client components for action buttons
+        page.tsx            Project detail with processing + editing UI
+        actions.ts          Server actions: process, approve, revise, quote, export, edit, file ops
+        intake-actions.tsx  Client components for workflow action buttons
+        project-editor.tsx  Client components for inline editing, services, files, JSON editor
   lib/
     supabase/
       client.ts             Browser Supabase client
@@ -114,11 +115,16 @@ src/
 
 ## Intake Processing
 
-The project detail page supports the full intake processing workflow:
+The project detail page supports the full intake processing and review workflow:
 
 1. **Process Intake** — Generates client summary, draft request, missing info, recommendations
-2. **Approve / Request Revision / Custom Quote** — Advance or loop the intake
-3. **Export to Generator** — Writes approved client-request.json to the target path
+2. **Edit** — All fields editable inline: business type, contact info, notes, services, draft request JSON
+3. **File Management** — View files via signed URLs (opens in browser), remove files (deletes from storage + DB)
+4. **Approve** — Validates: services non-empty, business type set, at least one contact method
+5. **Request Revision / Custom Quote** — Loop back for more info
+6. **Export to Generator** — Validates services, writes approved client-request.json to target path
+
+Server actions in `actions.ts`: `processIntakeAction`, `approveIntakeAction`, `requestRevisionAction`, `markCustomQuoteAction`, `exportToGeneratorAction`, `updateProjectAction`, `updateDraftRequestAction`, `getAssetUrlAction`, `deleteAssetAction`.
 
 New database columns: `client_summary`, `draft_request`, `missing_info`, `recommendations`.
 
@@ -127,6 +133,6 @@ New states: `intake_processing`, `intake_draft_ready`, `intake_needs_revision`, 
 ## Next Phase
 
 - Screenshot viewer integration
-- Deployment trigger
-- File download/preview
-- Search and filtering
+- Deployment trigger from portal
+- Search and filtering on dashboard
+- Worker automation (Phase 3)

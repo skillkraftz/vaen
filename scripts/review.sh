@@ -7,10 +7,10 @@ set -euo pipefail
 #
 # Usage:
 #   bash scripts/review.sh --target <client-slug>
-#   pnpm review -- --target flower-city-painting
+#   pnpm -w review -- --target <client-slug>
 #
 # The target must be a directory under generated/, e.g.:
-#   generated/flower-city-painting/
+#   generated/<client-slug>/
 
 PORT=4173
 TARGET=""
@@ -69,13 +69,30 @@ else
   echo "1. Dependencies already installed"
 fi
 
-# Step 2: Build the site
-echo "2. Building site..."
-(cd "$SITE_DIR" && npm run build --silent 2>&1 | tail -5)
-echo "   ✓ Site built"
+# Step 2: Clean stale .next cache (prevents "Html should not be imported" errors)
+echo "2. Cleaning previous build cache..."
+rm -rf "$SITE_DIR/.next"
+echo "   ✓ Cache cleaned"
 
-# Step 3: Start the site in background
-echo "3. Starting site on port $PORT..."
+# Step 3: Build the site
+echo "3. Building site..."
+BUILD_LOG=$(mktemp)
+if (cd "$SITE_DIR" && npm run build 2>&1) > "$BUILD_LOG" 2>&1; then
+  echo "   ✓ Site built"
+else
+  BUILD_EXIT=$?
+  echo "   ✗ Build failed (exit code $BUILD_EXIT)"
+  echo ""
+  echo "── Build output (last 40 lines) ──"
+  tail -40 "$BUILD_LOG"
+  echo "──────────────────────────────────"
+  rm -f "$BUILD_LOG"
+  exit $BUILD_EXIT
+fi
+rm -f "$BUILD_LOG"
+
+# Step 4: Start the site in background
+echo "4. Starting site on port $PORT..."
 cd "$SITE_DIR"
 npx next start -p "$PORT" > /dev/null 2>&1 &
 SERVER_PID=$!
@@ -102,8 +119,8 @@ for i in $(seq 1 30); do
   sleep 1
 done
 
-# Step 4: Capture screenshots
-echo "4. Capturing screenshots..."
+# Step 5: Capture screenshots
+echo "5. Capturing screenshots..."
 mkdir -p "$SCREENSHOTS_DIR"
 node packages/review-tools/dist/cli.js \
   --url "http://localhost:$PORT" \

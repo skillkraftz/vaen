@@ -30,6 +30,13 @@ export function resolveConfig(
   const branding = clientRequest.branding;
   const defaults = template.defaults.branding;
 
+  // Read _intake.* fields from the portal's build-prep editor.
+  // These are extra fields outside the ClientRequest schema, preserved
+  // through export and used here to enrich the generated site config.
+  const raw = clientRequest as unknown as Record<string, unknown>;
+  const intake = (raw._intake ?? {}) as Record<string, string>;
+  const prefNotes = clientRequest.preferences?.notes;
+
   const resolvedBranding = {
     primaryColor: branding?.primaryColor ?? defaults.primaryColor,
     secondaryColor: branding?.secondaryColor ?? defaults.secondaryColor,
@@ -46,15 +53,24 @@ export function resolveConfig(
         .join(", ")
     : "";
 
+  // Derive enriched values from intake fields
+  const serviceArea = intake.serviceArea || address?.city || "your area";
+  const businessDesc =
+    clientRequest.business.description ??
+    intake.goals ??
+    `${clientRequest.business.name} provides professional ${clientRequest.business.type.toLowerCase()} services.`;
+  const aboutText =
+    clientRequest.content?.about ??
+    intake.about ??
+    `${clientRequest.business.name} is a trusted provider of ${clientRequest.business.type.toLowerCase()} services.`;
+
   const siteConfig: BuildManifest["siteConfig"] = {
     business: {
       name: clientRequest.business.name,
       type: clientRequest.business.type,
       tagline:
         clientRequest.business.tagline ?? "Quality service you can trust",
-      description:
-        clientRequest.business.description ??
-        `${clientRequest.business.name} provides professional ${clientRequest.business.type.toLowerCase()} services.`,
+      description: businessDesc,
     },
     contact: {
       phone: clientRequest.contact.phone,
@@ -73,7 +89,7 @@ export function resolveConfig(
       title: `${clientRequest.business.name} | ${clientRequest.business.tagline ?? clientRequest.business.type}`,
       description:
         clientRequest.business.description ??
-        `${clientRequest.business.name} — professional ${clientRequest.business.type.toLowerCase()} services in ${address?.city ?? "your area"}.`,
+        `${clientRequest.business.name} — professional ${clientRequest.business.type.toLowerCase()} services in ${serviceArea}.`,
     },
     branding: resolvedBranding,
     services: clientRequest.services.map((s) => ({
@@ -88,11 +104,11 @@ export function resolveConfig(
       subheadline:
         clientRequest.content?.heroSubheadline ??
         clientRequest.business.tagline ??
-        `Professional ${clientRequest.business.type.toLowerCase()} services.`,
+        (intake.targetCustomer
+          ? `Professional ${clientRequest.business.type.toLowerCase()} services for ${intake.targetCustomer}.`
+          : `Professional ${clientRequest.business.type.toLowerCase()} services.`),
     },
-    about:
-      clientRequest.content?.about ??
-      `${clientRequest.business.name} is a trusted provider of ${clientRequest.business.type.toLowerCase()} services.`,
+    about: aboutText,
     testimonials: (clientRequest.content?.testimonials ?? []).map((t) => ({
       name: t.name,
       text: t.text,
@@ -102,6 +118,12 @@ export function resolveConfig(
       url: g.url,
       alt: g.alt ?? "",
     })),
+    // Intake enrichment fields (available for templates to consume)
+    ...(intake.serviceArea ? { serviceArea: intake.serviceArea } : {}),
+    ...(intake.targetCustomer ? { targetCustomer: intake.targetCustomer } : {}),
+    ...(intake.goals ? { goals: intake.goals } : {}),
+    ...(intake.branding ? { brandingNotes: intake.branding } : {}),
+    ...(prefNotes ? { operatorNotes: prefNotes } : {}),
   };
 
   const moduleConfigs = moduleIds.map((id) => {

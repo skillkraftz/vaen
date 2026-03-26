@@ -8,7 +8,7 @@ Website factory that takes client intake and turns it into deployed local busine
 apps/
   portal/          vaen.space — authenticated intake portal (Next.js + Supabase)
   intake-bot/      Discord bot for conversational intake (scaffolded)
-  worker/          Background job runner for pipeline execution (scaffolded)
+  worker/          Background job runner — executes generate/review via child_process
 
 packages/
   shared/          Target resolution, job model, state machine, artifact lifecycle
@@ -39,8 +39,8 @@ scripts/
 | v0 Foundation | Schemas, registries, generator, template, modules, review tools | Complete |
 | v0 Architecture | Shared target/job/state/artifact model, app scaffolding | Complete |
 | Phase 1 Portal | vaen.space intake front door: auth, dashboard, intake form, file uploads, Discord notifications | Complete |
-| **Phase 2 Processing** | **Intake processing, approval workflow, generator export, missing-info detection, recommendations** | **Complete** |
-| Phase 3 | Intake bot, worker automation, deployment pipeline | Planned |
+| Phase 2 Processing | Intake processing, approval workflow, generator export, missing-info detection, recommendations | Complete |
+| **Phase 3 Automation** | **Worker-oriented job execution, job status/logs, screenshot viewer, intake field enrichment, Discord multi-event** | **In Progress** |
 
 ## Setup
 
@@ -74,6 +74,9 @@ pnpm build
    #   supabase/migrations/20260326000002_create_assets.sql
    #   supabase/migrations/20260326000003_create_project_events.sql
    #   supabase/migrations/20260326000004_create_storage.sql
+   #   supabase/migrations/20260326000005_add_intake_processing.sql
+   #   supabase/migrations/20260326000006_create_jobs.sql
+   #   supabase/migrations/20260326000007_jobs_insert_policy.sql
    ```
 
 3. Configure environment variables in `apps/portal/.env.local`:
@@ -84,12 +87,26 @@ pnpm build
 
 ### Environment Variables
 
+**Portal** (`apps/portal/.env.local`):
+
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `NEXT_PUBLIC_SUPABASE_URL` | Yes | Supabase project URL |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Yes | Supabase anonymous/public key |
-| `DISCORD_WEBHOOK_URL` | No | Discord webhook for intake notifications |
+| `SUPABASE_SERVICE_ROLE_KEY` | Yes | Supabase service role key (passed to spawned worker) |
+| `DISCORD_WEBHOOK_URL` | No | Discord webhook for lifecycle notifications |
 | `NEXT_PUBLIC_PORTAL_URL` | No | Portal URL for notification links (default: http://localhost:3100) |
+
+**Worker** (`apps/worker/.env`) — loaded automatically by `run-job.ts` via dotenv:
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `SUPABASE_URL` | Yes | Supabase project URL (note: no `NEXT_PUBLIC_` prefix) |
+| `SUPABASE_SERVICE_ROLE_KEY` | Yes | Supabase service role key (bypasses RLS) |
+| `DISCORD_WEBHOOK_URL` | No | Discord webhook for build/review notifications |
+| `NEXT_PUBLIC_PORTAL_URL` | No | Portal URL for notification links |
+
+When launched from the portal, the worker inherits env vars from the portal process. When run manually (`node apps/worker/dist/run-job.js <id>`), it loads `apps/worker/.env`.
 
 ### Discord Notifications (Optional)
 
@@ -141,13 +158,14 @@ ls generated/flower-city-painting/artifacts/screenshots/
 
 ## Database Schema
 
-The portal uses three main tables plus a storage bucket:
+The portal uses four main tables plus a storage bucket:
 
 | Table | Purpose |
 |-------|---------|
 | `projects` | Client website projects with name, slug, status, contact info, notes |
 | `assets` | File references linking uploaded files to projects |
 | `project_events` | Audit trail for state transitions and actions |
+| `jobs` | Worker-executed pipeline jobs with status, payload, result, stdout/stderr |
 
 Storage bucket `intake-assets` holds uploaded files organized as `{user_id}/{project_id}/{filename}`.
 
@@ -157,17 +175,25 @@ See `supabase/migrations/` for complete schema definitions.
 
 ## Intake Processing Flow
 
-Once an intake is submitted via the portal:
+The portal is the primary workflow hub. Each project has a **Workflow Panel** showing the current status, available actions, and artifact state.
 
-1. **Process** — Click "Process Intake" on the project detail page. Generates:
-   - Client summary (markdown overview of the project)
-   - Draft `client-request.json` (mapped to the schema)
-   - Missing info report (required/recommended/optional fields)
-   - Template + module recommendations (rule-based)
-2. **Review** — Review the draft, missing info, and recommendations
-3. **Approve / Revise / Custom Quote** — Move the intake forward or send it back
-4. **Export** — Click "Export to Generator" to write `client-request.json` to the target path
-5. **Generate** — Run `pnpm -w generate -- --target <slug>` to create the workspace
+**Intake phase:**
+1. **Process** — Generates client summary, draft `client-request.json`, missing info, and template/module recommendations
+2. **Edit** — Textarea-based build-prep editing: notes/transcript, services (one per line), about, branding, target customer, goals, service area, AI notes
+3. **Review files** — View uploaded files via signed URLs, or remove them
+4. **Approve** — Validates: services non-empty, business type set, at least one contact method
+5. **Export** — Writes the `draft_request` as `client-request.json` to `generated/<slug>/`
+
+**Build phase (Phase 3):**
+6. **Generate Site** — Portal dispatches a `generate` job to the worker, which runs the generator CLI asynchronously
+7. **Build & Review** — Portal dispatches a `review` job to the worker, which builds the site and captures Playwright screenshots
+
+The Workflow Panel shows:
+- **Job status** — Active/recent jobs with status badges, timing, expandable logs (stdout/stderr)
+- **Artifact status** — client-request.json, workspace, build, screenshots on disk
+- **Screenshot viewer** — Inline display of captured PNGs (load-on-click)
+
+Jobs are non-blocking: portal creates a DB record, spawns the worker as a detached process, and polls for completion.
 
 ## Portal Auth Flow
 
@@ -187,10 +213,9 @@ Once an intake is submitted via the portal:
 - [Local Testing](docs/architecture/local-testing.md) — End-to-end dev workflow
 - [Integrations](docs/architecture/integrations.md) — External service connections
 
-## What's Next (Phase 3)
+## What's Next
 
-- Discord intake bot with OpenClaw AI conversational flow
-- Worker VM for isolated build execution
-- Portal ops features: screenshot viewer, deployment triggers
-- vaen.space deployment pipeline
+- Deployment pipeline (portal-triggered deploy)
+- Worker polling daemon (replace per-job spawn with long-running process)
+- Worker VM for isolated builds (BullMQ + Firecracker)
 - Additional templates and modules

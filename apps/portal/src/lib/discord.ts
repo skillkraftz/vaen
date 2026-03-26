@@ -1,8 +1,11 @@
 /**
- * Discord webhook notification for intake events.
+ * Discord webhook notifications for project lifecycle events.
+ *
+ * Portal-side notifications cover intake events.
+ * Worker-side notifications cover build/review events (in run-job.ts).
  */
 
-interface IntakeNotification {
+interface ProjectNotification {
   name: string;
   slug: string;
   id: string;
@@ -10,12 +13,36 @@ interface IntakeNotification {
   businessType?: string | null;
 }
 
-export async function notifyDiscord(project: IntakeNotification): Promise<void> {
+type EventType =
+  | "intake_received"
+  | "intake_processed"
+  | "intake_approved"
+  | "intake_needs_revision"
+  | "exported";
+
+const EVENT_CONFIG: Record<
+  EventType,
+  { title: string; color: number }
+> = {
+  intake_received: { title: "New Intake Received", color: 0x3b82f6 },
+  intake_processed: { title: "Intake Processed", color: 0x8b5cf6 },
+  intake_approved: { title: "Intake Approved", color: 0x22c55e },
+  intake_needs_revision: { title: "Revision Requested", color: 0xf59e0b },
+  exported: { title: "Exported to Generator", color: 0x06b6d4 },
+};
+
+export async function notifyDiscord(
+  project: ProjectNotification,
+  eventType: EventType = "intake_received",
+): Promise<void> {
   const webhookUrl = process.env.DISCORD_WEBHOOK_URL;
   if (!webhookUrl) {
     console.log("[discord] DISCORD_WEBHOOK_URL not set, skipping notification");
     return;
   }
+
+  const config = EVENT_CONFIG[eventType];
+  if (!config) return;
 
   const portalUrl = (process.env.NEXT_PUBLIC_PORTAL_URL ?? "http://localhost:3100").replace(/\/+$/, "");
   const projectUrl = `${portalUrl}/dashboard/projects/${project.id}`;
@@ -23,7 +50,6 @@ export async function notifyDiscord(project: IntakeNotification): Promise<void> 
   const fields = [
     { name: "Project", value: project.name, inline: true },
     { name: "Slug", value: `\`${project.slug}\``, inline: true },
-    { name: "Status", value: "intake_received", inline: true },
   ];
 
   if (project.businessType) {
@@ -40,9 +66,9 @@ export async function notifyDiscord(project: IntakeNotification): Promise<void> 
       body: JSON.stringify({
         embeds: [
           {
-            title: "New Intake Received",
+            title: config.title,
             description: `[View in portal](${projectUrl})`,
-            color: 0x3b82f6,
+            color: config.color,
             fields,
             timestamp: new Date().toISOString(),
             footer: { text: "vaen.space" },

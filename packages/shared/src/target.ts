@@ -36,13 +36,13 @@ export interface ResolvedTarget {
 }
 
 export interface ResolveTargetOptions {
-  /** Target slug — directory name under generated/ and examples/fake-clients/ */
+  /** Target slug — directory name under generated/ */
   slug: string;
   /** Absolute path to the repository root */
   repoRoot: string;
   /**
    * Override the client-request.json input path.
-   * Defaults to examples/fake-clients/<slug>/client-request.json
+   * Defaults to generated/<slug>/client-request.json (the canonical export location).
    */
   inputPath?: string;
   /**
@@ -62,7 +62,7 @@ export function resolveTarget(options: ResolveTargetOptions): ResolvedTarget {
   const { slug, repoRoot, inputPath, outputDir } = options;
 
   const clientRequestPath =
-    inputPath ?? join(repoRoot, "examples", "fake-clients", slug, "client-request.json");
+    inputPath ?? join(repoRoot, "generated", slug, "client-request.json");
 
   const workspace = outputDir ?? join(repoRoot, "generated", slug);
 

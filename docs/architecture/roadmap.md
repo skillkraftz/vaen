@@ -91,9 +91,21 @@ The authenticated intake front door. Built with Next.js + Supabase:
 - **Database** — PostgreSQL via Supabase (projects, assets, project_events tables with RLS)
 - **Storage** — Supabase Storage bucket `intake-assets` with user-scoped paths
 
-### 8. App Layer (scaffolded)
+### 8. Worker Layer (`apps/worker`)
+Background job runner. Portal creates a job record in the DB and spawns the worker
+as a detached child process. The worker reads the job, executes it (generate or review
+via child_process.spawn), captures stdout/stderr, and writes results back to the DB.
+
+Entrypoints:
+- `run-job.ts` — Execute a single job by ID (spawned by portal)
+- `db.ts` — Supabase client using service role key (bypasses RLS)
+- `handlers.ts` — Job handler registry (v0 built-in handlers)
+- `pipeline.ts` — Sequential pipeline runner with lifecycle callbacks
+
+Architecture boundary: portal = requests work, worker = executes work, DB = truth.
+
+### 9. App Layer (scaffolded)
 - **intake-bot** (`apps/intake-bot`) — Conversational intake flow with step-by-step state machine. Validates and writes client-request.json. v1: Discord bot with OpenClaw AI.
-- **worker** (`apps/worker`) — Pipeline runner with job handler registry. Executes jobs sequentially with lifecycle callbacks. v1: BullMQ queue + VM isolation.
 
 ## Pipeline Flow
 
@@ -166,20 +178,45 @@ Branch states:
 | Approval workflow (approve, revise, custom quote) | Complete |
 | Export to generator handoff | Complete |
 | Evolved project detail page | Complete |
+| Inline editing of all project fields | Complete |
+| Services editor (add/remove, saved to draft_request) | Complete |
+| Draft request JSON editor | Complete |
+| File viewing (signed URLs) | Complete |
+| File removal (storage + DB) | Complete |
+| Approval validation (services, business type, contact) | Complete |
+| Improved service extraction (prose, business-type inference) | Complete |
+| Template config.json warning fix | Complete |
+| Review script hardcoded references fix | Complete |
 
-### Phase 3 — Automation (planned)
+### Phase 3 — Portal Automation (in progress)
 
-- Discord intake bot with OpenClaw AI
-- Worker VM for isolated builds (BullMQ + Firecracker)
-- vaen.space deployment pipeline
-- Portal ops: screenshot viewer, deploy triggers
-- Additional templates and modules
+**Architecture direction:** The portal is the primary workflow hub. Discord/OpenClaw is an assistive channel (alerts, quick commands, status links) — not the main process driver. The worker is the only process that executes pipeline commands; the portal dispatches jobs and reads results.
+
+| Component | Status |
+|-----------|--------|
+| Workflow panel (status-aware action surface) | Complete |
+| Textarea-based build-prep editing | Complete |
+| Portal-triggered site generation (generateSiteAction) | Complete |
+| Portal-triggered build & review (runReviewAction) | Complete |
+| Artifact status visibility (getArtifactStatusAction) | Complete |
+| Phase indicator (intake / build / deploy / done) | Complete |
+| Worker job runner (run-job.ts, detached child process) | Complete |
+| Jobs DB table (status, payload, result, stdout, stderr) | Complete |
+| Non-blocking job dispatch (portal → worker via DB + spawn) | Complete |
+| Job status panel with log viewer | Complete |
+| Screenshot viewer in portal (inline base64 PNGs) | Complete |
+| Intake field enrichment in generator (_intake.* → siteConfig) | Complete |
+| Discord multi-event notifications (5 portal + 4 worker events) | Complete |
+| Deployment pipeline (portal-triggered) | Planned |
+| Worker VM for isolated builds | Planned |
+| Additional templates and modules | Planned |
 
 ## Assumptions
 - Templates use Next.js (App Router) with top-level `app/` directory for SSG/SSR flexibility
 - Portal uses Supabase for auth, database, and storage
-- Generator runs locally as a CLI
-- Deployment-payload is prepared but not actually deployed yet
+- Portal is the primary operating surface for the entire pipeline
+- Portal dispatches jobs to the worker; worker executes via child_process.spawn
+- Worker uses Supabase service role key for DB access (bypasses RLS)
 - Playwright screenshots run against local build server
 - Target resolution is the single source of truth for workspace paths
-- Job model is synchronous in CLI, queue-backed in v1
+- Job model: DB-backed records, portal spawns worker per job; queue-backed in v1

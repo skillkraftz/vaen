@@ -8,7 +8,8 @@
     "clean": "pnpm -r clean",
     "lint": "pnpm -r lint",
     "generate": "node packages/generator/dist/cli.js",
-    "review": "bash scripts/review.sh"
+    "review": "bash scripts/review.sh",
+    "worker:run-job": "node apps/worker/dist/run-job.js"
   },
   "engines": {
     "node": ">=18",

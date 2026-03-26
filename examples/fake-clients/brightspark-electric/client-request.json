@@ -15,7 +15,13 @@
     "maps": true,
     "contactForm": true
   },
-  "services": [],
+  "services": [
+    { "name": "Emergency Electrical Services", "description": "24/7 emergency electrical repairs for residential and commercial properties" },
+    { "name": "Panel Upgrades", "description": "Electrical panel upgrades and replacements to meet modern power demands" },
+    { "name": "EV Charger Installation", "description": "Home and commercial EV charging station installation" },
+    { "name": "Commercial Electrical Work", "description": "Full-service commercial electrical contracting" },
+    { "name": "Residential Wiring", "description": "New construction and renovation wiring services" }
+  ],
   "preferences": {
     "modules": [
       "maps-embed"

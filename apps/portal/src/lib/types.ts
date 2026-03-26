@@ -53,3 +53,17 @@ export interface ProjectEvent {
   metadata: Record<string, unknown>;
   created_at: string;
 }
+
+export interface JobRecord {
+  id: string;
+  project_id: string;
+  job_type: string;
+  status: "pending" | "running" | "completed" | "failed";
+  payload: Record<string, unknown>;
+  result: { success: boolean; message: string; artifacts?: string[]; error?: string } | null;
+  stdout: string | null;
+  stderr: string | null;
+  created_at: string;
+  started_at: string | null;
+  completed_at: string | null;
+}

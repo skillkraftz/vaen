@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { readFile, writeFile, mkdir } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import { resolve, join } from "node:path";
 import { validateClientRequest } from "@vaen/schemas";
 import { resolveTarget } from "@vaen/shared";
@@ -43,7 +44,8 @@ Options:
   --help       Show this help message
 
 When using --target, paths resolve to:
-  Input:  examples/fake-clients/<slug>/client-request.json
+  Input:  generated/<slug>/client-request.json  (canonical)
+          examples/fake-clients/<slug>/client-request.json  (fallback for examples)
   Output: generated/<slug>/
 `);
     process.exit(0);
@@ -75,6 +77,16 @@ When using --target, paths resolve to:
     });
     resolvedInput = target.clientRequestPath;
     resolvedOutput = target.paths.workspace;
+
+    // Fallback: if canonical path doesn't exist, try examples/fake-clients/
+    // This preserves backward compat for hand-crafted example targets.
+    if (!args.input && !existsSync(resolvedInput)) {
+      const examplePath = join(repoRoot, "examples", "fake-clients", targetSlug, "client-request.json");
+      if (existsSync(examplePath)) {
+        console.log(`   (using example input: ${examplePath})`);
+        resolvedInput = examplePath;
+      }
+    }
   } else if (args.input && args.output) {
     // Legacy explicit mode
     resolvedInput = resolve(args.input);

@@ -1,0 +1,25 @@
+{
+  "services": [
+    {
+      "name": "Emergency electrical service"
+    },
+    {
+      "name": "Panel upgrades"
+    },
+    {
+      "name": "EV charger installation"
+    },
+    {
+      "name": "Commercial buildouts"
+    },
+    {
+      "name": "Wiring and rewiring"
+    },
+    {
+      "name": "Lighting installation"
+    },
+    {
+      "name": "Troubleshooting and repairs"
+    }
+  ]
+}

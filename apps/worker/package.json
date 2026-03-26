@@ -6,11 +6,14 @@
   "scripts": {
     "build": "tsc",
     "clean": "rm -rf dist",
-    "start": "node dist/index.js"
+    "start": "node dist/index.js",
+    "run-job": "node dist/run-job.js"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.49.1",
+    "@vaen/schemas": "workspace:*",
     "@vaen/shared": "workspace:*",
-    "@vaen/schemas": "workspace:*"
+    "dotenv": "^17.3.1"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

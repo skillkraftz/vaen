@@ -16,7 +16,7 @@ const target = resolveTarget({
   repoRoot: "/path/to/vaen",
 });
 
-// target.clientRequestPath → examples/fake-clients/flower-city-painting/client-request.json
+// target.clientRequestPath → generated/flower-city-painting/client-request.json
 // target.paths.workspace   → generated/flower-city-painting/
 // target.paths.site        → generated/flower-city-painting/site/
 // target.paths.screenshots → generated/flower-city-painting/artifacts/screenshots/
@@ -39,17 +39,54 @@ const target = resolveTarget({
 });
 ```
 
+## Input Path: Portal Projects vs Examples
+
+There are two sources of `client-request.json`:
+
+| Source | Path | How it gets there |
+|--------|------|-------------------|
+| **Portal-created projects** | `generated/<slug>/client-request.json` | Portal Export action writes it here |
+| **Hand-crafted examples** | `examples/fake-clients/<slug>/client-request.json` | Manually created for dev/testing |
+
+The **canonical path** is `generated/<slug>/client-request.json`. This is what `resolveTarget()` returns by default, what the portal Export writes, and what the worker reads.
+
+The generator CLI has a **fallback**: when using `--target <slug>` without `--input`, if the canonical path doesn't exist it checks `examples/fake-clients/<slug>/client-request.json`. This preserves backward compatibility for hand-crafted example targets.
+
+### Portal → Export → Generate flow
+
+```
+Portal project (DB)
+  ↓ Export action
+generated/<slug>/client-request.json    ← canonical export location
+  ↓ Generate Site (portal dispatches job)
+Worker reads generated/<slug>/client-request.json
+  ↓ Worker runs: pnpm -w generate --target <slug> --input <canonical-path>
+generated/<slug>/site/                  ← generated workspace
+generated/<slug>/build-manifest.json
+```
+
+### Example / CLI flow
+
+```
+examples/fake-clients/<slug>/client-request.json   ← hand-crafted
+  ↓ CLI: pnpm -w generate --target <slug>
+Generator checks generated/<slug>/client-request.json (not found)
+  ↓ Falls back to examples/fake-clients/<slug>/
+generated/<slug>/site/
+```
+
 ## Consumers
 
 Every tool in the pipeline uses target resolution:
 
 | Tool | How it uses target resolution |
 |------|------|
-| Generator CLI | `--target <slug>` resolves input + output paths |
+| Generator CLI | `--target <slug>` resolves paths; falls back to examples/ if canonical missing |
 | Review script | `--target <slug>` resolves site + screenshots paths |
+| Portal Export | Writes `client-request.json` to `generated/<slug>/` |
+| Portal Generate | Checks `generated/<slug>/client-request.json` exists before dispatching |
+| Worker | Reads `generated/<slug>/client-request.json`, passes `--input` to generator |
 | Intake bot | Writes `client-request.json` to resolved path |
-| Worker | Resolves all paths for job payloads |
-| Portal | Scans `generated/` and resolves each target |
 
 ## Target Lifecycle
 

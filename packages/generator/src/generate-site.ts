@@ -1,5 +1,6 @@
-import { cp, readdir, readFile, writeFile, mkdir } from "node:fs/promises";
+import { cp, readdir, readFile, writeFile, mkdir, rm } from "node:fs/promises";
 import { join, resolve, relative } from "node:path";
+import { existsSync } from "node:fs";
 import type { BuildManifest } from "@vaen/schemas";
 
 async function listFilesRecursive(dir: string): Promise<string[]> {
@@ -30,6 +31,11 @@ export async function generateSite(
   );
 
   // Copy template to output
+  // Clean stale .next cache from any previous build (prevents build errors on re-generation)
+  const staleNext = join(siteDir, ".next");
+  if (existsSync(staleNext)) {
+    await rm(staleNext, { recursive: true });
+  }
   await mkdir(siteDir, { recursive: true });
   await cp(templateSource, siteDir, {
     recursive: true,
