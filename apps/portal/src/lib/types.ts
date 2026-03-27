@@ -64,6 +64,9 @@ export interface Asset {
   file_size: number | null;
   storage_path: string;
   category: string;
+  asset_type: "uploaded" | "generated" | "review_screenshot" | null;
+  source_job_id: string | null;
+  request_revision_id: string | null;
   created_at: string;
 }
 

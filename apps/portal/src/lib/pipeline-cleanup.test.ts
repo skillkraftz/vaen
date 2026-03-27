@@ -56,11 +56,11 @@ describe("reset/reprocess pipeline invalidation rules", () => {
     const fnEnd = source.indexOf("export async function resetToDraftAction");
     const reprocessFn = source.slice(fnStart, fnEnd);
 
-    // Must clear final_request when reprocessing
-    expect(reprocessFn).toContain("final_request: null");
+    // Must sync to legacy draft_request column
+    expect(reprocessFn).toContain("draft_request: finalDraft");
   });
 
-  it("reExportAction uses final_request when available", () => {
+  it("reExportAction reads from active revision only", () => {
     const actionsPath = join(__dirname, "../app/dashboard/projects/[id]/actions.ts");
     const source = readFileSync(actionsPath, "utf-8");
 
@@ -69,9 +69,11 @@ describe("reset/reprocess pipeline invalidation rules", () => {
     const fnEnd = source.indexOf("// ── Recovery: Re-process intake");
     const reExportFn = source.slice(fnStart, fnEnd);
 
-    // Must prefer final_request over draft_request
-    expect(reExportFn).toContain("p.final_request ?? p.draft_request");
-    expect(reExportFn).toContain('requestLabel');
+    // Must read from revision — no fallback to draft_request/final_request
+    expect(reExportFn).toContain("current_revision_id");
+    expect(reExportFn).toContain("project_request_revisions");
+    expect(reExportFn).not.toContain("p.final_request");
+    expect(reExportFn).not.toContain("p.draft_request");
   });
 });
 

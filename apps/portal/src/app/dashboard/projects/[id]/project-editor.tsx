@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState, useTransition, useEffect } from "react";
 import {
   updateProjectAction,
   updateDraftRequestAction,
@@ -713,12 +713,13 @@ export function RevisionAssetManager({
   const [isPending, startTransition] = useTransition();
 
   // Load attached assets on mount
-  if (!loaded && currentRevisionId) {
+  useEffect(() => {
+    if (!currentRevisionId) return;
     listRevisionAssetsAction(currentRevisionId).then(({ assets: revAssets }) => {
       setAttachedIds(new Set(revAssets.map((a) => a.asset_id)));
       setLoaded(true);
     });
-  }
+  }, [currentRevisionId]);
 
   if (!currentRevisionId) {
     return <p className="text-sm text-muted">No active version selected.</p>;

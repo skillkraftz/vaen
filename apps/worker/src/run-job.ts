@@ -799,6 +799,7 @@ async function executeReview(
         category: "image",
         asset_type: "review_screenshot",
         source_job_id: job.id,
+        request_revision_id: reviewRevisionId,
       });
     }
 

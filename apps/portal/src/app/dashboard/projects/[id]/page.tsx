@@ -98,10 +98,25 @@ export default async function ProjectDetailPage({
   // Compute missing info live from current project + assets (not stale DB cache)
   const missingInfo = detectMissingInfo(p, assetList);
   const recommendations = p.recommendations as IntakeRecommendations | null;
-  const draftRequest = (p.draft_request ?? null) as Record<
-    string,
-    unknown
-  > | null;
+
+  // Load request data from active revision (single source of truth)
+  let requestData: Record<string, unknown> | null = null;
+  if (p.current_revision_id) {
+    const { data: rev } = await supabase
+      .from("project_request_revisions")
+      .select("request_data")
+      .eq("id", p.current_revision_id)
+      .single();
+    requestData = (rev?.request_data as Record<string, unknown>) ?? null;
+  }
+  // Legacy fallback for pre-migration projects
+  if (!requestData) {
+    requestData = (p.draft_request ?? null) as Record<string, unknown> | null;
+  }
+
+  const uploadedAssets = assetList.filter(
+    (a) => (a as { asset_type?: string }).asset_type !== "review_screenshot",
+  );
   const hasDraft = !!p.client_summary;
 
   return (
@@ -195,18 +210,18 @@ export default async function ProjectDetailPage({
         </div>
       )}
 
-      {/* ── Intake & Build Inputs ──────────────────────────────────── */}
+      {/* ── Project Details ──────────────────────────────────────────── */}
       <div className="section">
         <h2
           className="mb-1"
           style={{ fontSize: "1rem", fontWeight: 600 }}
         >
-          Intake & Build Inputs
+          Project Details
         </h2>
         <BuildInputsEditor
           projectId={id}
           project={p}
-          draftRequest={draftRequest}
+          draftRequest={requestData}
         />
       </div>
 
@@ -285,8 +300,8 @@ export default async function ProjectDetailPage({
         </div>
       )}
 
-      {/* ── Draft JSON (power user) ────────────────────────────────── */}
-      {draftRequest && (
+      {/* ── Request Data JSON (power user) ─────────────────────────── */}
+      {requestData && (
         <div className="section">
           <h2
             className="mb-1"
@@ -294,53 +309,45 @@ export default async function ProjectDetailPage({
           >
             Request Data (JSON)
           </h2>
-          <DraftRequestEditor projectId={id} draftRequest={draftRequest} />
+          <DraftRequestEditor projectId={id} draftRequest={requestData} />
         </div>
       )}
 
-      {/* ── Add Files ────────────────────────────────────────────── */}
+      {/* ── Files & Images ───────────────────────────────────────── */}
       <div className="section">
         <h2
           className="mb-1"
           style={{ fontSize: "1rem", fontWeight: 600 }}
         >
-          Add Files
+          Files & Images
         </h2>
-        <div className="card" style={{ padding: "0.75rem 1rem" }}>
+        <div className="card" style={{ padding: "0.75rem 1rem", marginBottom: "0.75rem" }}>
           <FileUploader projectId={id} />
         </div>
-      </div>
-
-      {/* ── Uploaded Files ────────────────────────────────────────── */}
-      <div className="section">
-        <h2
-          className="mb-1"
-          style={{ fontSize: "1rem", fontWeight: 600 }}
-        >
-          Uploaded Files ({assetList.length})
-        </h2>
-        {assetList.length === 0 ? (
+        {uploadedAssets.length === 0 ? (
           <p className="text-sm text-muted">No files uploaded yet.</p>
         ) : (
-          <FileManager assets={assetList} projectId={id} />
+          <FileManager assets={uploadedAssets} projectId={id} />
         )}
       </div>
 
-      {/* ── Attach Files to Active Version ────────────────────────── */}
-      <div className="section">
-        <h2
-          className="mb-1"
-          style={{ fontSize: "1rem", fontWeight: 600 }}
-        >
-          Attach Files to Active Version
-        </h2>
-        <div className="card" style={{ padding: "0.75rem 1rem" }}>
-          <RevisionAssetManager
-            currentRevisionId={p.current_revision_id}
-            assets={assetList}
-          />
+      {/* ── Images for This Version ──────────────────────────────── */}
+      {uploadedAssets.some((a) => a.category === "image") && (
+        <div className="section">
+          <h2
+            className="mb-1"
+            style={{ fontSize: "1rem", fontWeight: 600 }}
+          >
+            Images for This Version
+          </h2>
+          <div className="card" style={{ padding: "0.75rem 1rem" }}>
+            <RevisionAssetManager
+              currentRevisionId={p.current_revision_id}
+              assets={uploadedAssets}
+            />
+          </div>
         </div>
-      </div>
+      )}
 
       {/* ── Activity log ───────────────────────────────────────────── */}
       <div className="section">
@@ -372,7 +379,7 @@ export default async function ProjectDetailPage({
                   {event.to_status && (
                     <span className="text-muted">
                       {" "}
-                      &rarr; {event.to_status.replace(/_/g, " ")}
+                      &rarr; {formatStatusLabel(event.to_status)}
                     </span>
                   )}
                 </span>

@@ -46,27 +46,6 @@ interface ArtifactStatus {
 
 // ── Workflow state logic ──────────────────────────────────────────────
 
-const STATUS_LABELS: Record<string, string> = {
-  intake_received: "Intake received",
-  intake_processing: "Processing",
-  intake_draft_ready: "Draft ready",
-  intake_needs_revision: "Needs revision",
-  intake_approved: "Approved",
-  custom_quote_required: "Custom quote",
-  intake_parsed: "Exported",
-  awaiting_review: "Awaiting review",
-  template_selected: "Template selected",
-  workspace_generated: "Generated",
-  build_in_progress: "Building",
-  build_failed: "Build failed",
-  review_ready: "Review ready",
-  deploy_ready: "Deploy ready",
-  deploying: "Deploying",
-  deploy_failed: "Deploy failed",
-  deployed: "Deployed",
-  managed: "Managed",
-};
-
 function statusPhase(status: string): "intake" | "build" | "deploy" | "done" {
   if (
     [
@@ -1307,8 +1286,8 @@ function ImportFinalRequestPanel({ projectId }: { projectId: string }) {
 
 function RequestSourceIndicator({ projectId }: { projectId: string }) {
   const [info, setInfo] = useState<{
-    source: "final" | "draft" | "none";
-    hasFinal: boolean;
+    source: "revision" | "draft" | "none";
+    hasRevision: boolean;
     hasDraft: boolean;
   } | null>(null);
 
@@ -1319,13 +1298,13 @@ function RequestSourceIndicator({ projectId }: { projectId: string }) {
   if (!info) return null;
 
   const labels: Record<string, { text: string; color: string; bg: string }> = {
-    final: {
-      text: "Generation will use: Final (AI-improved) request",
+    revision: {
+      text: "Generation will use: Active version",
       color: "#065f46",
       bg: "#d1fae5",
     },
     draft: {
-      text: "Generation will use: Draft request",
+      text: "Generation will use: Draft request (no version yet)",
       color: "#92400e",
       bg: "#fef3c7",
     },

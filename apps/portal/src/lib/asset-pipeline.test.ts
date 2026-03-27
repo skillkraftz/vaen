@@ -55,7 +55,7 @@ describe("add files to existing project", () => {
     const pagePath = join(__dirname, "../app/dashboard/projects/[id]/page.tsx");
     const source = readFileSync(pagePath, "utf-8");
     expect(source).toContain("FileUploader");
-    expect(source).toContain("Add Files");
+    expect(source).toContain("Files & Images");
   });
 });
 
@@ -99,23 +99,26 @@ describe("attach uploaded assets to specific revision", () => {
     const pagePath = join(__dirname, "../app/dashboard/projects/[id]/page.tsx");
     const source = readFileSync(pagePath, "utf-8");
     expect(source).toContain("RevisionAssetManager");
-    expect(source).toContain("Attach Files to Active Version");
+    expect(source).toContain("Images for This Version");
   });
 });
 
 // ── 3. Active revision asset selection affects generation ────────────
 
 describe("active revision asset selection affects generation input", () => {
-  it("exportToGeneratorAction reads from active revision first", () => {
+  it("exportToGeneratorAction reads from active revision only", () => {
     const actionsPath = join(__dirname, "../app/dashboard/projects/[id]/actions.ts");
     const source = readFileSync(actionsPath, "utf-8");
     const fnStart = source.indexOf("export async function exportToGeneratorAction");
     const fnEnd = source.indexOf("export async function updateProjectAction");
     const fn = source.slice(fnStart, fnEnd);
-    // Must check current_revision_id before falling back to legacy columns
+    // Must require current_revision_id — no fallback to legacy columns
     expect(fn).toContain("current_revision_id");
     expect(fn).toContain("project_request_revisions");
-    expect(fn).toContain('requestLabel = "revision"');
+    expect(fn).toContain('request_source: "revision"');
+    // Must NOT fall back to draft_request or final_request
+    expect(fn).not.toContain("p.final_request");
+    expect(fn).not.toContain("p.draft_request");
   });
 
   it("export downloads revision assets to site/public/images/", () => {
@@ -144,16 +147,16 @@ describe("active revision asset selection affects generation input", () => {
     expect(fn).toContain("downloadRevisionAssetsToSite");
   });
 
-  it("downloadRevisionAssetsToSite prefers revision-attached assets", () => {
+  it("downloadRevisionAssetsToSite uses only revision-attached assets", () => {
     const actionsPath = join(__dirname, "../app/dashboard/projects/[id]/actions.ts");
     const source = readFileSync(actionsPath, "utf-8");
     const fnStart = source.indexOf("async function downloadRevisionAssetsToSite");
     const fnEnd = source.indexOf("// ── Process intake");
     const fn = source.slice(fnStart, fnEnd);
-    // Must check revision_assets first
+    // Must check revision_assets
     expect(fn).toContain('"revision_assets"');
-    // Must fall back to all project images if no explicit attachments
-    expect(fn).toContain("all project images");
+    // Must NOT fall back to all project images
+    expect(fn).not.toContain("all project images");
   });
 });
 
@@ -369,16 +372,16 @@ describe("project can be updated in place without creating new project", () => {
 // ── UI: plain-language labels ────────────────────────────────────────
 
 describe("UI uses plain-language labels", () => {
-  it("page shows 'Add Files' section", () => {
+  it("page shows 'Files & Images' section", () => {
     const pagePath = join(__dirname, "../app/dashboard/projects/[id]/page.tsx");
     const source = readFileSync(pagePath, "utf-8");
-    expect(source).toContain("Add Files");
+    expect(source).toContain("Files & Images");
   });
 
-  it("page shows 'Attach Files to Active Version' section", () => {
+  it("page shows 'Images for This Version' section", () => {
     const pagePath = join(__dirname, "../app/dashboard/projects/[id]/page.tsx");
     const source = readFileSync(pagePath, "utf-8");
-    expect(source).toContain("Attach Files to Active Version");
+    expect(source).toContain("Images for This Version");
   });
 
   it("page shows 'Active Version' for revision list", () => {
@@ -403,5 +406,134 @@ describe("UI uses plain-language labels", () => {
     const uiPath = join(__dirname, "../app/dashboard/projects/[id]/intake-actions.tsx");
     const source = readFileSync(uiPath, "utf-8");
     expect(source).toContain("formatStatusLabel(status)");
+  });
+});
+
+// ── Revision-driven pipeline correctness ──────────────────────────────
+
+describe("revision-driven pipeline correctness", () => {
+  it("page.tsx loads request data from active revision, not draft_request", () => {
+    const pagePath = join(__dirname, "../app/dashboard/projects/[id]/page.tsx");
+    const source = readFileSync(pagePath, "utf-8");
+    // Must query revision table for request data
+    expect(source).toContain("project_request_revisions");
+    expect(source).toContain("current_revision_id");
+    // requestData variable should come from revision
+    expect(source).toContain("rev?.request_data");
+  });
+
+  it("patchDraftFieldAction reads from revision via loadCurrentDraft", () => {
+    const actionsPath = join(__dirname, "../app/dashboard/projects/[id]/actions.ts");
+    const source = readFileSync(actionsPath, "utf-8");
+    const fnStart = source.indexOf("export async function patchDraftFieldAction");
+    const fnEnd = source.indexOf("export async function updateDraftRequestAction");
+    const fn = source.slice(fnStart, fnEnd);
+    // Must call loadCurrentDraft which reads from revision
+    expect(fn).toContain("loadCurrentDraft");
+    // Must sync to legacy column after revision update
+    expect(fn).toContain("draft_request: merged");
+  });
+
+  it("loadCurrentDraft reads from revision first", () => {
+    const actionsPath = join(__dirname, "../app/dashboard/projects/[id]/actions.ts");
+    const source = readFileSync(actionsPath, "utf-8");
+    const fnStart = source.indexOf("async function loadCurrentDraft");
+    const fnEnd = source.indexOf("// ── Patch a single field");
+    const fn = source.slice(fnStart, fnEnd);
+    // Must check current_revision_id first
+    expect(fn).toContain("current_revision_id");
+    expect(fn).toContain("project_request_revisions");
+    // Must return revisionId
+    expect(fn).toContain("revisionId:");
+  });
+
+  it("importFinalRequestAction does not write to final_request column", () => {
+    const actionsPath = join(__dirname, "../app/dashboard/projects/[id]/actions.ts");
+    const source = readFileSync(actionsPath, "utf-8");
+    const fnStart = source.indexOf("export async function importFinalRequestAction");
+    const fnEnd = source.indexOf("export async function getRequestSourceAction");
+    const fn = source.slice(fnStart, fnEnd);
+    // Must NOT write to final_request
+    expect(fn).not.toContain("final_request: parsed");
+    // Must create revision
+    expect(fn).toContain("createRevisionAndSetCurrent");
+    // Must sync to draft_request for legacy
+    expect(fn).toContain("draft_request: parsed");
+  });
+
+  it("approveIntakeAction validates from active revision", () => {
+    const actionsPath = join(__dirname, "../app/dashboard/projects/[id]/actions.ts");
+    const source = readFileSync(actionsPath, "utf-8");
+    const fnStart = source.indexOf("export async function approveIntakeAction");
+    const fnEnd = source.indexOf("export async function requestRevisionAction");
+    const fn = source.slice(fnStart, fnEnd);
+    expect(fn).toContain("current_revision_id");
+    expect(fn).toContain("project_request_revisions");
+  });
+
+  it("resetToDraftAction cleans client-request.json and screenshot assets", () => {
+    const actionsPath = join(__dirname, "../app/dashboard/projects/[id]/actions.ts");
+    const source = readFileSync(actionsPath, "utf-8");
+    const fnStart = source.indexOf("export async function resetToDraftAction");
+    const fnEnd = source.indexOf("// ── Project diagnostics");
+    const fn = source.slice(fnStart, fnEnd);
+    // Must clean client-request.json from disk
+    expect(fn).toContain("client-request.json");
+    // Must clean site/public/images (via join())
+    expect(fn).toContain('"public", "images"');
+    // Must delete screenshot asset records from DB
+    expect(fn).toContain("review_screenshot");
+  });
+
+  it("screenshot assets include request_revision_id in worker", () => {
+    const workerPath = join(REPO_ROOT, "apps/worker/src/run-job.ts");
+    const source = readFileSync(workerPath, "utf-8");
+    // Worker must store request_revision_id when creating screenshot assets
+    expect(source).toContain("request_revision_id: reviewRevisionId");
+  });
+
+  it("getScreenshotsForProjectAction supports revision filtering", () => {
+    const actionsPath = join(__dirname, "../app/dashboard/projects/[id]/actions.ts");
+    const source = readFileSync(actionsPath, "utf-8");
+    const fnStart = source.indexOf("export async function getScreenshotsForProjectAction");
+    const fnEnd = source.indexOf("export async function getScreenshotUrlAction");
+    const fn = source.slice(fnStart, fnEnd);
+    // Must accept revisionId parameter
+    expect(fn).toContain("revisionId");
+    // Must return request_revision_id in results
+    expect(fn).toContain("request_revision_id");
+  });
+
+  it("Asset type includes new fields", () => {
+    const typesPath = join(__dirname, "types.ts");
+    const source = readFileSync(typesPath, "utf-8");
+    expect(source).toContain("asset_type:");
+    expect(source).toContain("source_job_id:");
+    expect(source).toContain("request_revision_id:");
+  });
+
+  it("RevisionAssetManager uses useEffect not render body", () => {
+    const editorPath = join(__dirname, "../app/dashboard/projects/[id]/project-editor.tsx");
+    const source = readFileSync(editorPath, "utf-8");
+    // Must use useEffect for async data loading
+    expect(source).toContain("useEffect(() => {");
+    expect(source).toContain("listRevisionAssetsAction");
+    // Must import useEffect
+    expect(source).toContain("useEffect");
+  });
+
+  it("page.tsx filters out screenshot assets from uploaded files list", () => {
+    const pagePath = join(__dirname, "../app/dashboard/projects/[id]/page.tsx");
+    const source = readFileSync(pagePath, "utf-8");
+    expect(source).toContain("review_screenshot");
+    expect(source).toContain("uploadedAssets");
+  });
+
+  it("migration exists for request_revision_id on assets", () => {
+    const migrationPath = join(REPO_ROOT, "supabase/migrations/20260328000006_add_revision_to_assets.sql");
+    expect(existsSync(migrationPath)).toBe(true);
+    const source = readFileSync(migrationPath, "utf-8");
+    expect(source).toContain("request_revision_id");
+    expect(source).toContain("project_request_revisions");
   });
 });

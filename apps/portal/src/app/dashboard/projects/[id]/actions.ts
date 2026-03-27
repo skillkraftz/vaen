@@ -94,21 +94,14 @@ async function downloadRevisionAssetsToSite(
     // revision_assets table may not exist yet
   }
 
-  // If no explicit attachments, fall back to all project images
-  let assets: Array<{ id: string; file_name: string; storage_path: string; category: string }>;
+  // Only use explicitly attached images — no silent fallback
+  let assets: Array<{ id: string; file_name: string; storage_path: string; category: string }> = [];
   if (attachedAssetIds.length > 0) {
     const { data } = await supabase
       .from("assets")
       .select("id, file_name, storage_path, category")
       .in("id", attachedAssetIds);
     assets = (data ?? []).filter((a) => a.category === "image");
-  } else {
-    const { data } = await supabase
-      .from("assets")
-      .select("id, file_name, storage_path, category")
-      .eq("project_id", projectId)
-      .eq("category", "image");
-    assets = data ?? [];
   }
 
   const galleryImages: Array<{ url: string; alt: string }> = [];
@@ -244,13 +237,25 @@ export async function approveIntakeAction(projectId: string): Promise<{ error?: 
     return { error: `Cannot approve intake in status "${p.status}"` };
   }
 
-  // Validate the draft request has enough data
-  const draft = p.draft_request as Record<string, unknown> | null;
-  if (!draft) {
-    return { error: "No draft request found. Process the intake first." };
+  // Validate from active revision (the single source of truth)
+  let requestData: Record<string, unknown> | null = null;
+  if (p.current_revision_id) {
+    const { data: rev } = await supabase
+      .from("project_request_revisions")
+      .select("request_data")
+      .eq("id", p.current_revision_id)
+      .single();
+    requestData = (rev?.request_data as Record<string, unknown>) ?? null;
+  }
+  // Legacy fallback for pre-migration projects
+  if (!requestData) {
+    requestData = (p.draft_request as Record<string, unknown>) ?? null;
+  }
+  if (!requestData) {
+    return { error: "No request data found. Process the intake first." };
   }
 
-  const services = Array.isArray(draft.services) ? draft.services : [];
+  const services = Array.isArray(requestData.services) ? requestData.services : [];
   if (services.length === 0) {
     return { error: "Cannot approve: services list is empty. Add services before approving." };
   }
@@ -398,39 +403,27 @@ export async function exportToGeneratorAction(projectId: string): Promise<{ erro
     return { error: `Can only export approved intakes. Current status: "${p.status}"` };
   }
 
-  // Prefer: active revision → final_request → draft_request
-  let requestSource: Record<string, unknown> | null = null;
-  let requestLabel = "none";
-
-  if (p.current_revision_id) {
-    try {
-      const { data: rev } = await supabase
-        .from("project_request_revisions")
-        .select("request_data")
-        .eq("id", p.current_revision_id)
-        .single();
-      if (rev?.request_data) {
-        requestSource = rev.request_data as Record<string, unknown>;
-        requestLabel = "revision";
-      }
-    } catch { /* fall through to legacy */ }
+  // Read from active revision — the single source of truth
+  if (!p.current_revision_id) {
+    return { error: "No active version found. Process the intake first." };
   }
 
-  if (!requestSource) {
-    requestSource = (p.final_request ?? p.draft_request) as Record<string, unknown> | null;
-    requestLabel = p.final_request ? "final" : "draft";
+  const { data: rev } = await supabase
+    .from("project_request_revisions")
+    .select("request_data")
+    .eq("id", p.current_revision_id)
+    .single();
+
+  if (!rev?.request_data) {
+    return { error: "Active version has no request data. Re-process the intake." };
   }
 
-  if (!requestSource) {
-    return { error: "No client-request.json found. Process the intake first." };
-  }
-
-  const draft = { ...requestSource };
+  const draft = { ...(rev.request_data as Record<string, unknown>) };
 
   // Ensure required fields exist (guard against past corruption)
   const missingFields = REQUIRED_DRAFT_KEYS.filter((key) => !(key in draft));
   if (missingFields.length > 0) {
-    return { error: `Cannot export: ${requestLabel} request is missing required fields: ${missingFields.join(", ")}. Re-process the intake to fix.` };
+    return { error: `Cannot export: active version is missing required fields: ${missingFields.join(", ")}. Re-process the intake to fix.` };
   }
 
   const services = Array.isArray(draft.services) ? draft.services : [];
@@ -483,7 +476,8 @@ export async function exportToGeneratorAction(projectId: string): Promise<{ erro
     metadata: {
       output_path: targetPath,
       exported_by: user.id,
-      request_source: requestLabel,
+      request_source: "revision",
+      revision_id: p.current_revision_id,
       asset_count: (draft.content as Record<string, unknown>)?.galleryImages
         ? ((draft.content as Record<string, unknown>).galleryImages as unknown[]).length
         : 0,
@@ -532,24 +526,43 @@ export async function updateProjectAction(
 // Pure logic in @/lib/draft-helpers — imported at top of file.
 
 /**
- * Load the current draft_request from DB, ensuring safe defaults.
+ * Load the current request data from the active revision.
+ * Falls back to draft_request only for pre-migration projects.
  */
 async function loadCurrentDraft(
   supabase: Awaited<ReturnType<typeof createClient>>,
   projectId: string,
-): Promise<{ draft: Record<string, unknown>; error?: string }> {
+): Promise<{ draft: Record<string, unknown>; revisionId: string | null; error?: string }> {
   const { data: project, error } = await supabase
     .from("projects")
-    .select("draft_request")
+    .select("current_revision_id, draft_request")
     .eq("id", projectId)
     .single();
 
   if (error || !project) {
-    return { draft: { ...DRAFT_DEFAULTS }, error: error?.message ?? "Project not found" };
+    return { draft: { ...DRAFT_DEFAULTS }, revisionId: null, error: error?.message ?? "Project not found" };
   }
 
+  // Primary: load from active revision
+  if (project.current_revision_id) {
+    try {
+      const { data: rev } = await supabase
+        .from("project_request_revisions")
+        .select("request_data")
+        .eq("id", project.current_revision_id)
+        .single();
+      if (rev?.request_data) {
+        return {
+          draft: ensureDraftDefaults(rev.request_data as Record<string, unknown>),
+          revisionId: project.current_revision_id,
+        };
+      }
+    } catch { /* fall through to legacy */ }
+  }
+
+  // Legacy fallback for pre-migration projects
   const existing = (project.draft_request as Record<string, unknown>) ?? {};
-  return { draft: ensureDraftDefaults(existing) };
+  return { draft: ensureDraftDefaults(existing), revisionId: null };
 }
 
 // ── Patch a single field in draft request (MERGE-BASED) ──────────────
@@ -571,30 +584,17 @@ export async function patchDraftFieldAction(
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: "Not authenticated" };
 
-  const { draft: current, error: loadError } = await loadCurrentDraft(supabase, projectId);
+  const { draft: current, revisionId: currentRevId, error: loadError } = await loadCurrentDraft(supabase, projectId);
   if (loadError) return { error: loadError };
 
   // Apply patch
   const merged = deepSetServer(current, path, value);
 
-  // Debug logging (temporary)
-  console.log(`[draft-patch] project=${projectId} path=${path.join(".")}`,
-    `\n  before keys: [${Object.keys(current).join(", ")}]`,
-    `\n  after keys:  [${Object.keys(merged).join(", ")}]`);
-
   // Validate
   const validationError = validateDraftRequired(merged);
   if (validationError) return { error: validationError };
 
-  // Save to legacy column
-  const { error: updateError } = await supabase
-    .from("projects")
-    .update({ draft_request: merged })
-    .eq("id", projectId);
-
-  if (updateError) return { error: updateError.message };
-
-  // Also create a revision (debounce: update in-place if last user_edit is recent)
+  // Create/update revision (debounce: update in-place if last user_edit is <30s old)
   try {
     const { data: recent } = await supabase
       .from("project_request_revisions")
@@ -615,10 +615,16 @@ export async function patchDraftFieldAction(
     } else {
       await createRevisionAndSetCurrent(
         supabase, projectId, "user_edit", merged,
-        recent?.id ?? null, `Edited ${path.join(".")}`,
+        currentRevId, `Edited ${path.join(".")}`,
       );
     }
   } catch { /* pre-migration: silently skip */ }
+
+  // Sync to legacy draft_request column
+  await supabase
+    .from("projects")
+    .update({ draft_request: merged })
+    .eq("id", projectId);
 
   revalidatePath(`/dashboard/projects/${projectId}`);
   return { merged };
@@ -639,35 +645,28 @@ export async function updateDraftRequestAction(
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: "Not authenticated" };
 
-  // Load current to merge with (preserves fields not in the incoming object)
-  const { draft: current, error: loadError } = await loadCurrentDraft(supabase, projectId);
+  // Load current from revision to merge with (preserves fields not in the incoming object)
+  const { draft: current, revisionId: currentRevId, error: loadError } = await loadCurrentDraft(supabase, projectId);
   if (loadError) return { error: loadError };
 
   // Merge: incoming overrides current, but current fills gaps
   const merged = deepMergeDraft(current, draftRequest);
 
-  // Debug logging (temporary)
-  console.log(`[draft-replace] project=${projectId}`,
-    `\n  current keys: [${Object.keys(current).join(", ")}]`,
-    `\n  incoming keys: [${Object.keys(draftRequest).join(", ")}]`,
-    `\n  merged keys:  [${Object.keys(merged).join(", ")}]`);
-
   // Validate
   const validationError = validateDraftRequired(merged);
   if (validationError) return { error: validationError };
 
-  const { error: updateError } = await supabase
+  // Create revision as the primary store
+  await createRevisionAndSetCurrent(
+    supabase, projectId, "user_edit", merged,
+    currentRevId, "Full draft replacement via JSON editor",
+  );
+
+  // Sync to legacy draft_request column
+  await supabase
     .from("projects")
     .update({ draft_request: merged })
     .eq("id", projectId);
-
-  if (updateError) return { error: updateError.message };
-
-  // Also create a revision
-  await createRevisionAndSetCurrent(
-    supabase, projectId, "user_edit", merged,
-    null, "Full draft replacement via JSON editor",
-  );
 
   revalidatePath(`/dashboard/projects/${projectId}`);
   return {};
@@ -821,17 +820,19 @@ export async function listRevisionAssetsAction(
 }
 
 /**
- * Get screenshots for a specific project from Supabase storage.
- * Falls back to local filesystem if no Supabase screenshots exist.
+ * Get screenshots for a project, optionally filtered to a specific revision.
+ * When revisionId is provided, only returns screenshots from that revision.
  */
 export async function getScreenshotsForProjectAction(
   projectId: string,
+  revisionId?: string | null,
 ): Promise<{
   screenshots: Array<{
     id: string;
     file_name: string;
     storage_path: string;
     source_job_id: string | null;
+    request_revision_id: string | null;
     created_at: string;
   }>;
   error?: string;
@@ -841,12 +842,18 @@ export async function getScreenshotsForProjectAction(
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { screenshots: [], error: "Not authenticated" };
 
-  const { data, error } = await supabase
+  let query = supabase
     .from("assets")
-    .select("id, file_name, storage_path, source_job_id, created_at")
+    .select("id, file_name, storage_path, source_job_id, request_revision_id, created_at")
     .eq("project_id", projectId)
     .eq("asset_type", "review_screenshot")
     .order("created_at", { ascending: false });
+
+  if (revisionId) {
+    query = query.eq("request_revision_id", revisionId);
+  }
+
+  const { data, error } = await query;
 
   if (error) return { screenshots: [], error: error.message };
   return { screenshots: data ?? [] };
@@ -1255,39 +1262,27 @@ export async function reExportAction(
 
   const p = project as Project;
 
-  // Prefer: active revision → final_request → draft_request
-  let requestSource: Record<string, unknown> | null = null;
-  let requestLabel = "none";
-
-  if (p.current_revision_id) {
-    try {
-      const { data: rev } = await supabase
-        .from("project_request_revisions")
-        .select("request_data")
-        .eq("id", p.current_revision_id)
-        .single();
-      if (rev?.request_data) {
-        requestSource = rev.request_data as Record<string, unknown>;
-        requestLabel = "revision";
-      }
-    } catch { /* fall through to legacy */ }
+  // Read from active revision — the single source of truth
+  if (!p.current_revision_id) {
+    return { error: "No active version found. Re-process the intake first." };
   }
 
-  if (!requestSource) {
-    requestSource = (p.final_request ?? p.draft_request) as Record<string, unknown> | null;
-    requestLabel = p.final_request ? "final" : "draft";
+  const { data: rev } = await supabase
+    .from("project_request_revisions")
+    .select("request_data")
+    .eq("id", p.current_revision_id)
+    .single();
+
+  if (!rev?.request_data) {
+    return { error: "Active version has no request data. Re-process the intake." };
   }
 
-  if (!requestSource) {
-    return { error: "No request found. Re-process the intake first." };
-  }
-
-  const request = { ...requestSource };
+  const request = { ...(rev.request_data as Record<string, unknown>) };
 
   // Validate request integrity
   const missingFields = REQUIRED_DRAFT_KEYS.filter((key) => !(key in request));
   if (missingFields.length > 0) {
-    return { error: `Cannot export: ${requestLabel} request is missing required fields: ${missingFields.join(", ")}. Re-process the intake to fix.` };
+    return { error: `Cannot export: active version is missing required fields: ${missingFields.join(", ")}. Re-process the intake to fix.` };
   }
 
   const services = Array.isArray(request.services) ? request.services : [];
@@ -1320,7 +1315,7 @@ export async function reExportAction(
     return { error: `Failed to write client-request.json: ${err instanceof Error ? err.message : String(err)}` };
   }
 
-  console.log(`[re-export] project=${projectId} slug=${p.slug} status=${p.status} source=${requestLabel} path=${targetPath}`);
+  console.log(`[re-export] project=${projectId} slug=${p.slug} status=${p.status} source=revision path=${targetPath}`);
 
   // Update exported revision pointer
   if (p.current_revision_id) {
@@ -1338,7 +1333,8 @@ export async function reExportAction(
     metadata: {
       output_path: targetPath,
       triggered_by: user.id,
-      request_source: requestLabel,
+      request_source: "revision",
+      revision_id: p.current_revision_id,
       request_keys: Object.keys(request),
       services_count: services.length,
     },
@@ -1403,11 +1399,9 @@ export async function reprocessIntakeAction(
     .update({
       // Do NOT change status — this is a data repair
       client_summary: result.clientSummary,
-      draft_request: finalDraft,
+      draft_request: finalDraft, // legacy sync
       missing_info: result.missingInfo,
       recommendations: result.recommendations,
-      // Clear AI-improved request — stale after reprocessing
-      final_request: null,
     })
     .eq("id", projectId);
 
@@ -1479,14 +1473,23 @@ export async function resetToDraftAction(
   const repoRoot = join(process.cwd(), "../..");
   const generatedDir = join(repoRoot, "generated", p.slug);
   const cleanTargets = [
+    join(generatedDir, "client-request.json"),
     join(generatedDir, "artifacts", "screenshots"),
     join(generatedDir, "artifacts", "validation.json"),
     join(generatedDir, "artifacts", "prompt.txt"),
+    join(generatedDir, "site", "public", "images"),
     join(generatedDir, "site", ".next"),
   ];
   for (const target of cleanTargets) {
     await rm(target, { recursive: true, force: true }).catch(() => {});
   }
+
+  // Delete screenshot asset records from DB (they point to stale data)
+  await supabase
+    .from("assets")
+    .delete()
+    .eq("project_id", projectId)
+    .eq("asset_type", "review_screenshot");
 
   await supabase.from("project_events").insert({
     project_id: projectId,
@@ -1496,7 +1499,7 @@ export async function resetToDraftAction(
     metadata: {
       triggered_by: user.id,
       reason: "manual reset to draft",
-      cleared: ["final_request", "screenshots", "validation", "build_cache"],
+      cleared: ["client-request.json", "screenshots", "screenshot_assets", "validation", "build_cache", "site_images"],
     },
   });
 
@@ -1704,11 +1707,23 @@ export async function exportPromptAction(
 
   const p = project as Project;
 
-  if (!p.draft_request) {
-    return { error: "No draft request found. Process the intake first." };
+  // Read from active revision
+  let draft: Record<string, unknown> | null = null;
+  if (p.current_revision_id) {
+    const { data: rev } = await supabase
+      .from("project_request_revisions")
+      .select("request_data")
+      .eq("id", p.current_revision_id)
+      .single();
+    draft = (rev?.request_data as Record<string, unknown>) ?? null;
   }
-
-  const draft = p.draft_request as Record<string, unknown>;
+  // Legacy fallback
+  if (!draft) {
+    draft = (p.draft_request as Record<string, unknown>) ?? null;
+  }
+  if (!draft) {
+    return { error: "No request data found. Process the intake first." };
+  }
 
   // Validate draft has minimum required fields
   const missingFields = REQUIRED_DRAFT_KEYS.filter((key) => !(key in draft));
@@ -1829,19 +1844,17 @@ export async function importFinalRequestAction(
     return { error: "Validation failed", validationErrors: errors };
   }
 
-  // Store in DB as final_request (legacy column)
-  const { error: updateError } = await supabase
-    .from("projects")
-    .update({ final_request: parsed })
-    .eq("id", projectId);
-
-  if (updateError) return { error: updateError.message };
-
-  // Create revision from the AI-improved import
+  // Create revision as the primary store (revision is the source of truth)
   await createRevisionAndSetCurrent(
     supabase, projectId, "ai_import", parsed,
     p.current_revision_id, "AI-improved import from Codex/OpenClaw",
   );
+
+  // Sync to legacy draft_request column (final_request no longer used)
+  await supabase
+    .from("projects")
+    .update({ draft_request: parsed })
+    .eq("id", projectId);
 
   // Also write to disk as the canonical client-request.json for the generator
   const repoRoot = join(process.cwd(), "../..");
@@ -1875,23 +1888,23 @@ export async function importFinalRequestAction(
 
 export async function getRequestSourceAction(
   projectId: string,
-): Promise<{ source: "final" | "draft" | "none"; hasFinal: boolean; hasDraft: boolean }> {
+): Promise<{ source: "revision" | "draft" | "none"; hasRevision: boolean; hasDraft: boolean }> {
   const supabase = await createClient();
 
   const { data: project } = await supabase
     .from("projects")
-    .select("draft_request, final_request")
+    .select("current_revision_id, draft_request")
     .eq("id", projectId)
     .single();
 
-  if (!project) return { source: "none", hasFinal: false, hasDraft: false };
+  if (!project) return { source: "none", hasRevision: false, hasDraft: false };
 
-  const hasFinal = project.final_request !== null;
+  const hasRevision = project.current_revision_id !== null;
   const hasDraft = project.draft_request !== null;
 
   return {
-    source: hasFinal ? "final" : hasDraft ? "draft" : "none",
-    hasFinal,
+    source: hasRevision ? "revision" : hasDraft ? "draft" : "none",
+    hasRevision,
     hasDraft,
   };
 }

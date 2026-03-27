@@ -70,6 +70,9 @@ function makeAsset(overrides: Partial<Asset> = {}): Asset {
     file_size: 50000,
     storage_path: "proj-001/logo.png",
     category: "image",
+    asset_type: null,
+    source_job_id: null,
+    request_revision_id: null,
     created_at: "2026-01-01T00:00:00Z",
     ...overrides,
   };
