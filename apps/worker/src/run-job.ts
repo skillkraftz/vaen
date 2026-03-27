@@ -642,6 +642,23 @@ async function executeReview(
 
   if (exitCode !== 0) {
     const errorSummary = extractErrorSummary(stderr, stdout);
+    const combinedOutput = stdout + stderr;
+
+    // Detect the specific Html/pages/_document error and provide actionable guidance.
+    // Root cause chain: load-default-error-components.js → require('next/dist/pages/_document')
+    // → Html → useHtmlContext() → error when HtmlContext.Provider is missing (App Router).
+    // Fix: ensure app/not-found.tsx and app/global-error.tsx exist in the template.
+    const isHtmlDocumentError = combinedOutput.includes(
+      "should not be imported outside of pages/_document",
+    );
+    const diagMessage = isHtmlDocumentError
+      ? `KNOWN BUG: Next.js fell back to Pages Router for 404/500 rendering. ` +
+        `This happens when app/not-found.tsx or app/global-error.tsx is missing. ` +
+        `The App Router has no HtmlContext provider, so the Pages Router _document ` +
+        `chain throws. Check: (1) app/not-found.tsx exists, (2) app/global-error.tsx ` +
+        `exists with "use client", (3) no pages/ directory, (4) no output: "standalone" ` +
+        `in next.config.ts. Trace: .next/server/chunks/611.js module 92 → HtmlContext.`
+      : undefined;
 
     await db
       .from("jobs")
@@ -655,6 +672,7 @@ async function executeReview(
           exit_code: exitCode,
           validation,
           site_age: siteAge,
+          ...(diagMessage ? { diagnostic: diagMessage } : {}),
         },
         stdout: stdout.slice(0, 50_000),
         stderr: stderr.slice(0, 50_000),
@@ -677,8 +695,16 @@ async function executeReview(
         error: errorSummary,
         command: fullCommand,
         site_age: siteAge,
+        ...(diagMessage ? { diagnostic: diagMessage } : {}),
       },
     });
+
+    if (isHtmlDocumentError) {
+      console.error(
+        `[worker] KNOWN BUG for ${slug}: Html/_document error. ` +
+          `Re-generate with fixed template (app/not-found.tsx + app/global-error.tsx).`,
+      );
+    }
 
     await notifyDiscordTransition(db, project, "review_failed");
     return;

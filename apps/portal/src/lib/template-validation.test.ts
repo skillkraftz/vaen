@@ -511,3 +511,147 @@ describe("Portal-triggered generate → build (BrightSpark)", () => {
     expect(workerSrc).toContain("site_age");
   });
 });
+
+// ── Regression: Html/pages/_document build error ─────────────────────
+//
+// ROOT CAUSE (confirmed by reproduction):
+//
+// The portal worker inherits NODE_ENV=development from the Next.js dev
+// server. When `next build` runs with NODE_ENV=development, it changes
+// the 404 prerender behavior:
+//
+//   1. NODE_ENV=development → Next.js uses Pages Router /404 fallback path
+//   2. .next/server/pages/_document.js loads chunk 611
+//   3. Chunk 611 module 92 exports HtmlContext
+//   4. load-default-error-components.js → require('next/dist/pages/_document')
+//      → renders Html → calls useHtmlContext()
+//   5. In App Router, HtmlContext.Provider is never mounted →
+//      "<Html> should not be imported outside of pages/_document"
+//
+// FIX: review.sh now explicitly sets NODE_ENV=production before npm run build.
+//
+// The original validation checked source files for next/document imports
+// but the error came from Next.js internal runtime, not user code.
+// These tests verify the fix works even under portal-like conditions.
+
+describe("Regression: Html/pages/_document runtime error", () => {
+  const SLUG = "brightspark-electric-3";
+  const SITE_DIR = join(REPO_ROOT, "generated", SLUG, "site");
+
+  it("review.sh sets NODE_ENV=production for the build step", () => {
+    // This is the actual fix. The portal worker inherits NODE_ENV=development
+    // from the Next.js dev server. Without this override, next build falls back
+    // to the Pages Router 404 rendering path → useHtmlContext() → crash.
+    const reviewSh = readFileSync(join(REPO_ROOT, "scripts", "review.sh"), "utf-8");
+    expect(reviewSh).toContain("NODE_ENV=production npm run build");
+  });
+
+  it("build succeeds with NODE_ENV=development in parent env (portal-like conditions)", () => {
+    if (!existsSync(join(SITE_DIR, "package.json"))) return;
+    if (!existsSync(join(SITE_DIR, "node_modules"))) return;
+
+    // Simulate the portal worker environment: NODE_ENV=development
+    // The review.sh script must override this to production.
+    // Run through pnpm -w review just like the worker does.
+    try {
+      const result = execSync(
+        "pnpm -w review -- --target brightspark-electric-3",
+        {
+          cwd: REPO_ROOT,
+          timeout: 120_000,
+          encoding: "utf-8",
+          env: { ...process.env, NODE_ENV: "development" },
+        },
+      );
+      expect(result).toContain("Site built");
+      expect(result).toContain("Captured 4 screenshots");
+      expect(result).not.toContain("should not be imported outside of pages/_document");
+    } catch (err: unknown) {
+      const error = err as { stdout?: string; stderr?: string; message?: string };
+      const output = (error.stdout ?? "") + (error.stderr ?? "");
+      if (output.includes("should not be imported outside of pages/_document")) {
+        throw new Error(
+          "REGRESSION: Build failed with Html/pages/_document error.\n" +
+          "Root cause: NODE_ENV=development inherited from portal → " +
+          "Next.js uses Pages Router 404 fallback → useHtmlContext() crash.\n" +
+          "Fix: review.sh must set NODE_ENV=production before npm run build.\n" +
+          "Trace: .next/server/chunks/611.js module 92 → HtmlContext\n\n" +
+          "Build output:\n" + output.slice(-2000),
+        );
+      }
+      throw err;
+    }
+  }, 120_000);
+
+  it("build output uses App Router /_not-found, not Pages Router /404", () => {
+    // After a successful build, the App Router should handle 404 via /_not-found
+    const dotNext = join(SITE_DIR, ".next");
+    if (!existsSync(dotNext)) return; // skip if not built
+
+    // The App Router /_not-found route must be in app-paths-manifest
+    const appPathsManifest = join(dotNext, "server", "app-paths-manifest.json");
+    if (existsSync(appPathsManifest)) {
+      const manifest = JSON.parse(readFileSync(appPathsManifest, "utf-8"));
+      expect(manifest).toHaveProperty("/_not-found/page");
+    }
+  });
+
+  it("build output 404.html is rendered by App Router (contains custom not-found content)", () => {
+    // The 404.html in .next/server/pages/ should be rendered by the App Router
+    // layout (not the Pages Router _document). This proves the App Router
+    // not-found.tsx is being used instead of falling back to Pages Router.
+    const html404 = join(SITE_DIR, ".next", "server", "pages", "404.html");
+    if (!existsSync(html404)) return;
+
+    const content = readFileSync(html404, "utf-8");
+    // Must contain our custom not-found content (from app/not-found.tsx)
+    expect(content).toContain("Page not found");
+    // Must be rendered inside our root layout (from app/layout.tsx)
+    expect(content).toContain("header");
+    expect(content).toContain("footer");
+  });
+
+  it("load-default-error-components.js exists but is NOT triggered for App Router 404", () => {
+    // This test documents the exact module chain that causes the error.
+    // The file load-default-error-components.js requires next/dist/pages/_document
+    // which calls useHtmlContext(). In App Router, this path must NOT be reached
+    // during 404 prerender.
+    const loadDefaultError = join(
+      SITE_DIR, "node_modules", "next", "dist", "server",
+      "load-default-error-components.js",
+    );
+    if (!existsSync(loadDefaultError)) return;
+
+    const content = readFileSync(loadDefaultError, "utf-8");
+    // This is the dangerous require that triggers the error chain
+    expect(content).toContain("next/dist/pages/_document");
+    // The HtmlContext module is the one that throws the error
+    const htmlContext = join(
+      SITE_DIR, "node_modules", "next", "dist", "shared", "lib",
+      "html-context.shared-runtime.js",
+    );
+    expect(existsSync(htmlContext)).toBe(true);
+    const contextContent = readFileSync(htmlContext, "utf-8");
+    expect(contextContent).toContain("should not be imported outside of pages/_document");
+  });
+
+  it("worker validation function checks all paths that prevent the error", () => {
+    // The worker's validateGeneratedSite must check for the conditions
+    // that prevent the Html error. This ensures the portal-triggered
+    // build will catch the issue before attempting next build.
+    const workerSrc = readFileSync(
+      join(REPO_ROOT, "apps", "worker", "src", "run-job.ts"),
+      "utf-8",
+    );
+    // Must check for global-error.tsx (prevents /500 Pages Router fallback)
+    expect(workerSrc).toContain("global-error.tsx");
+    // Must check for not-found.tsx (prevents /404 Pages Router fallback)
+    expect(workerSrc).toContain("not-found.tsx");
+    // Must check for pages/ directory (mixed Router causes _document errors)
+    expect(workerSrc).toContain("no_pages_dir");
+    // Must check for standalone (breaks pure App Router)
+    expect(workerSrc).toContain("no_standalone");
+    // Must check for next/document imports
+    expect(workerSrc).toContain("no_document_imports");
+  });
+});

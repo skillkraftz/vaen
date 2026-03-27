@@ -75,9 +75,15 @@ rm -rf "$SITE_DIR/.next"
 echo "   ✓ Cache cleaned"
 
 # Step 3: Build the site
+# NODE_ENV must be "production" for next build. When the portal worker spawns
+# this script, it inherits NODE_ENV=development from the Next.js dev server.
+# That causes Next.js to fall back to the Pages Router 404 rendering path,
+# which calls useHtmlContext() without a provider → fatal error:
+#   "<Html> should not be imported outside of pages/_document"
+# See: .next/server/chunks/611.js module 92 → HtmlContext
 echo "3. Building site..."
 BUILD_LOG=$(mktemp)
-if (cd "$SITE_DIR" && npm run build 2>&1) > "$BUILD_LOG" 2>&1; then
+if (cd "$SITE_DIR" && NODE_ENV=production npm run build 2>&1) > "$BUILD_LOG" 2>&1; then
   echo "   ✓ Site built"
 else
   BUILD_EXIT=$?
