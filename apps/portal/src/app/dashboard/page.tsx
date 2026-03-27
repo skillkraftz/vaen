@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import Link from "next/link";
 import type { Project } from "@/lib/types";
+import { formatStatusLabel } from "@/lib/workflow-steps";
 
 function statusBadge(status: string) {
   const map: Record<string, string> = {
@@ -79,7 +80,7 @@ export default async function DashboardPage() {
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
                   <span className={`badge ${statusBadge(project.status)}`}>
-                    {project.status.replace(/_/g, " ")}
+                    {formatStatusLabel(project.status)}
                   </span>
                   <span className="text-sm text-muted">
                     {formatDate(project.created_at)}

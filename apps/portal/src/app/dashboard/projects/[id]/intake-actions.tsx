@@ -20,9 +20,12 @@ import {
   exportPromptAction,
   importFinalRequestAction,
   getRequestSourceAction,
+  getScreenshotsForProjectAction,
+  getScreenshotUrlAction,
 } from "./actions";
 import type { ProjectDiagnostics } from "./actions";
 import type { JobRecord } from "@/lib/types";
+import { formatStatusLabel } from "@/lib/workflow-steps";
 
 // ── Types ─────────────────────────────────────────────────────────────
 
@@ -160,7 +163,7 @@ export function WorkflowPanel({ projectId, slug, status }: WorkflowPanelProps) {
           >
             Status:
           </span>
-          <strong>{STATUS_LABELS[status] ?? status.replace(/_/g, " ")}</strong>
+          <strong>{formatStatusLabel(status)}</strong>
         </div>
         <PhaseIndicator phase={phase} />
       </div>
@@ -220,7 +223,7 @@ export function WorkflowPanel({ projectId, slug, status }: WorkflowPanelProps) {
       <ArtifactStatusRow slug={slug} />
 
       {/* Screenshot viewer */}
-      <ScreenshotViewer slug={slug} />
+      <ScreenshotViewer slug={slug} projectId={projectId} />
 
       {/* Recovery (always visible) */}
       <ActionSection label="Recovery">
@@ -550,28 +553,68 @@ function JobDetails({ job }: { job: JobRecord }) {
 
 // ── Screenshot viewer ─────────────────────────────────────────────────
 
-function ScreenshotViewer({ slug }: { slug: string }) {
+function ScreenshotViewer({ slug, projectId }: { slug: string; projectId: string }) {
   const [artifacts, setArtifacts] = useState<ArtifactStatus | null>(null);
+  const [supabaseScreenshots, setSupabaseScreenshots] = useState<
+    Array<{ id: string; file_name: string; storage_path: string; source_job_id: string | null; created_at: string }>
+  >([]);
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [imageData, setImageData] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState<string | null>(null);
 
   useEffect(() => {
+    // Load both local and Supabase screenshots
     getArtifactStatusAction(slug).then(setArtifacts);
-  }, [slug]);
+    getScreenshotsForProjectAction(projectId).then(({ screenshots }) => {
+      setSupabaseScreenshots(screenshots);
+    });
+  }, [slug, projectId]);
 
-  if (!artifacts?.hasScreenshots) return null;
+  const hasSupabase = supabaseScreenshots.length > 0;
+  const hasLocal = artifacts?.hasScreenshots;
 
-  async function loadImage(filename: string) {
-    if (imageData[filename]) {
-      setSelectedImage(filename);
+  if (!hasSupabase && !hasLocal) return null;
+
+  // Prefer Supabase screenshots; fall back to local
+  const screenshotItems = hasSupabase
+    ? supabaseScreenshots.map((s) => ({
+        key: s.id,
+        label: s.file_name.replace(/\.png$/, ""),
+        source: "supabase" as const,
+        storagePath: s.storage_path,
+        jobId: s.source_job_id,
+        date: s.created_at,
+      }))
+    : (artifacts?.screenshotNames ?? []).map((name) => ({
+        key: name,
+        label: name.replace(/\.png$/, ""),
+        source: "local" as const,
+        storagePath: null,
+        jobId: null,
+        date: null,
+      }));
+
+  async function loadImage(key: string, source: "supabase" | "local", storagePath: string | null) {
+    if (imageData[key]) {
+      setSelectedImage(key);
       return;
     }
-    setLoading(filename);
-    const result = await getScreenshotAction(slug, filename);
-    if (result.dataUrl) {
-      setImageData((prev) => ({ ...prev, [filename]: result.dataUrl! }));
-      setSelectedImage(filename);
+    setLoading(key);
+
+    if (source === "supabase" && storagePath) {
+      const result = await getScreenshotUrlAction(storagePath);
+      if (result.url) {
+        setImageData((prev) => ({ ...prev, [key]: result.url! }));
+        setSelectedImage(key);
+      }
+    } else {
+      // Local filesystem fallback
+      const filename = key; // key is the filename for local
+      const result = await getScreenshotAction(slug, filename);
+      if (result.dataUrl) {
+        setImageData((prev) => ({ ...prev, [key]: result.dataUrl! }));
+        setSelectedImage(key);
+      }
     }
     setLoading(null);
   }
@@ -595,29 +638,34 @@ function ScreenshotViewer({ slug }: { slug: string }) {
           marginBottom: "0.5rem",
         }}
       >
-        Screenshots ({artifacts.screenshotCount})
+        Latest Screenshots ({screenshotItems.length})
+        {hasSupabase && (
+          <span style={{ fontWeight: 400, textTransform: "none", marginLeft: "0.5rem" }}>
+            from Supabase
+          </span>
+        )}
       </span>
 
       {/* Thumbnail buttons */}
       <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
-        {artifacts.screenshotNames.map((name) => (
+        {screenshotItems.map((item) => (
           <button
-            key={name}
+            key={item.key}
             className="btn btn-sm"
             style={{
               fontSize: "0.7rem",
               padding: "0.2rem 0.5rem",
               background:
-                selectedImage === name
+                selectedImage === item.key
                   ? "var(--color-primary)"
                   : undefined,
               color:
-                selectedImage === name ? "#fff" : undefined,
+                selectedImage === item.key ? "#fff" : undefined,
             }}
-            onClick={() => loadImage(name)}
-            disabled={loading === name}
+            onClick={() => loadImage(item.key, item.source, item.storagePath)}
+            disabled={loading === item.key}
           >
-            {loading === name ? "Loading..." : name.replace(/\.png$/, "")}
+            {loading === item.key ? "Loading..." : item.label}
           </button>
         ))}
       </div>
@@ -634,7 +682,7 @@ function ScreenshotViewer({ slug }: { slug: string }) {
             }}
           >
             <span className="text-sm text-mono" style={{ fontSize: "0.7rem" }}>
-              {selectedImage}
+              {screenshotItems.find((i) => i.key === selectedImage)?.label ?? selectedImage}
             </span>
             <button
               className="btn btn-sm"
@@ -1471,6 +1519,26 @@ function DiagnosticsPanel({ projectId, slug }: { projectId: string; slug: string
             gap: "0.75rem",
           }}
         >
+          {/* Request source */}
+          <DiagSection title="Request Source">
+            <p
+              className="text-sm"
+              style={{
+                fontWeight: 600,
+                color: diag.requestSource === "final" ? "#065f46"
+                  : diag.requestSource === "draft" ? "#92400e"
+                  : "#b71c1c",
+              }}
+            >
+              {diag.requestSource === "final" && "Using: Final (AI-improved) request"}
+              {diag.requestSource === "draft" && "Using: Draft request"}
+              {diag.requestSource === "none" && "No request available"}
+            </p>
+            {diag.hasFinalRequest && (
+              <p className="text-sm" style={{ color: "#065f46" }}>[ok] Final request imported</p>
+            )}
+          </DiagSection>
+
           {/* Draft status */}
           <DiagSection title="Draft Request">
             <DiagRow label="Exists" ok={diag.draft.exists} />
@@ -1486,9 +1554,15 @@ function DiagnosticsPanel({ projectId, slug }: { projectId: string; slug: string
           {/* File status */}
           <DiagSection title="Files on Disk">
             <DiagRow label="client-request.json (exported)" ok={diag.files.hasExportedRequest} />
+            <DiagRow label="prompt.txt" ok={diag.files.hasPromptTxt} />
             <DiagRow label="Generated workspace" ok={diag.files.hasWorkspace} />
             <DiagRow label="Site build (.next)" ok={diag.files.hasBuild} />
             <DiagRow label={`Screenshots (${diag.files.screenshotCount})`} ok={diag.files.hasScreenshots} />
+            {diag.screenshotsStale && diag.files.hasScreenshots && (
+              <p className="text-sm" style={{ color: "#b45309", fontWeight: 500 }}>
+                Screenshots are STALE — site was regenerated after last review
+              </p>
+            )}
           </DiagSection>
 
           {/* Jobs */}
@@ -1527,7 +1601,29 @@ function DiagnosticsPanel({ projectId, slug }: { projectId: string; slug: string
                 ? new Date(diag.timestamps.lastExportedAt).toLocaleString()
                 : "never"}
             </p>
+            <p className="text-sm">
+              Last generated: {diag.timestamps.lastGeneratedAt
+                ? new Date(diag.timestamps.lastGeneratedAt).toLocaleString()
+                : "never"}
+            </p>
+            <p className="text-sm">
+              Last reviewed: {diag.timestamps.lastReviewedAt
+                ? new Date(diag.timestamps.lastReviewedAt).toLocaleString()
+                : "never"}
+            </p>
           </DiagSection>
+
+          {/* Revisions */}
+          {diag.revisions && (
+            <DiagSection title={`Revisions (${diag.revisions.count})`}>
+              <p className="text-sm">
+                Current source: {diag.revisions.currentSource ?? "none"}
+              </p>
+              <DiagRow label="Export up-to-date" ok={!diag.revisions.exportStale} />
+              <DiagRow label="Generation up-to-date" ok={!diag.revisions.generateStale} />
+              <DiagRow label="Review up-to-date" ok={!diag.revisions.reviewStale} />
+            </DiagSection>
+          )}
 
           {/* Live missing info */}
           <DiagSection title={`Live Missing Info (${diag.liveMissingInfo.length})`}>

@@ -158,6 +158,8 @@ echo "   Served title: $SERVED_TITLE"
 
 # Step 5: Capture screenshots
 echo "5. Capturing screenshots..."
+# Clean old screenshots so stale images never persist across reruns
+rm -rf "$SCREENSHOTS_DIR"
 mkdir -p "$SCREENSHOTS_DIR"
 node packages/review-tools/dist/cli.js \
   --url "http://localhost:$PORT" \

@@ -423,6 +423,98 @@ describe("canonical request selection (final_request > draft_request)", () => {
   });
 });
 
+// ── Prompt quality: stronger hero guidance ────────────────────────────
+
+describe("prompt quality: hero guidance", () => {
+  it("includes banned headline patterns", () => {
+    const prompt = generatePrompt(baseInput());
+    expect(prompt).toContain("BANNED patterns");
+    expect(prompt).toContain("Trusted [profession] in [city]");
+    expect(prompt).toContain("Your Local [profession] Experts");
+    expect(prompt).toContain("Welcome to [Business Name]");
+  });
+
+  it("includes good and bad hero examples", () => {
+    const prompt = generatePrompt(baseInput());
+    expect(prompt).toContain("Good headline examples");
+    expect(prompt).toContain("Bad headline examples");
+  });
+
+  it("includes conversion-focused instruction", () => {
+    const prompt = generatePrompt(baseInput());
+    expect(prompt).toContain("conversion");
+    expect(prompt).toContain("reduce hesitation");
+  });
+
+  it("requires specificity in hero", () => {
+    const prompt = generatePrompt(baseInput());
+    expect(prompt).toContain("specific to THIS business");
+    expect(prompt).toContain("Why should I choose this business");
+  });
+});
+
+// ── Prompt quality: anti-generic copy rules ──────────────────────────
+
+describe("prompt quality: anti-generic copy rules", () => {
+  it("includes anti-generic test", () => {
+    const prompt = generatePrompt(baseInput());
+    expect(prompt).toContain("Could I swap in a different business name");
+    expect(prompt).toContain("too generic");
+  });
+
+  it("bans filler phrases", () => {
+    const prompt = generatePrompt(baseInput());
+    expect(prompt).toContain("dedicated to excellence");
+    expect(prompt).toContain("committed to quality");
+    expect(prompt).toContain("state-of-the-art");
+  });
+
+  it("requires business-specific details", () => {
+    const prompt = generatePrompt(baseInput());
+    expect(prompt).toContain("years in business");
+    expect(prompt).toContain("specific capabilities");
+  });
+});
+
+// ── Prompt quality: service completeness ─────────────────────────────
+
+describe("prompt quality: implied services preserved", () => {
+  it("explicitly forbids dropping services", () => {
+    const prompt = generatePrompt(baseInput());
+    expect(prompt).toContain("Do NOT drop services");
+    expect(prompt).toContain("Do NOT drop or omit services");
+    expect(prompt).toContain("CRITICAL: Do not remove or drop any services");
+  });
+
+  it("requires adding services mentioned in notes but not draft", () => {
+    const prompt = generatePrompt(baseInput());
+    expect(prompt).toContain("mention services not in the draft, ADD them");
+  });
+
+  it("includes service quality guidance", () => {
+    const prompt = generatePrompt(baseInput());
+    expect(prompt).toContain("What does the customer get");
+    expect(prompt).toContain("benefit-oriented");
+  });
+
+  it("final checklist includes services check", () => {
+    const prompt = generatePrompt(baseInput());
+    expect(prompt).toContain("All services from the draft are present");
+  });
+});
+
+// ── Prompt quality: final checklist ──────────────────────────────────
+
+describe("prompt quality: final checklist", () => {
+  it("includes pre-return checklist", () => {
+    const prompt = generatePrompt(baseInput());
+    expect(prompt).toContain("Checklist before returning");
+    expect(prompt).toContain("Hero headline is specific");
+    expect(prompt).toContain("No banned headline patterns");
+    expect(prompt).toContain("valid JSON");
+  });
+});
+
 // ── 7. Screenshot stabilization delay exists ─────────────────────────
 
 describe("screenshot stabilization delay", () => {

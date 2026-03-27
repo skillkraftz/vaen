@@ -10,12 +10,17 @@ import type {
 } from "@/lib/types";
 import { detectMissingInfo } from "@/lib/intake-processor";
 import { WorkflowPanel } from "./intake-actions";
+import { WorkflowStepIndicator } from "./workflow-steps";
+import { RevisionList } from "./revision-list";
 import {
   BuildInputsEditor,
   SummaryEditor,
   FileManager,
+  FileUploader,
+  RevisionAssetManager,
   DraftRequestEditor,
 } from "./project-editor";
+import { formatStatusLabel } from "@/lib/workflow-steps";
 
 function statusBadge(status: string) {
   const map: Record<string, string> = {
@@ -110,13 +115,28 @@ export default async function ProjectDetailPage({
           <h1 style={{ marginTop: "0.25rem" }}>{p.name}</h1>
         </div>
         <span className={`badge ${statusBadge(p.status)}`}>
-          {p.status.replace(/_/g, " ")}
+          {formatStatusLabel(p.status)}
         </span>
+      </div>
+
+      {/* ── Workflow Step Indicator ────────────────────────────────── */}
+      <div className="section">
+        <div className="card" style={{ padding: 0, overflow: "hidden" }}>
+          <WorkflowStepIndicator status={p.status} />
+        </div>
       </div>
 
       {/* ── Workflow Panel (always visible) ─────────────────────────── */}
       <div className="section">
         <WorkflowPanel projectId={id} slug={p.slug} status={p.status} />
+      </div>
+
+      {/* ── Revision History ──────────────────────────────────────── */}
+      <div className="section">
+        <h2 className="mb-1" style={{ fontSize: "1rem", fontWeight: 600 }}>
+          Active Version
+        </h2>
+        <RevisionList projectId={id} project={p} />
       </div>
 
       {/* ── Missing info ───────────────────────────────────────────── */}
@@ -272,13 +292,26 @@ export default async function ProjectDetailPage({
             className="mb-1"
             style={{ fontSize: "1rem", fontWeight: 600 }}
           >
-            Draft client-request.json
+            Request Data (JSON)
           </h2>
           <DraftRequestEditor projectId={id} draftRequest={draftRequest} />
         </div>
       )}
 
-      {/* ── Files ──────────────────────────────────────────────────── */}
+      {/* ── Add Files ────────────────────────────────────────────── */}
+      <div className="section">
+        <h2
+          className="mb-1"
+          style={{ fontSize: "1rem", fontWeight: 600 }}
+        >
+          Add Files
+        </h2>
+        <div className="card" style={{ padding: "0.75rem 1rem" }}>
+          <FileUploader projectId={id} />
+        </div>
+      </div>
+
+      {/* ── Uploaded Files ────────────────────────────────────────── */}
       <div className="section">
         <h2
           className="mb-1"
@@ -287,10 +320,26 @@ export default async function ProjectDetailPage({
           Uploaded Files ({assetList.length})
         </h2>
         {assetList.length === 0 ? (
-          <p className="text-sm text-muted">No files uploaded.</p>
+          <p className="text-sm text-muted">No files uploaded yet.</p>
         ) : (
           <FileManager assets={assetList} projectId={id} />
         )}
+      </div>
+
+      {/* ── Attach Files to Active Version ────────────────────────── */}
+      <div className="section">
+        <h2
+          className="mb-1"
+          style={{ fontSize: "1rem", fontWeight: 600 }}
+        >
+          Attach Files to Active Version
+        </h2>
+        <div className="card" style={{ padding: "0.75rem 1rem" }}>
+          <RevisionAssetManager
+            currentRevisionId={p.current_revision_id}
+            assets={assetList}
+          />
+        </div>
       </div>
 
       {/* ── Activity log ───────────────────────────────────────────── */}

@@ -7,6 +7,10 @@ import {
   patchDraftFieldAction,
   deleteAssetAction,
   getAssetUrlAction,
+  uploadAssetsAction,
+  attachAssetToRevisionAction,
+  detachAssetFromRevisionAction,
+  listRevisionAssetsAction,
 } from "./actions";
 
 // ── Utilities ─────────────────────────────────────────────────────────
@@ -647,6 +651,136 @@ function FileRow({
         </div>
       </td>
     </tr>
+  );
+}
+
+// ── File uploader (add files to existing project) ────────────────────
+
+export function FileUploader({ projectId }: { projectId: string }) {
+  const [isPending, startTransition] = useTransition();
+  const [result, setResult] = useState<string | null>(null);
+
+  function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    const formData = new FormData(e.currentTarget);
+    const files = formData.getAll("files") as File[];
+    if (files.length === 0 || !files[0]?.size) return;
+
+    startTransition(async () => {
+      const res = await uploadAssetsAction(projectId, formData);
+      if (res.error) {
+        setResult(`Error: ${res.error}`);
+      } else {
+        setResult(`Uploaded ${res.uploaded} file(s)`);
+        (e.target as HTMLFormElement).reset();
+        setTimeout(() => window.location.reload(), 500);
+      }
+    });
+  }
+
+  return (
+    <form onSubmit={handleSubmit} style={{ display: "flex", gap: "0.5rem", alignItems: "center", flexWrap: "wrap" }}>
+      <input
+        type="file"
+        name="files"
+        multiple
+        accept="image/*,audio/*,.pdf,.txt,.doc,.docx"
+        style={{ fontSize: "0.8rem" }}
+      />
+      <button className="btn btn-sm" type="submit" disabled={isPending}>
+        {isPending ? "Uploading..." : "Add Files"}
+      </button>
+      {result && <span className="text-sm text-muted">{result}</span>}
+    </form>
+  );
+}
+
+// ── Revision asset attachment ────────────────────────────────────────
+
+export function RevisionAssetManager({
+  currentRevisionId,
+  assets,
+}: {
+  currentRevisionId: string | null;
+  assets: Array<{
+    id: string;
+    file_name: string;
+    category: string;
+  }>;
+}) {
+  const [attachedIds, setAttachedIds] = useState<Set<string>>(new Set());
+  const [loaded, setLoaded] = useState(false);
+  const [isPending, startTransition] = useTransition();
+
+  // Load attached assets on mount
+  if (!loaded && currentRevisionId) {
+    listRevisionAssetsAction(currentRevisionId).then(({ assets: revAssets }) => {
+      setAttachedIds(new Set(revAssets.map((a) => a.asset_id)));
+      setLoaded(true);
+    });
+  }
+
+  if (!currentRevisionId) {
+    return <p className="text-sm text-muted">No active version selected.</p>;
+  }
+
+  const imageAssets = assets.filter((a) => a.category === "image");
+  if (imageAssets.length === 0) {
+    return <p className="text-sm text-muted">No images uploaded. Add files above first.</p>;
+  }
+
+  function toggleAttachment(assetId: string) {
+    const isAttached = attachedIds.has(assetId);
+    startTransition(async () => {
+      if (isAttached) {
+        await detachAssetFromRevisionAction(currentRevisionId!, assetId);
+        setAttachedIds((prev) => { const next = new Set(prev); next.delete(assetId); return next; });
+      } else {
+        await attachAssetToRevisionAction(currentRevisionId!, assetId, "gallery");
+        setAttachedIds((prev) => new Set(prev).add(assetId));
+      }
+    });
+  }
+
+  return (
+    <div>
+      <p className="text-sm text-muted" style={{ marginBottom: "0.5rem" }}>
+        Check which images to include when generating this version.
+        {!loaded && " Loading..."}
+      </p>
+      <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>
+        {imageAssets.map((asset) => {
+          const isAttached = attachedIds.has(asset.id);
+          return (
+            <label
+              key={asset.id}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "0.5rem",
+                padding: "0.35rem 0.5rem",
+                borderRadius: "4px",
+                background: isAttached ? "var(--color-bg-accent, #f0f9ff)" : undefined,
+                cursor: "pointer",
+                fontSize: "0.85rem",
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={isAttached}
+                onChange={() => toggleAttachment(asset.id)}
+                disabled={isPending}
+              />
+              <span style={{ opacity: 0.5 }}>{categoryIcon(asset.category)}</span>
+              <span>{asset.file_name}</span>
+              <span className="text-sm text-muted" style={{ marginLeft: "auto" }}>
+                {isAttached ? "Attached" : ""}
+              </span>
+            </label>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 

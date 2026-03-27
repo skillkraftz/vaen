@@ -42,6 +42,7 @@ interface TemplateGuidance {
   copyGoals: string[];
   serviceGuidance: string;
   contentTips: string[];
+  heroExamples: { good: string[]; bad: string[] };
 }
 
 const TEMPLATE_GUIDANCE: Record<string, TemplateGuidance> = {
@@ -52,17 +53,36 @@ const TEMPLATE_GUIDANCE: Record<string, TemplateGuidance> = {
       "Highlight speed, reliability, and professionalism",
       "Make it easy for visitors to request a quote or call",
       "Emphasize local presence and community reputation",
+      "Write for conversion — every section should reduce hesitation and move toward contact",
     ],
     serviceGuidance:
       "Each service should have a clear, benefit-oriented description (2-3 sentences). " +
       "Focus on what the customer gets, not technical jargon. " +
-      "Use specific language — 'Same-day emergency panel repair' beats 'Electrical services'.",
+      "Use specific language — 'Same-day emergency panel repair' beats 'Electrical services'. " +
+      "IMPORTANT: Do NOT drop or omit services that appear in the draft or client notes. " +
+      "If the client mentioned a service (even briefly), it must appear in the output. " +
+      "Add a strong description even for services that only have a name.",
     contentTips: [
-      "Hero headline should be direct and benefit-focused, not clever — visitors decide in 3 seconds",
-      "Hero subheadline should name the service area and core value proposition",
+      "Hero headline must be specific to THIS business — never use 'Trusted [profession] in [city]' or similar generic patterns",
+      "Hero headline should state a concrete benefit or differentiator — what makes this business the obvious choice?",
+      "Hero subheadline should reinforce the value proposition and name the service area",
       "About section should feel personal and trustworthy — mention years of experience, licenses, or family-owned if applicable",
-      "Tagline should be memorable and specific to this business, not generic",
+      "Tagline should be memorable and specific to this business, not a generic industry tagline",
+      "Every section should build toward the CTA — explain why to choose this business, not just what it does",
     ],
+    heroExamples: {
+      good: [
+        "Rochester's 24/7 Electrician — Licensed, Insured, There When You Need Us",
+        "Your Whole-Home Electrical Team — Panels, Wiring, EV Chargers & More",
+        "Fast, Clean Plumbing Repairs — We Show Up on Time, Every Time",
+      ],
+      bad: [
+        "Trusted Electrician in Rochester (generic pattern)",
+        "Your Local Plumbing Experts (says nothing specific)",
+        "Quality Service You Can Count On (could be any business)",
+        "Welcome to [Business Name] (wastes the most important line on the page)",
+      ],
+    },
   },
   "service-area": {
     siteType: "multi-location service area website",
@@ -71,16 +91,29 @@ const TEMPLATE_GUIDANCE: Record<string, TemplateGuidance> = {
       "Build local relevance for each service area",
       "Drive leads from each location served",
       "Show consistency of service quality across areas",
+      "Write for conversion — visitors from any area should feel the business is local to them",
     ],
     serviceGuidance:
       "Services should be described with geographic context where relevant. " +
       "If the business serves different areas with different specialties, note that. " +
-      "Each service description should work for any location page.",
+      "Each service description should work for any location page. " +
+      "IMPORTANT: Do NOT drop services from the draft — preserve and improve all of them.",
     contentTips: [
-      "Hero should communicate breadth of coverage area",
-      "About section should explain why the business serves multiple areas",
+      "Hero should communicate breadth of coverage area while still feeling local",
+      "About section should explain why the business serves multiple areas — growth, demand, expertise",
       "Include service areas list if the client mentioned specific cities/regions",
+      "Hero headline must NOT be generic — avoid 'Serving the Greater [Area]' patterns",
     ],
+    heroExamples: {
+      good: [
+        "Expert HVAC Service Across the Triangle — Raleigh, Durham, Chapel Hill",
+        "Denver Metro's Go-To Roofers — From Downtown to the Foothills",
+      ],
+      bad: [
+        "Serving the Greater Denver Area (generic, no differentiator)",
+        "Your Trusted Regional Provider (meaningless)",
+      ],
+    },
   },
   authority: {
     siteType: "professional authority / expertise website",
@@ -89,17 +122,30 @@ const TEMPLATE_GUIDANCE: Record<string, TemplateGuidance> = {
       "Build trust through demonstrated knowledge and experience",
       "Position services as premium and specialized",
       "Convey professionalism and attention to detail",
+      "Write for conversion — prospects should feel confident booking after reading",
     ],
     serviceGuidance:
       "Services should sound specialized and premium. " +
       "Use language that implies depth of expertise — 'comprehensive assessment' not just 'check'. " +
-      "Include outcomes and methodology where possible.",
+      "Include outcomes and methodology where possible. " +
+      "IMPORTANT: Do NOT drop services from the draft — preserve and improve all of them.",
     contentTips: [
-      "Hero should lead with credentials or years of experience",
+      "Hero should lead with credentials or years of experience — establish authority immediately",
       "About section should read like a professional bio, not a sales pitch",
       "Emphasize qualifications, certifications, published work, or notable clients",
       "Tone should be confident but approachable — authoritative without being cold",
+      "Hero headline must NOT be generic — avoid 'Expert [profession] Services' patterns",
     ],
+    heroExamples: {
+      good: [
+        "Board-Certified Structural Engineer — 20 Years Protecting Your Investment",
+        "Published Tax Strategist — Saving Businesses an Average of 23% Annually",
+      ],
+      bad: [
+        "Expert Consulting Services (generic, no authority)",
+        "Professional Solutions for Your Needs (meaningless)",
+      ],
+    },
   },
 };
 
@@ -138,8 +184,9 @@ export function generatePrompt(input: PromptInput): string {
   sections.push(`# AI Copywriter — ${guidance.siteType}
 
 You are an expert website copywriter specializing in small business websites.
+You write copy that converts visitors into customers — not generic filler.
 Your job is to take the draft client-request.json below and return an improved version
-with better copy, filled-in gaps, and polished content — ready to drive a generated website.
+with stronger, more specific copy, filled-in gaps, and polished content — ready to drive a generated website.
 
 ## Output contract
 
@@ -148,7 +195,9 @@ with better copy, filled-in gaps, and polished content — ready to drive a gene
 - The output must parse as valid JSON
 - Preserve the exact schema structure shown in the draft
 - Do not add new top-level keys
-- Do not remove required fields (version, business, contact, services)`);
+- Do not remove required fields (version, business, contact, services)
+- CRITICAL: Do not remove or drop any services from the draft — improve them all
+- Prefer writing output to a file (client-request.json) if your environment supports it`);
 
   // ── 2. Client context ────────────────────────────────────────────
   sections.push(`## Client context
@@ -161,8 +210,12 @@ with better copy, filled-in gaps, and polished content — ready to drive a gene
     sections.push(`### Client notes / transcript
 
 These are the raw notes, transcripts, or intake details from the client.
-Extract useful details — service descriptions, tone preferences, competitive positioning,
-target customers, geographic focus, and any specific language the client used.
+This is your PRIMARY source of truth. Extract and preserve:
+- Every service or capability mentioned (even briefly or implicitly)
+- Tone preferences and competitive positioning
+- Target customers and geographic focus
+- Specific language, numbers, or claims the client made
+- Priorities the client emphasized (these should be reflected in service ordering and hero copy)
 
 \`\`\`
 ${project.notes.trim()}
@@ -232,6 +285,69 @@ This is a ${guidance.siteType}. The copy should:\n`;
     copySection += `- ${tip}\n`;
   }
 
+  // ── 5b. Hero quality rules (new) ─────────────────────────────────
+  copySection += `\n### Hero & headline quality rules
+
+The hero headline is the MOST IMPORTANT line of copy on the entire site.
+Visitors decide whether to stay or leave in under 3 seconds.
+
+**Requirements:**
+- The headline must be specific to THIS business — mention what they do, who they serve, or what makes them different
+- The headline should drive action — it should make the visitor want to scroll down or call
+- The subheadline should reinforce the headline with a supporting benefit or trust signal
+- Together, headline + subheadline should answer: "Why should I choose this business over the others?"
+
+**BANNED patterns (do NOT use these):**
+- "Trusted [profession] in [city]" — overused, says nothing specific
+- "Your Local [profession] Experts" — generic, not a differentiator
+- "Quality [service] You Can Count On" — empty promise, could be any business
+- "Welcome to [Business Name]" — wastes the most important line on the page
+- "Professional [service] Services" — redundant and generic
+- "[City]'s Premier [profession]" — unsubstantiated superlative
+- Any headline that could apply to a different business in the same industry by changing the name\n`;
+
+  if (guidance.heroExamples) {
+    copySection += `\n**Good headline examples** (for reference, do NOT copy verbatim):\n`;
+    for (const ex of guidance.heroExamples.good) {
+      copySection += `- ${ex}\n`;
+    }
+    copySection += `\n**Bad headline examples** (these are what we're avoiding):\n`;
+    for (const ex of guidance.heroExamples.bad) {
+      copySection += `- ${ex}\n`;
+    }
+  }
+
+  // ── 5c. Service completeness rules (new) ─────────────────────────
+  copySection += `\n### Service completeness rules
+
+**CRITICAL: Do NOT drop services.**
+- Every service in the draft MUST appear in your output
+- If the client notes mention services not in the draft, ADD them
+- If a service only has a name and no description, write a strong 2-3 sentence description
+- Order services by business priority — lead with what the client emphasized most
+- If the client mentioned a service is their specialty or main focus, reflect that in the description
+
+**Service description quality:**
+- Each description should answer: "What does the customer get, and why is this business good at it?"
+- Use concrete language — mention timelines, guarantees, or specific capabilities when available
+- Avoid generic descriptions like "We offer professional X services" — be specific about what sets this business apart\n`;
+
+  // ── 5d. Anti-generic rules (new) ─────────────────────────────────
+  copySection += `\n### Anti-generic copy rules
+
+The #1 quality problem in generated websites is generic, templated copy.
+Every line you write should pass this test: "Could I swap in a different business name and this copy still works?"
+If yes, the copy is too generic — rewrite it.
+
+**Rules:**
+- Reference the specific business, services, or location in hero, tagline, and about sections
+- Use details from the client notes — years in business, specific capabilities, service area, team size
+- Write from the business's perspective, not a template's perspective
+- The about section should sound like it was written BY someone who knows this business
+- Avoid filler phrases: "dedicated to excellence", "committed to quality", "state-of-the-art", "second to none"
+- If you don't have a specific detail, write around it naturally — don't insert a generic placeholder\n`;
+
+  // ── 5e. General quality rules ─────────────────────────────────────
   copySection += `\n### General quality rules
 
 - Write in plain, confident English — no filler, no buzzwords
@@ -256,11 +372,11 @@ This is a ${guidance.siteType}. The copy should:\n`;
 - \`business.tagline\`: write a strong, specific tagline if missing or generic
 - \`business.description\`: write a 1-2 sentence business description
 - \`contact\`: preserve all provided contact details exactly — do not modify phone/email/address
-- \`services\`: improve descriptions, ensure each has a \`name\` and \`description\`
+- \`services\`: improve descriptions, ensure each has a \`name\` and \`description\`. Do NOT remove any services.
 - \`branding\`: preserve if provided, leave absent if not — do not guess colors
 - \`content.about\`: write or improve the about section (3-5 sentences)
-- \`content.heroHeadline\`: write a compelling, specific headline
-- \`content.heroSubheadline\`: write a supporting subheadline
+- \`content.heroHeadline\`: write a compelling, specific headline (see hero quality rules above)
+- \`content.heroSubheadline\`: write a supporting subheadline that reinforces the value proposition
 - \`content.testimonials\`: preserve provided testimonials exactly — do not fabricate
 - \`content.galleryImages\`: preserve if provided — do not fabricate URLs
 - \`features\`: preserve as provided
@@ -270,6 +386,7 @@ This is a ${guidance.siteType}. The copy should:\n`;
   sections.push(`## Current draft client-request.json
 
 This is the starting point. Improve the copy, fill gaps, and return the complete improved version.
+Remember: preserve ALL services, improve ALL descriptions, and write conversion-focused copy.
 
 \`\`\`json
 ${JSON.stringify(draftRequest, null, 2)}
@@ -278,7 +395,20 @@ ${JSON.stringify(draftRequest, null, 2)}
   // ── 8. Final reminder ────────────────────────────────────────────
   sections.push(`## Reminder
 
-Return ONLY the improved JSON. No explanation. No markdown. Just the JSON object.`);
+Return ONLY the improved JSON. No explanation. No markdown. Just the JSON object.
+Prefer writing to a file named client-request.json if your tool supports it.
+
+Checklist before returning:
+- [ ] All services from the draft are present (none dropped)
+- [ ] Hero headline is specific to this business (not generic)
+- [ ] Hero subheadline reinforces the value proposition
+- [ ] Tagline is memorable and specific
+- [ ] About section sounds like it was written for this specific business
+- [ ] Service descriptions are benefit-oriented and concrete
+- [ ] No banned headline patterns used
+- [ ] All contact details preserved exactly
+- [ ] version is "1.0.0"
+- [ ] Output is valid JSON`);
 
   return sections.join("\n\n") + "\n";
 }

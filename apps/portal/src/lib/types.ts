@@ -14,10 +14,33 @@ export interface Project {
   metadata: Record<string, unknown>;
   client_summary: string | null;
   draft_request: Record<string, unknown> | null;
+  final_request: Record<string, unknown> | null;
   missing_info: MissingInfoItem[] | null;
   recommendations: IntakeRecommendations | null;
+  /** Revision pointers — null until migrations are applied */
+  current_revision_id: string | null;
+  last_exported_revision_id: string | null;
+  last_generated_revision_id: string | null;
+  last_reviewed_revision_id: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface RequestRevision {
+  id: string;
+  project_id: string;
+  source: "intake_processor" | "user_edit" | "ai_import" | "manual";
+  request_data: Record<string, unknown>;
+  parent_revision_id: string | null;
+  summary: string | null;
+  created_at: string;
+}
+
+export interface RevisionAsset {
+  revision_id: string;
+  asset_id: string;
+  role: "logo" | "hero" | "gallery" | "content" | "reference";
+  sort_order: number;
 }
 
 export interface MissingInfoItem {

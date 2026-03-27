@@ -4,10 +4,13 @@ import { createClient } from "@/lib/supabase/server";
 import { processIntake, detectMissingInfo } from "@/lib/intake-processor";
 import { notifyDiscord } from "@/lib/discord";
 import { revalidatePath } from "next/cache";
-import { writeFile, mkdir, access, readdir, readFile } from "node:fs/promises";
+import { writeFile, mkdir, access, readdir, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
+import { createWriteStream } from "node:fs";
 import { spawn, execSync } from "node:child_process";
-import type { Project, Asset, JobRecord } from "@/lib/types";
+import type { Project, Asset, JobRecord, RequestRevision } from "@/lib/types";
+import type { RevisionSource } from "@/lib/revision-helpers";
+import { isRevisionStale } from "@/lib/revision-helpers";
 import {
   REQUIRED_DRAFT_KEYS,
   DRAFT_DEFAULTS,
@@ -16,6 +19,126 @@ import {
   validateDraftRequired,
   ensureDraftDefaults,
 } from "@/lib/draft-helpers";
+
+// ── Revision helpers (internal) ──────────────────────────────────────
+
+/**
+ * Create a revision and set it as the current one.
+ * Silently skips if the revisions table doesn't exist yet (pre-migration).
+ */
+async function createRevisionAndSetCurrent(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  projectId: string,
+  source: RevisionSource,
+  requestData: Record<string, unknown>,
+  parentRevisionId?: string | null,
+  summary?: string | null,
+): Promise<string | null> {
+  try {
+    const { data: rev, error } = await supabase
+      .from("project_request_revisions")
+      .insert({
+        project_id: projectId,
+        source,
+        request_data: requestData,
+        parent_revision_id: parentRevisionId ?? null,
+        summary: summary ?? null,
+      })
+      .select("id")
+      .single();
+
+    if (error || !rev) return null;
+
+    await supabase
+      .from("projects")
+      .update({ current_revision_id: rev.id })
+      .eq("id", projectId);
+
+    return rev.id;
+  } catch {
+    // Table may not exist yet (pre-migration) — silently skip
+    return null;
+  }
+}
+
+/**
+ * Download assets attached to a revision from Supabase storage into
+ * generated/<slug>/site/public/images/ so the generated site can serve them.
+ * Returns an array of gallery image entries for client-request.json.
+ */
+async function downloadRevisionAssetsToSite(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  revisionId: string | null,
+  projectId: string,
+  siteDir: string,
+): Promise<Array<{ url: string; alt: string }>> {
+  if (!revisionId) return [];
+
+  const imagesDir = join(siteDir, "public", "images");
+
+  // Clean previous images
+  await rm(imagesDir, { recursive: true, force: true });
+  await mkdir(imagesDir, { recursive: true });
+
+  // Get attached image assets for this revision
+  let attachedAssetIds: string[] = [];
+  try {
+    const { data: revAssets } = await supabase
+      .from("revision_assets")
+      .select("asset_id, role, sort_order")
+      .eq("revision_id", revisionId)
+      .order("sort_order", { ascending: true });
+
+    attachedAssetIds = (revAssets ?? []).map((ra) => ra.asset_id);
+  } catch {
+    // revision_assets table may not exist yet
+  }
+
+  // If no explicit attachments, fall back to all project images
+  let assets: Array<{ id: string; file_name: string; storage_path: string; category: string }>;
+  if (attachedAssetIds.length > 0) {
+    const { data } = await supabase
+      .from("assets")
+      .select("id, file_name, storage_path, category")
+      .in("id", attachedAssetIds);
+    assets = (data ?? []).filter((a) => a.category === "image");
+  } else {
+    const { data } = await supabase
+      .from("assets")
+      .select("id, file_name, storage_path, category")
+      .eq("project_id", projectId)
+      .eq("category", "image");
+    assets = data ?? [];
+  }
+
+  const galleryImages: Array<{ url: string; alt: string }> = [];
+
+  for (const asset of assets) {
+    try {
+      const { data, error } = await supabase.storage
+        .from("intake-assets")
+        .download(asset.storage_path);
+
+      if (error || !data) {
+        console.error(`Failed to download asset ${asset.file_name}:`, error?.message);
+        continue;
+      }
+
+      const localPath = join(imagesDir, asset.file_name);
+      const buffer = Buffer.from(await data.arrayBuffer());
+      await writeFile(localPath, buffer);
+
+      galleryImages.push({
+        url: `/images/${asset.file_name}`,
+        alt: asset.file_name.replace(/\.[^.]+$/, "").replace(/[-_]/g, " "),
+      });
+    } catch (err) {
+      console.error(`Error downloading asset ${asset.file_name}:`, err);
+    }
+  }
+
+  return galleryImages;
+}
 
 // ── Process intake ───────────────────────────────────────────────────
 
@@ -67,6 +190,12 @@ export async function processIntakeAction(projectId: string): Promise<{ error?: 
     .eq("id", projectId);
 
   if (updateError) return { error: updateError.message };
+
+  // Create revision from the processed draft
+  await createRevisionAndSetCurrent(
+    supabase, projectId, "intake_processor", result.draftRequest,
+    null, "Initial intake processing",
+  );
 
   // Log events
   await supabase.from("project_events").insert([
@@ -269,16 +398,34 @@ export async function exportToGeneratorAction(projectId: string): Promise<{ erro
     return { error: `Can only export approved intakes. Current status: "${p.status}"` };
   }
 
-  // Prefer final_request (AI-improved) over draft_request
-  const requestSource = (p as unknown as Record<string, unknown>).final_request ?? p.draft_request;
-  const requestLabel = (p as unknown as Record<string, unknown>).final_request ? "final" : "draft";
+  // Prefer: active revision → final_request → draft_request
+  let requestSource: Record<string, unknown> | null = null;
+  let requestLabel = "none";
+
+  if (p.current_revision_id) {
+    try {
+      const { data: rev } = await supabase
+        .from("project_request_revisions")
+        .select("request_data")
+        .eq("id", p.current_revision_id)
+        .single();
+      if (rev?.request_data) {
+        requestSource = rev.request_data as Record<string, unknown>;
+        requestLabel = "revision";
+      }
+    } catch { /* fall through to legacy */ }
+  }
+
+  if (!requestSource) {
+    requestSource = (p.final_request ?? p.draft_request) as Record<string, unknown> | null;
+    requestLabel = p.final_request ? "final" : "draft";
+  }
 
   if (!requestSource) {
     return { error: "No client-request.json found. Process the intake first." };
   }
 
-  // Validate integrity before export
-  const draft = requestSource as Record<string, unknown>;
+  const draft = { ...requestSource };
 
   // Ensure required fields exist (guard against past corruption)
   const missingFields = REQUIRED_DRAFT_KEYS.filter((key) => !(key in draft));
@@ -295,9 +442,23 @@ export async function exportToGeneratorAction(projectId: string): Promise<{ erro
   const repoRoot = join(process.cwd(), "../..");
   const targetDir = join(repoRoot, "generated", p.slug);
   const targetPath = join(targetDir, "client-request.json");
+  const siteDir = join(targetDir, "site");
 
   try {
     await mkdir(targetDir, { recursive: true });
+
+    // Download revision-attached assets (or all project images) to site/public/images/
+    const galleryImages = await downloadRevisionAssetsToSite(
+      supabase, p.current_revision_id, projectId, siteDir,
+    );
+
+    // Inject gallery images into the request if assets were downloaded
+    if (galleryImages.length > 0) {
+      const content = (draft.content ?? {}) as Record<string, unknown>;
+      content.galleryImages = galleryImages;
+      draft.content = content;
+    }
+
     await writeFile(targetPath, JSON.stringify(draft, null, 2) + "\n", "utf-8");
   } catch (err) {
     return { error: `Failed to write client-request.json: ${err instanceof Error ? err.message : String(err)}` };
@@ -306,7 +467,10 @@ export async function exportToGeneratorAction(projectId: string): Promise<{ erro
   // Advance to intake_parsed (the next state after intake_approved)
   const { error: updateError } = await supabase
     .from("projects")
-    .update({ status: "intake_parsed" })
+    .update({
+      status: "intake_parsed",
+      last_exported_revision_id: p.current_revision_id,
+    })
     .eq("id", projectId);
 
   if (updateError) return { error: updateError.message };
@@ -320,6 +484,9 @@ export async function exportToGeneratorAction(projectId: string): Promise<{ erro
       output_path: targetPath,
       exported_by: user.id,
       request_source: requestLabel,
+      asset_count: (draft.content as Record<string, unknown>)?.galleryImages
+        ? ((draft.content as Record<string, unknown>).galleryImages as unknown[]).length
+        : 0,
     },
   });
 
@@ -419,13 +586,39 @@ export async function patchDraftFieldAction(
   const validationError = validateDraftRequired(merged);
   if (validationError) return { error: validationError };
 
-  // Save
+  // Save to legacy column
   const { error: updateError } = await supabase
     .from("projects")
     .update({ draft_request: merged })
     .eq("id", projectId);
 
   if (updateError) return { error: updateError.message };
+
+  // Also create a revision (debounce: update in-place if last user_edit is recent)
+  try {
+    const { data: recent } = await supabase
+      .from("project_request_revisions")
+      .select("id, source, created_at")
+      .eq("project_id", projectId)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .single();
+
+    const isRecentEdit = recent?.source === "user_edit" &&
+      Date.now() - new Date(recent.created_at).getTime() < 30_000;
+
+    if (isRecentEdit && recent) {
+      await supabase
+        .from("project_request_revisions")
+        .update({ request_data: merged })
+        .eq("id", recent.id);
+    } else {
+      await createRevisionAndSetCurrent(
+        supabase, projectId, "user_edit", merged,
+        recent?.id ?? null, `Edited ${path.join(".")}`,
+      );
+    }
+  } catch { /* pre-migration: silently skip */ }
 
   revalidatePath(`/dashboard/projects/${projectId}`);
   return { merged };
@@ -470,11 +663,213 @@ export async function updateDraftRequestAction(
 
   if (updateError) return { error: updateError.message };
 
+  // Also create a revision
+  await createRevisionAndSetCurrent(
+    supabase, projectId, "user_edit", merged,
+    null, "Full draft replacement via JSON editor",
+  );
+
   revalidatePath(`/dashboard/projects/${projectId}`);
   return {};
 }
 
 // ── File management ──────────────────────────────────────────────────
+
+function categorizeFile(mimeType: string): string {
+  if (mimeType.startsWith("audio/")) return "audio";
+  if (mimeType.startsWith("image/")) return "image";
+  if (mimeType.startsWith("text/") || mimeType === "application/pdf") return "document";
+  return "general";
+}
+
+/**
+ * Upload files to an existing project. Works at any status.
+ */
+export async function uploadAssetsAction(
+  projectId: string,
+  formData: FormData,
+): Promise<{ error?: string; uploaded: number }> {
+  const supabase = await createClient();
+
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated", uploaded: 0 };
+
+  const { data: project } = await supabase
+    .from("projects")
+    .select("id")
+    .eq("id", projectId)
+    .single();
+
+  if (!project) return { error: "Project not found", uploaded: 0 };
+
+  const files = formData.getAll("files") as File[];
+  let uploaded = 0;
+
+  for (const file of files) {
+    if (!file || file.size === 0) continue;
+
+    const storagePath = `${user.id}/${projectId}/${file.name}`;
+
+    const { error: uploadError } = await supabase.storage
+      .from("intake-assets")
+      .upload(storagePath, file, { upsert: true });
+
+    if (uploadError) {
+      console.error("Upload error:", uploadError.message);
+      continue;
+    }
+
+    await supabase.from("assets").insert({
+      project_id: projectId,
+      file_name: file.name,
+      file_type: file.type || "application/octet-stream",
+      file_size: file.size,
+      storage_path: storagePath,
+      category: categorizeFile(file.type),
+    });
+
+    uploaded++;
+  }
+
+  await supabase.from("project_events").insert({
+    project_id: projectId,
+    event_type: "assets_uploaded",
+    metadata: { count: uploaded, triggered_by: user.id },
+  });
+
+  revalidatePath(`/dashboard/projects/${projectId}`);
+  return { uploaded };
+}
+
+// ── Revision-asset linkage ───────────────────────────────────────────
+
+/**
+ * Attach an uploaded asset to a revision with a role.
+ */
+export async function attachAssetToRevisionAction(
+  revisionId: string,
+  assetId: string,
+  role: string = "content",
+): Promise<{ error?: string }> {
+  const supabase = await createClient();
+
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated" };
+
+  try {
+    const { error } = await supabase
+      .from("revision_assets")
+      .upsert({
+        revision_id: revisionId,
+        asset_id: assetId,
+        role,
+        sort_order: 0,
+      });
+
+    if (error) return { error: error.message };
+    return {};
+  } catch {
+    return { error: "Revision assets table not available (migration pending)" };
+  }
+}
+
+/**
+ * Detach an asset from a revision.
+ */
+export async function detachAssetFromRevisionAction(
+  revisionId: string,
+  assetId: string,
+): Promise<{ error?: string }> {
+  const supabase = await createClient();
+
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated" };
+
+  const { error } = await supabase
+    .from("revision_assets")
+    .delete()
+    .eq("revision_id", revisionId)
+    .eq("asset_id", assetId);
+
+  if (error) return { error: error.message };
+  return {};
+}
+
+/**
+ * List assets attached to a specific revision.
+ */
+export async function listRevisionAssetsAction(
+  revisionId: string,
+): Promise<{ assets: Array<{ asset_id: string; role: string; sort_order: number }>; error?: string }> {
+  const supabase = await createClient();
+
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { assets: [], error: "Not authenticated" };
+
+  try {
+    const { data, error } = await supabase
+      .from("revision_assets")
+      .select("asset_id, role, sort_order")
+      .eq("revision_id", revisionId)
+      .order("sort_order", { ascending: true });
+
+    if (error) return { assets: [], error: error.message };
+    return { assets: data ?? [] };
+  } catch {
+    return { assets: [], error: "Revision assets table not available" };
+  }
+}
+
+/**
+ * Get screenshots for a specific project from Supabase storage.
+ * Falls back to local filesystem if no Supabase screenshots exist.
+ */
+export async function getScreenshotsForProjectAction(
+  projectId: string,
+): Promise<{
+  screenshots: Array<{
+    id: string;
+    file_name: string;
+    storage_path: string;
+    source_job_id: string | null;
+    created_at: string;
+  }>;
+  error?: string;
+}> {
+  const supabase = await createClient();
+
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { screenshots: [], error: "Not authenticated" };
+
+  const { data, error } = await supabase
+    .from("assets")
+    .select("id, file_name, storage_path, source_job_id, created_at")
+    .eq("project_id", projectId)
+    .eq("asset_type", "review_screenshot")
+    .order("created_at", { ascending: false });
+
+  if (error) return { screenshots: [], error: error.message };
+  return { screenshots: data ?? [] };
+}
+
+/**
+ * Get a signed URL for a screenshot stored in Supabase.
+ */
+export async function getScreenshotUrlAction(
+  storagePath: string,
+): Promise<{ url?: string; error?: string }> {
+  const supabase = await createClient();
+
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated" };
+
+  const { data, error } = await supabase.storage
+    .from("review-screenshots")
+    .createSignedUrl(storagePath, 3600);
+
+  if (error) return { error: error.message };
+  return { url: data.signedUrl };
+}
 
 export async function getAssetUrlAction(
   assetId: string,
@@ -621,6 +1016,7 @@ export async function generateSiteAction(
         target_slug: p.slug,
         input_path: `generated/${p.slug}/client-request.json`,
         site_path: `generated/${p.slug}/site`,
+        revision_id: p.current_revision_id ?? undefined,
       },
     })
     .select("id")
@@ -688,6 +1084,7 @@ export async function runReviewAction(
         triggered_by: user.id,
         target_slug: p.slug,
         site_path: `generated/${p.slug}/site`,
+        revision_id: p.current_revision_id ?? undefined,
       },
     })
     .select("id")
@@ -858,19 +1255,42 @@ export async function reExportAction(
 
   const p = project as Project;
 
-  if (!p.draft_request) {
-    return { error: "No draft request found. Re-process the intake first." };
+  // Prefer: active revision → final_request → draft_request
+  let requestSource: Record<string, unknown> | null = null;
+  let requestLabel = "none";
+
+  if (p.current_revision_id) {
+    try {
+      const { data: rev } = await supabase
+        .from("project_request_revisions")
+        .select("request_data")
+        .eq("id", p.current_revision_id)
+        .single();
+      if (rev?.request_data) {
+        requestSource = rev.request_data as Record<string, unknown>;
+        requestLabel = "revision";
+      }
+    } catch { /* fall through to legacy */ }
   }
 
-  const draft = p.draft_request as Record<string, unknown>;
+  if (!requestSource) {
+    requestSource = (p.final_request ?? p.draft_request) as Record<string, unknown> | null;
+    requestLabel = p.final_request ? "final" : "draft";
+  }
 
-  // Validate draft integrity
-  const missingFields = REQUIRED_DRAFT_KEYS.filter((key) => !(key in draft));
+  if (!requestSource) {
+    return { error: "No request found. Re-process the intake first." };
+  }
+
+  const request = { ...requestSource };
+
+  // Validate request integrity
+  const missingFields = REQUIRED_DRAFT_KEYS.filter((key) => !(key in request));
   if (missingFields.length > 0) {
-    return { error: `Cannot export: draft is missing required fields: ${missingFields.join(", ")}. Re-process the intake to fix.` };
+    return { error: `Cannot export: ${requestLabel} request is missing required fields: ${missingFields.join(", ")}. Re-process the intake to fix.` };
   }
 
-  const services = Array.isArray(draft.services) ? draft.services : [];
+  const services = Array.isArray(request.services) ? request.services : [];
   if (services.length === 0) {
     return { error: "Cannot export: services list is empty. Add services before exporting." };
   }
@@ -879,15 +1299,36 @@ export async function reExportAction(
   const repoRoot = join(process.cwd(), "../..");
   const targetDir = join(repoRoot, "generated", p.slug);
   const targetPath = join(targetDir, "client-request.json");
+  const siteDir = join(targetDir, "site");
 
   try {
     await mkdir(targetDir, { recursive: true });
-    await writeFile(targetPath, JSON.stringify(draft, null, 2) + "\n", "utf-8");
+
+    // Download revision-attached assets to site/public/images/
+    const galleryImages = await downloadRevisionAssetsToSite(
+      supabase, p.current_revision_id, projectId, siteDir,
+    );
+
+    if (galleryImages.length > 0) {
+      const content = (request.content ?? {}) as Record<string, unknown>;
+      content.galleryImages = galleryImages;
+      request.content = content;
+    }
+
+    await writeFile(targetPath, JSON.stringify(request, null, 2) + "\n", "utf-8");
   } catch (err) {
     return { error: `Failed to write client-request.json: ${err instanceof Error ? err.message : String(err)}` };
   }
 
-  console.log(`[re-export] project=${projectId} slug=${p.slug} status=${p.status} path=${targetPath}`);
+  console.log(`[re-export] project=${projectId} slug=${p.slug} status=${p.status} source=${requestLabel} path=${targetPath}`);
+
+  // Update exported revision pointer
+  if (p.current_revision_id) {
+    await supabase
+      .from("projects")
+      .update({ last_exported_revision_id: p.current_revision_id })
+      .eq("id", projectId);
+  }
 
   await supabase.from("project_events").insert({
     project_id: projectId,
@@ -897,7 +1338,8 @@ export async function reExportAction(
     metadata: {
       output_path: targetPath,
       triggered_by: user.id,
-      draft_keys: Object.keys(draft),
+      request_source: requestLabel,
+      request_keys: Object.keys(request),
       services_count: services.length,
     },
   });
@@ -964,10 +1406,18 @@ export async function reprocessIntakeAction(
       draft_request: finalDraft,
       missing_info: result.missingInfo,
       recommendations: result.recommendations,
+      // Clear AI-improved request — stale after reprocessing
+      final_request: null,
     })
     .eq("id", projectId);
 
   if (updateError) return { error: updateError.message };
+
+  // Create revision from reprocessed draft
+  await createRevisionAndSetCurrent(
+    supabase, projectId, "intake_processor", finalDraft,
+    p.current_revision_id, "Re-processed intake (merged with existing edits)",
+  );
 
   await supabase.from("project_events").insert({
     project_id: projectId,
@@ -1002,25 +1452,52 @@ export async function resetToDraftAction(
 
   const { data: project } = await supabase
     .from("projects")
-    .select("status")
+    .select("*")
     .eq("id", projectId)
     .single();
 
   if (!project) return { error: "Project not found" };
 
+  const p = project as Project;
+
+  // Clear downstream DB state that is no longer trustworthy
   const { error: updateError } = await supabase
     .from("projects")
-    .update({ status: "intake_draft_ready" })
+    .update({
+      status: "intake_draft_ready",
+      final_request: null,
+      // Clear downstream revision pointers (keep current_revision_id)
+      last_exported_revision_id: null,
+      last_generated_revision_id: null,
+      last_reviewed_revision_id: null,
+    })
     .eq("id", projectId);
 
   if (updateError) return { error: updateError.message };
 
+  // Clean downstream artifacts on disk
+  const repoRoot = join(process.cwd(), "../..");
+  const generatedDir = join(repoRoot, "generated", p.slug);
+  const cleanTargets = [
+    join(generatedDir, "artifacts", "screenshots"),
+    join(generatedDir, "artifacts", "validation.json"),
+    join(generatedDir, "artifacts", "prompt.txt"),
+    join(generatedDir, "site", ".next"),
+  ];
+  for (const target of cleanTargets) {
+    await rm(target, { recursive: true, force: true }).catch(() => {});
+  }
+
   await supabase.from("project_events").insert({
     project_id: projectId,
     event_type: "status_reset",
-    from_status: project.status,
+    from_status: p.status,
     to_status: "intake_draft_ready",
-    metadata: { triggered_by: user.id, reason: "manual reset to draft" },
+    metadata: {
+      triggered_by: user.id,
+      reason: "manual reset to draft",
+      cleared: ["final_request", "screenshots", "validation", "build_cache"],
+    },
   });
 
   revalidatePath(`/dashboard/projects/${projectId}`);
@@ -1039,12 +1516,15 @@ export interface ProjectDiagnostics {
     servicesCount: number;
     topLevelKeys: string[];
   };
+  requestSource: "final" | "draft" | "none";
+  hasFinalRequest: boolean;
   files: {
     hasExportedRequest: boolean;
     hasWorkspace: boolean;
     hasBuild: boolean;
     hasScreenshots: boolean;
     screenshotCount: number;
+    hasPromptTxt: boolean;
   };
   jobs: {
     lastGenerate: { id: string; status: string; completedAt: string | null } | null;
@@ -1053,8 +1533,20 @@ export interface ProjectDiagnostics {
   timestamps: {
     lastProcessedAt: string | null;
     lastExportedAt: string | null;
+    lastGeneratedAt: string | null;
+    lastReviewedAt: string | null;
   };
+  /** Whether screenshots are stale (older than last generate or no review after generate) */
+  screenshotsStale: boolean;
   liveMissingInfo: Array<{ field: string; label: string; severity: string; hint?: string }>;
+  /** Revision-based staleness (null if revisions not yet migrated) */
+  revisions: {
+    count: number;
+    currentSource: string | null;
+    exportStale: boolean;
+    generateStale: boolean;
+    reviewStale: boolean;
+  } | null;
 }
 
 export async function getProjectDiagnosticsAction(
@@ -1093,6 +1585,10 @@ export async function getProjectDiagnosticsAction(
     topLevelKeys: draftObj ? Object.keys(draftObj) : [],
   };
 
+  // Request source
+  const hasFinalRequest = p?.final_request !== null && p?.final_request !== undefined;
+  const requestSource = hasFinalRequest ? "final" as const : draftDiag.exists ? "draft" as const : "none" as const;
+
   // File diagnostics (check disk)
   const repoRoot = join(process.cwd(), "../..");
   const fileDiag = {
@@ -1101,11 +1597,13 @@ export async function getProjectDiagnosticsAction(
     hasBuild: false,
     hasScreenshots: false,
     screenshotCount: 0,
+    hasPromptTxt: false,
   };
 
   try { await access(join(repoRoot, "generated", slug, "client-request.json")); fileDiag.hasExportedRequest = true; } catch { /* noop */ }
   try { await access(join(repoRoot, "generated", slug, "site", "config.json")); fileDiag.hasWorkspace = true; } catch { /* noop */ }
   try { await access(join(repoRoot, "generated", slug, "site", ".next")); fileDiag.hasBuild = true; } catch { /* noop */ }
+  try { await access(join(repoRoot, "generated", slug, "artifacts", "prompt.txt")); fileDiag.hasPromptTxt = true; } catch { /* noop */ }
   try {
     const dir = join(repoRoot, "generated", slug, "artifacts", "screenshots");
     const files = await readdir(dir);
@@ -1120,13 +1618,49 @@ export async function getProjectDiagnosticsAction(
 
   // Timestamp diagnostics
   const lastProcessedEvent = eventList.find((e) => e.event_type === "intake_processed" || e.event_type === "intake_reprocessed");
-  const lastExportedEvent = eventList.find((e) => e.event_type === "exported_to_generator");
+  const lastExportedEvent = eventList.find((e) => e.event_type === "exported_to_generator" || e.event_type === "re_exported");
+  const lastGeneratedAt = lastGenerate?.completed_at ?? null;
+  const lastReviewedAt = lastReview?.completed_at ?? null;
+
+  // Screenshots are stale if there was a generate after the last review
+  const screenshotsStale = (() => {
+    if (!fileDiag.hasScreenshots) return false;
+    if (!lastGeneratedAt) return false;
+    if (!lastReviewedAt) return true; // screenshots exist but no review job — stale
+    return new Date(lastGeneratedAt) > new Date(lastReviewedAt);
+  })();
 
   // Live missing info (recomputed from current state)
   const liveMissing = p ? detectMissingInfo(p, assetList) : [];
 
+  // Revision diagnostics (null if table doesn't exist yet)
+  let revisionDiag: ProjectDiagnostics["revisions"] = null;
+  try {
+    const { data: revisions, error: revErr } = await supabase
+      .from("project_request_revisions")
+      .select("id, source")
+      .eq("project_id", projectId)
+      .order("created_at", { ascending: false });
+
+    if (!revErr && revisions && p) {
+      const staleness = isRevisionStale(p);
+      const currentRev = p.current_revision_id
+        ? revisions.find((r) => r.id === p.current_revision_id)
+        : null;
+      revisionDiag = {
+        count: revisions.length,
+        currentSource: currentRev?.source ?? null,
+        exportStale: staleness.exportStale,
+        generateStale: staleness.generateStale,
+        reviewStale: staleness.reviewStale,
+      };
+    }
+  } catch { /* pre-migration: silently skip */ }
+
   return {
     draft: draftDiag,
+    requestSource,
+    hasFinalRequest,
     files: fileDiag,
     jobs: {
       lastGenerate: lastGenerate ? { id: lastGenerate.id, status: lastGenerate.status, completedAt: lastGenerate.completed_at } : null,
@@ -1135,8 +1669,12 @@ export async function getProjectDiagnosticsAction(
     timestamps: {
       lastProcessedAt: lastProcessedEvent?.created_at ?? null,
       lastExportedAt: lastExportedEvent?.created_at ?? null,
+      lastGeneratedAt,
+      lastReviewedAt,
     },
+    screenshotsStale,
     liveMissingInfo: liveMissing,
+    revisions: revisionDiag,
   };
 }
 
@@ -1291,13 +1829,19 @@ export async function importFinalRequestAction(
     return { error: "Validation failed", validationErrors: errors };
   }
 
-  // Store in DB as final_request
+  // Store in DB as final_request (legacy column)
   const { error: updateError } = await supabase
     .from("projects")
     .update({ final_request: parsed })
     .eq("id", projectId);
 
   if (updateError) return { error: updateError.message };
+
+  // Create revision from the AI-improved import
+  await createRevisionAndSetCurrent(
+    supabase, projectId, "ai_import", parsed,
+    p.current_revision_id, "AI-improved import from Codex/OpenClaw",
+  );
 
   // Also write to disk as the canonical client-request.json for the generator
   const repoRoot = join(process.cwd(), "../..");
@@ -1350,4 +1894,76 @@ export async function getRequestSourceAction(
     hasFinal,
     hasDraft,
   };
+}
+
+// ── Revision CRUD actions ────────────────────────────────────────────
+
+/**
+ * List all revisions for a project, most recent first.
+ */
+export async function listRevisionsAction(
+  projectId: string,
+): Promise<{ revisions: RequestRevision[]; error?: string }> {
+  const supabase = await createClient();
+
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { revisions: [], error: "Not authenticated" };
+
+  try {
+    const { data, error } = await supabase
+      .from("project_request_revisions")
+      .select("*")
+      .eq("project_id", projectId)
+      .order("created_at", { ascending: false });
+
+    if (error) return { revisions: [], error: error.message };
+    return { revisions: (data ?? []) as RequestRevision[] };
+  } catch {
+    return { revisions: [], error: "Revisions table not available (migration pending)" };
+  }
+}
+
+/**
+ * Set a specific revision as the current/active one.
+ */
+export async function setActiveRevisionAction(
+  projectId: string,
+  revisionId: string,
+): Promise<{ error?: string }> {
+  const supabase = await createClient();
+
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated" };
+
+  // Verify the revision belongs to this project
+  const { data: rev, error: revErr } = await supabase
+    .from("project_request_revisions")
+    .select("id, project_id, request_data")
+    .eq("id", revisionId)
+    .single();
+
+  if (revErr || !rev) return { error: "Revision not found" };
+  if (rev.project_id !== projectId) return { error: "Revision does not belong to this project" };
+
+  // Update project pointer + sync legacy column
+  const { error: updateError } = await supabase
+    .from("projects")
+    .update({
+      current_revision_id: revisionId,
+      draft_request: rev.request_data,
+    })
+    .eq("id", projectId);
+
+  if (updateError) return { error: updateError.message };
+
+  await supabase.from("project_events").insert({
+    project_id: projectId,
+    event_type: "revision_activated",
+    from_status: null,
+    to_status: null,
+    metadata: { revision_id: revisionId, triggered_by: user.id },
+  });
+
+  revalidatePath(`/dashboard/projects/${projectId}`);
+  return {};
 }

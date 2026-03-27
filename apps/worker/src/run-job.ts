@@ -36,6 +36,7 @@ import {
   access,
   readdir,
   readFile,
+  rm,
   writeFile,
   stat,
 } from "node:fs/promises";
@@ -340,6 +341,12 @@ async function executeGenerate(
   ];
   const fullCommand = `pnpm ${cmdArgs.join(" ")}`;
 
+  // Clean stale artifacts from prior runs so they cannot persist
+  const artifactsDir = join(repoRoot, "generated", slug, "artifacts");
+  const screenshotsDir = join(artifactsDir, "screenshots");
+  await rm(screenshotsDir, { recursive: true, force: true });
+  console.log(`[generate] cleaned stale screenshots: ${screenshotsDir}`);
+
   // Snapshot site files BEFORE generation (to compute diff)
   const preGenFiles = listSiteFiles(siteDir).map((f) =>
     relative(siteDir, f),
@@ -502,10 +509,14 @@ async function executeGenerate(
     })
     .eq("id", job.id);
 
-  // Advance project status
+  // Advance project status + record which revision was generated
+  const revisionId = (job.payload?.revision_id as string) ?? null;
   await db
     .from("projects")
-    .update({ status: "workspace_generated" })
+    .update({
+      status: "workspace_generated",
+      ...(revisionId ? { last_generated_revision_id: revisionId } : {}),
+    })
     .eq("id", project.id);
 
   await db.from("project_events").insert({
@@ -558,6 +569,11 @@ async function executeReview(
   } catch {
     siteAge = "no metadata — site may be stale or manually created";
   }
+
+  // Clean stale screenshots from prior review runs
+  const screenshotsDir = join(repoRoot, "generated", slug, "artifacts", "screenshots");
+  await rm(screenshotsDir, { recursive: true, force: true });
+  console.log(`[review] cleaned stale screenshots: ${screenshotsDir}`);
 
   const cmdArgs = ["-w", "review", "--", "--target", slug];
   const fullCommand = `pnpm ${cmdArgs.join(" ")}`;
@@ -710,14 +726,7 @@ async function executeReview(
     return;
   }
 
-  // Count screenshots
-  const screenshotsDir = join(
-    repoRoot,
-    "generated",
-    slug,
-    "artifacts",
-    "screenshots",
-  );
+  // Count screenshots (screenshotsDir declared at top of executeReview)
   let screenshotCount = 0;
   try {
     const files = await readdir(screenshotsDir);
@@ -747,10 +756,57 @@ async function executeReview(
     })
     .eq("id", job.id);
 
+  // Advance project status + record which revision was reviewed
+  const reviewRevisionId = (job.payload?.revision_id as string) ?? null;
   await db
     .from("projects")
-    .update({ status: "review_ready" })
+    .update({
+      status: "review_ready",
+      ...(reviewRevisionId ? { last_reviewed_revision_id: reviewRevisionId } : {}),
+    })
     .eq("id", project.id);
+
+  // Upload screenshots to Supabase storage + create asset records
+  try {
+    const screenshotFiles = readdirSync(screenshotsDir).filter((f) =>
+      f.endsWith(".png") || f.endsWith(".jpg") || f.endsWith(".jpeg"),
+    );
+
+    for (const file of screenshotFiles) {
+      const filePath = join(screenshotsDir, file);
+      const fileData = await readFile(filePath);
+      const storagePath = `${project.id}/${job.id}/${file}`;
+
+      const { error: uploadError } = await db.storage
+        .from("review-screenshots")
+        .upload(storagePath, fileData, {
+          contentType: file.endsWith(".png") ? "image/png" : "image/jpeg",
+          upsert: true,
+        });
+
+      if (uploadError) {
+        console.error(`[worker] Screenshot upload failed for ${file}:`, uploadError.message);
+        continue;
+      }
+
+      // Create asset record linked to project, job, and revision
+      await db.from("assets").insert({
+        project_id: project.id,
+        file_name: file,
+        file_type: file.endsWith(".png") ? "image/png" : "image/jpeg",
+        file_size: fileData.length,
+        storage_path: storagePath,
+        category: "image",
+        asset_type: "review_screenshot",
+        source_job_id: job.id,
+      });
+    }
+
+    console.log(`[worker] Uploaded ${screenshotFiles.length} screenshots to Supabase for ${slug}`);
+  } catch (err) {
+    console.error("[worker] Screenshot upload to Supabase failed:", err);
+    // Non-fatal — screenshots are still on disk
+  }
 
   await db.from("project_events").insert({
     project_id: project.id,
@@ -763,6 +819,7 @@ async function executeReview(
       screenshot_count: screenshotCount,
       validation,
       site_age: siteAge,
+      revision_id: reviewRevisionId,
     },
   });
 
