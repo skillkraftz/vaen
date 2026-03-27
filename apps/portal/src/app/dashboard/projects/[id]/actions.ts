@@ -1,13 +1,21 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
-import { processIntake } from "@/lib/intake-processor";
+import { processIntake, detectMissingInfo } from "@/lib/intake-processor";
 import { notifyDiscord } from "@/lib/discord";
 import { revalidatePath } from "next/cache";
 import { writeFile, mkdir, access, readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { spawn } from "node:child_process";
+import { spawn, execSync } from "node:child_process";
 import type { Project, Asset, JobRecord } from "@/lib/types";
+import {
+  REQUIRED_DRAFT_KEYS,
+  DRAFT_DEFAULTS,
+  deepMergeDraft,
+  deepSetServer,
+  validateDraftRequired,
+  ensureDraftDefaults,
+} from "@/lib/draft-helpers";
 
 // ── Process intake ───────────────────────────────────────────────────
 
@@ -265,8 +273,15 @@ export async function exportToGeneratorAction(projectId: string): Promise<{ erro
     return { error: "No draft client-request.json found. Process the intake first." };
   }
 
-  // Validate services exist before export
+  // Validate draft integrity before export
   const draft = p.draft_request as Record<string, unknown>;
+
+  // Ensure required fields exist (guard against past corruption)
+  const missingFields = REQUIRED_DRAFT_KEYS.filter((key) => !(key in draft));
+  if (missingFields.length > 0) {
+    return { error: `Cannot export: draft is missing required fields: ${missingFields.join(", ")}. Re-process the intake to fix.` };
+  }
+
   const services = Array.isArray(draft.services) ? draft.services : [];
   if (services.length === 0) {
     return { error: "Cannot export: services list is empty. Add services before exporting." };
@@ -341,8 +356,82 @@ export async function updateProjectAction(
   return {};
 }
 
-// ── Update draft request (services, content, etc.) ───────────────────
+// ── Draft request helpers ─────────────────────────────────────────────
+// Pure logic in @/lib/draft-helpers — imported at top of file.
 
+/**
+ * Load the current draft_request from DB, ensuring safe defaults.
+ */
+async function loadCurrentDraft(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  projectId: string,
+): Promise<{ draft: Record<string, unknown>; error?: string }> {
+  const { data: project, error } = await supabase
+    .from("projects")
+    .select("draft_request")
+    .eq("id", projectId)
+    .single();
+
+  if (error || !project) {
+    return { draft: { ...DRAFT_DEFAULTS }, error: error?.message ?? "Project not found" };
+  }
+
+  const existing = (project.draft_request as Record<string, unknown>) ?? {};
+  return { draft: ensureDraftDefaults(existing) };
+}
+
+// ── Patch a single field in draft request (MERGE-BASED) ──────────────
+
+/**
+ * Server-side merge for individual field edits.
+ * Loads current draft from DB, applies the patch at the given path,
+ * validates required fields, and saves the merged result.
+ *
+ * Returns the full merged draft so the client can update its state.
+ */
+export async function patchDraftFieldAction(
+  projectId: string,
+  path: string[],
+  value: unknown,
+): Promise<{ error?: string; merged?: Record<string, unknown> }> {
+  const supabase = await createClient();
+
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated" };
+
+  const { draft: current, error: loadError } = await loadCurrentDraft(supabase, projectId);
+  if (loadError) return { error: loadError };
+
+  // Apply patch
+  const merged = deepSetServer(current, path, value);
+
+  // Debug logging (temporary)
+  console.log(`[draft-patch] project=${projectId} path=${path.join(".")}`,
+    `\n  before keys: [${Object.keys(current).join(", ")}]`,
+    `\n  after keys:  [${Object.keys(merged).join(", ")}]`);
+
+  // Validate
+  const validationError = validateDraftRequired(merged);
+  if (validationError) return { error: validationError };
+
+  // Save
+  const { error: updateError } = await supabase
+    .from("projects")
+    .update({ draft_request: merged })
+    .eq("id", projectId);
+
+  if (updateError) return { error: updateError.message };
+
+  revalidatePath(`/dashboard/projects/${projectId}`);
+  return { merged };
+}
+
+// ── Replace full draft request (for raw JSON editor) ─────────────────
+
+/**
+ * Full replacement of draft_request (used by raw JSON editor).
+ * Merges with safe defaults and validates required fields before saving.
+ */
 export async function updateDraftRequestAction(
   projectId: string,
   draftRequest: Record<string, unknown>,
@@ -352,9 +441,26 @@ export async function updateDraftRequestAction(
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: "Not authenticated" };
 
+  // Load current to merge with (preserves fields not in the incoming object)
+  const { draft: current, error: loadError } = await loadCurrentDraft(supabase, projectId);
+  if (loadError) return { error: loadError };
+
+  // Merge: incoming overrides current, but current fills gaps
+  const merged = deepMergeDraft(current, draftRequest);
+
+  // Debug logging (temporary)
+  console.log(`[draft-replace] project=${projectId}`,
+    `\n  current keys: [${Object.keys(current).join(", ")}]`,
+    `\n  incoming keys: [${Object.keys(draftRequest).join(", ")}]`,
+    `\n  merged keys:  [${Object.keys(merged).join(", ")}]`);
+
+  // Validate
+  const validationError = validateDraftRequired(merged);
+  if (validationError) return { error: validationError };
+
   const { error: updateError } = await supabase
     .from("projects")
-    .update({ draft_request: draftRequest })
+    .update({ draft_request: merged })
     .eq("id", projectId);
 
   if (updateError) return { error: updateError.message };
@@ -418,10 +524,26 @@ export async function deleteAssetAction(
 
 /**
  * Spawn the worker process to execute a job.
- * Fire-and-forget: the worker reads the job from DB and updates it.
+ * Rebuilds worker + generator dist before spawning so the worker
+ * always runs the latest compiled code (prevents split-brain where
+ * TypeScript source is fixed but dist is stale).
  */
 function spawnWorker(jobId: string): void {
   const repoRoot = join(process.cwd(), "../..");
+
+  // Rebuild worker and generator to ensure compiled code matches source.
+  // Fast (~1-2s for tsc on small packages). Blocks the server action
+  // briefly, but guarantees the spawned process uses fresh code.
+  try {
+    execSync(
+      "pnpm --filter @vaen/worker --filter @vaen/generator build",
+      { cwd: repoRoot, stdio: "pipe", timeout: 30_000 },
+    );
+  } catch (err) {
+    // Log but don't fail — stale dist is better than no worker at all.
+    console.error("[portal] Pre-spawn build failed:", err instanceof Error ? err.message : err);
+  }
+
   const workerScript = join(repoRoot, "apps", "worker", "dist", "run-job.js");
 
   const child = spawn("node", [workerScript, jobId], {
@@ -482,14 +604,19 @@ export async function generateSiteAction(
     return { error: `client-request.json not found at generated/${p.slug}/. Run Export first.` };
   }
 
-  // Create job record
+  // Create job record with canonical paths for traceability
   const { data: job, error: insertErr } = await supabase
     .from("jobs")
     .insert({
       project_id: projectId,
       job_type: "generate",
       status: "pending",
-      payload: { triggered_by: user.id },
+      payload: {
+        triggered_by: user.id,
+        target_slug: p.slug,
+        input_path: `generated/${p.slug}/client-request.json`,
+        site_path: `generated/${p.slug}/site`,
+      },
     })
     .select("id")
     .single();
@@ -545,14 +672,18 @@ export async function runReviewAction(
     return { error: `Cannot run review in status "${p.status}". Generate site first.` };
   }
 
-  // Create job record
+  // Create job record with canonical paths for traceability
   const { data: job, error: insertErr } = await supabase
     .from("jobs")
     .insert({
       project_id: projectId,
       job_type: "review",
       status: "pending",
-      payload: { triggered_by: user.id },
+      payload: {
+        triggered_by: user.id,
+        target_slug: p.slug,
+        site_path: `generated/${p.slug}/site`,
+      },
     })
     .select("id")
     .single();
@@ -687,4 +818,319 @@ export async function getScreenshotAction(
   } catch {
     return { error: "Screenshot not found" };
   }
+}
+
+// ── Recovery: Re-export draft to disk from any status ────────────────
+
+/**
+ * Writes the current draft_request to generated/<slug>/client-request.json
+ * so the generator can pick it up. Works from ANY status.
+ *
+ * Unlike exportToGeneratorAction (which requires intake_approved and
+ * advances status to intake_parsed), this is a pure data-repair action:
+ * it validates the draft, writes to disk, and does NOT change status.
+ *
+ * Data flow:
+ *   READ:  projects.draft_request (Supabase)
+ *   WRITE: generated/<slug>/client-request.json (filesystem)
+ *   LOG:   project_events.re_exported (Supabase)
+ */
+export async function reExportAction(
+  projectId: string,
+): Promise<{ error?: string; path?: string }> {
+  const supabase = await createClient();
+
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated" };
+
+  const { data: project } = await supabase
+    .from("projects")
+    .select("*")
+    .eq("id", projectId)
+    .single();
+
+  if (!project) return { error: "Project not found" };
+
+  const p = project as Project;
+
+  if (!p.draft_request) {
+    return { error: "No draft request found. Re-process the intake first." };
+  }
+
+  const draft = p.draft_request as Record<string, unknown>;
+
+  // Validate draft integrity
+  const missingFields = REQUIRED_DRAFT_KEYS.filter((key) => !(key in draft));
+  if (missingFields.length > 0) {
+    return { error: `Cannot export: draft is missing required fields: ${missingFields.join(", ")}. Re-process the intake to fix.` };
+  }
+
+  const services = Array.isArray(draft.services) ? draft.services : [];
+  if (services.length === 0) {
+    return { error: "Cannot export: services list is empty. Add services before exporting." };
+  }
+
+  // Write to canonical target path
+  const repoRoot = join(process.cwd(), "../..");
+  const targetDir = join(repoRoot, "generated", p.slug);
+  const targetPath = join(targetDir, "client-request.json");
+
+  try {
+    await mkdir(targetDir, { recursive: true });
+    await writeFile(targetPath, JSON.stringify(draft, null, 2) + "\n", "utf-8");
+  } catch (err) {
+    return { error: `Failed to write client-request.json: ${err instanceof Error ? err.message : String(err)}` };
+  }
+
+  console.log(`[re-export] project=${projectId} slug=${p.slug} status=${p.status} path=${targetPath}`);
+
+  await supabase.from("project_events").insert({
+    project_id: projectId,
+    event_type: "re_exported",
+    from_status: p.status,
+    to_status: p.status,
+    metadata: {
+      output_path: targetPath,
+      triggered_by: user.id,
+      draft_keys: Object.keys(draft),
+      services_count: services.length,
+    },
+  });
+
+  revalidatePath(`/dashboard/projects/${projectId}`);
+  return { path: targetPath };
+}
+
+// ── Recovery: Re-process intake from any status ──────────────────────
+
+/**
+ * Re-runs intake processing on an existing project to repair corrupted
+ * or stale derived data (draft, missing-info, recommendations, summary).
+ *
+ * Works from ANY status. Does NOT change the project status.
+ * Fresh draft is merged with existing user edits (user edits win).
+ */
+export async function reprocessIntakeAction(
+  projectId: string,
+): Promise<{ error?: string }> {
+  const supabase = await createClient();
+
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated" };
+
+  const { data: project } = await supabase
+    .from("projects")
+    .select("*")
+    .eq("id", projectId)
+    .single();
+
+  if (!project) return { error: "Project not found" };
+
+  const p = project as Project;
+
+  const { data: assets } = await supabase
+    .from("assets")
+    .select("*")
+    .eq("project_id", projectId)
+    .order("created_at", { ascending: true });
+
+  const assetList = (assets ?? []) as Asset[];
+
+  // Run intake processing to get fresh derived data
+  const result = processIntake(p, assetList);
+
+  // Merge: fresh draft as base, existing user edits override
+  const existingDraft = (p.draft_request as Record<string, unknown>) ?? {};
+  const merged = deepMergeDraft(result.draftRequest, existingDraft);
+
+  // Ensure safe defaults are present
+  const finalDraft = ensureDraftDefaults(merged);
+
+  console.log(`[reprocess] project=${projectId} status=${p.status}`,
+    `\n  fresh keys: [${Object.keys(result.draftRequest).join(", ")}]`,
+    `\n  existing keys: [${Object.keys(existingDraft).join(", ")}]`,
+    `\n  merged keys: [${Object.keys(finalDraft).join(", ")}]`);
+
+  const { error: updateError } = await supabase
+    .from("projects")
+    .update({
+      // Do NOT change status — this is a data repair
+      client_summary: result.clientSummary,
+      draft_request: finalDraft,
+      missing_info: result.missingInfo,
+      recommendations: result.recommendations,
+    })
+    .eq("id", projectId);
+
+  if (updateError) return { error: updateError.message };
+
+  await supabase.from("project_events").insert({
+    project_id: projectId,
+    event_type: "intake_reprocessed",
+    from_status: p.status,
+    to_status: p.status,
+    metadata: {
+      triggered_by: user.id,
+      reason: "manual recovery",
+      merged_keys: Object.keys(finalDraft),
+      services_count: Array.isArray(finalDraft.services) ? (finalDraft.services as unknown[]).length : 0,
+    },
+  });
+
+  revalidatePath(`/dashboard/projects/${projectId}`);
+  return {};
+}
+
+// ── Recovery: Reset status to draft ready ────────────────────────────
+
+/**
+ * Resets the project status to intake_draft_ready so the user can
+ * re-approve and re-export. Useful for stuck projects.
+ */
+export async function resetToDraftAction(
+  projectId: string,
+): Promise<{ error?: string }> {
+  const supabase = await createClient();
+
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated" };
+
+  const { data: project } = await supabase
+    .from("projects")
+    .select("status")
+    .eq("id", projectId)
+    .single();
+
+  if (!project) return { error: "Project not found" };
+
+  const { error: updateError } = await supabase
+    .from("projects")
+    .update({ status: "intake_draft_ready" })
+    .eq("id", projectId);
+
+  if (updateError) return { error: updateError.message };
+
+  await supabase.from("project_events").insert({
+    project_id: projectId,
+    event_type: "status_reset",
+    from_status: project.status,
+    to_status: "intake_draft_ready",
+    metadata: { triggered_by: user.id, reason: "manual reset to draft" },
+  });
+
+  revalidatePath(`/dashboard/projects/${projectId}`);
+  return {};
+}
+
+// ── Project diagnostics ──────────────────────────────────────────────
+
+export interface ProjectDiagnostics {
+  draft: {
+    exists: boolean;
+    hasVersion: boolean;
+    hasBusiness: boolean;
+    hasContact: boolean;
+    hasServices: boolean;
+    servicesCount: number;
+    topLevelKeys: string[];
+  };
+  files: {
+    hasExportedRequest: boolean;
+    hasWorkspace: boolean;
+    hasBuild: boolean;
+    hasScreenshots: boolean;
+    screenshotCount: number;
+  };
+  jobs: {
+    lastGenerate: { id: string; status: string; completedAt: string | null } | null;
+    lastReview: { id: string; status: string; completedAt: string | null } | null;
+  };
+  timestamps: {
+    lastProcessedAt: string | null;
+    lastExportedAt: string | null;
+  };
+  liveMissingInfo: Array<{ field: string; label: string; severity: string; hint?: string }>;
+}
+
+export async function getProjectDiagnosticsAction(
+  projectId: string,
+  slug: string,
+): Promise<ProjectDiagnostics> {
+  const supabase = await createClient();
+
+  // Load project + assets in parallel
+  const [
+    { data: project },
+    { data: assets },
+    { data: events },
+    { data: jobs },
+  ] = await Promise.all([
+    supabase.from("projects").select("*").eq("id", projectId).single(),
+    supabase.from("assets").select("*").eq("project_id", projectId).order("created_at", { ascending: true }),
+    supabase.from("project_events").select("*").eq("project_id", projectId).order("created_at", { ascending: false }),
+    supabase.from("jobs").select("*").eq("project_id", projectId).order("created_at", { ascending: false }).limit(20),
+  ]);
+
+  const p = project as Project | null;
+  const assetList = (assets ?? []) as Asset[];
+  const eventList = (events ?? []) as Array<{ event_type: string; created_at: string }>;
+  const jobList = (jobs ?? []) as JobRecord[];
+
+  // Draft diagnostics
+  const draftObj = (p?.draft_request as Record<string, unknown>) ?? null;
+  const draftDiag = {
+    exists: draftObj !== null,
+    hasVersion: !!(draftObj?.version),
+    hasBusiness: !!(draftObj?.business),
+    hasContact: !!(draftObj?.contact),
+    hasServices: Array.isArray(draftObj?.services) && (draftObj.services as unknown[]).length > 0,
+    servicesCount: Array.isArray(draftObj?.services) ? (draftObj.services as unknown[]).length : 0,
+    topLevelKeys: draftObj ? Object.keys(draftObj) : [],
+  };
+
+  // File diagnostics (check disk)
+  const repoRoot = join(process.cwd(), "../..");
+  const fileDiag = {
+    hasExportedRequest: false,
+    hasWorkspace: false,
+    hasBuild: false,
+    hasScreenshots: false,
+    screenshotCount: 0,
+  };
+
+  try { await access(join(repoRoot, "generated", slug, "client-request.json")); fileDiag.hasExportedRequest = true; } catch { /* noop */ }
+  try { await access(join(repoRoot, "generated", slug, "site", "config.json")); fileDiag.hasWorkspace = true; } catch { /* noop */ }
+  try { await access(join(repoRoot, "generated", slug, "site", ".next")); fileDiag.hasBuild = true; } catch { /* noop */ }
+  try {
+    const dir = join(repoRoot, "generated", slug, "artifacts", "screenshots");
+    const files = await readdir(dir);
+    const pngs = files.filter((f: string) => f.endsWith(".png"));
+    fileDiag.hasScreenshots = pngs.length > 0;
+    fileDiag.screenshotCount = pngs.length;
+  } catch { /* noop */ }
+
+  // Job diagnostics
+  const lastGenerate = jobList.find((j) => j.job_type === "generate") ?? null;
+  const lastReview = jobList.find((j) => j.job_type === "review") ?? null;
+
+  // Timestamp diagnostics
+  const lastProcessedEvent = eventList.find((e) => e.event_type === "intake_processed" || e.event_type === "intake_reprocessed");
+  const lastExportedEvent = eventList.find((e) => e.event_type === "exported_to_generator");
+
+  // Live missing info (recomputed from current state)
+  const liveMissing = p ? detectMissingInfo(p, assetList) : [];
+
+  return {
+    draft: draftDiag,
+    files: fileDiag,
+    jobs: {
+      lastGenerate: lastGenerate ? { id: lastGenerate.id, status: lastGenerate.status, completedAt: lastGenerate.completed_at } : null,
+      lastReview: lastReview ? { id: lastReview.id, status: lastReview.status, completedAt: lastReview.completed_at } : null,
+    },
+    timestamps: {
+      lastProcessedAt: lastProcessedEvent?.created_at ?? null,
+      lastExportedAt: lastExportedEvent?.created_at ?? null,
+    },
+    liveMissingInfo: liveMissing,
+  };
 }

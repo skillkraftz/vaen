@@ -8,6 +8,7 @@ import type {
   MissingInfoItem,
   IntakeRecommendations,
 } from "@/lib/types";
+import { detectMissingInfo } from "@/lib/intake-processor";
 import { WorkflowPanel } from "./intake-actions";
 import {
   BuildInputsEditor,
@@ -89,7 +90,8 @@ export default async function ProjectDetailPage({
 
   const assetList = (assets ?? []) as Asset[];
   const eventList = (events ?? []) as ProjectEvent[];
-  const missingInfo = (p.missing_info ?? []) as MissingInfoItem[];
+  // Compute missing info live from current project + assets (not stale DB cache)
+  const missingInfo = detectMissingInfo(p, assetList);
   const recommendations = p.recommendations as IntakeRecommendations | null;
   const draftRequest = (p.draft_request ?? null) as Record<
     string,

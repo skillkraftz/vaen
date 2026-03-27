@@ -263,7 +263,7 @@ function inferServicesFromBusinessType(businessType: string | null): Array<{ nam
 
 // ── F. Missing info detection ────────────────────────────────────────
 
-function detectMissingInfo(project: Project, assets: Asset[]): MissingInfoItem[] {
+export function detectMissingInfo(project: Project, assets: Asset[]): MissingInfoItem[] {
   const items: MissingInfoItem[] = [];
 
   // Required fields

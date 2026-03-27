@@ -91,33 +91,64 @@ else
 fi
 rm -f "$BUILD_LOG"
 
-# Step 4: Start the site in background
+# Step 4: Kill any stale server on PORT, then start the site
 echo "4. Starting site on port $PORT..."
+
+# Kill any process already holding this port (stale from a previous run)
+STALE_PID=$(lsof -ti :"$PORT" 2>/dev/null || true)
+if [ -n "$STALE_PID" ]; then
+  echo "   ⚠ Killing stale process on port $PORT (PID $STALE_PID)"
+  kill "$STALE_PID" 2>/dev/null || true
+  sleep 1
+  # Force-kill if still alive
+  if kill -0 "$STALE_PID" 2>/dev/null; then
+    kill -9 "$STALE_PID" 2>/dev/null || true
+    sleep 1
+  fi
+fi
+
+SERVER_LOG=$(mktemp)
 cd "$SITE_DIR"
-npx next start -p "$PORT" > /dev/null 2>&1 &
+npx next start -p "$PORT" > "$SERVER_LOG" 2>&1 &
 SERVER_PID=$!
 cd - > /dev/null
 
 cleanup() {
-  if [ -n "$SERVER_PID" ] && kill -0 "$SERVER_PID" 2>/dev/null; then
+  if [ -n "${SERVER_PID:-}" ] && kill -0 "$SERVER_PID" 2>/dev/null; then
     kill "$SERVER_PID" 2>/dev/null
     wait "$SERVER_PID" 2>/dev/null || true
   fi
+  rm -f "${SERVER_LOG:-}"
 }
 trap cleanup EXIT
 
-echo "   Waiting for server..."
+echo "   Waiting for server (PID $SERVER_PID)..."
 for i in $(seq 1 30); do
+  # Check the server process is still alive (detect EADDRINUSE or crash)
+  if ! kill -0 "$SERVER_PID" 2>/dev/null; then
+    echo "   ✗ Server process exited unexpectedly"
+    echo "── Server log ──"
+    cat "$SERVER_LOG"
+    echo "────────────────"
+    exit 1
+  fi
   if curl -s -o /dev/null "http://localhost:$PORT/" 2>/dev/null; then
-    echo "   ✓ Server ready"
+    echo "   ✓ Server ready (PID $SERVER_PID)"
     break
   fi
   if [ "$i" -eq 30 ]; then
     echo "   ✗ Server did not start within 30 seconds"
+    echo "── Server log ──"
+    cat "$SERVER_LOG"
+    echo "────────────────"
     exit 1
   fi
   sleep 1
 done
+
+# Verify we're serving the correct site by checking the page title
+SERVED_TITLE=$(curl -s "http://localhost:$PORT/" | grep -oP '<title>\K[^<]+' || echo "unknown")
+echo "   Served title: $SERVED_TITLE"
 
 # Step 5: Capture screenshots
 echo "5. Capturing screenshots..."

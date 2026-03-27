@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import {
   updateProjectAction,
   updateDraftRequestAction,
+  patchDraftFieldAction,
   deleteAssetAction,
   getAssetUrlAction,
 } from "./actions";
@@ -274,9 +275,12 @@ export function BuildInputsEditor({
     path: string[],
     value: unknown,
   ): Promise<{ error?: string }> {
-    const updated = deepSet(draft, path, value);
-    const result = await updateDraftRequestAction(projectId, updated);
-    if (!result.error) setDraft(updated);
+    // Server-side merge: send only the path + value, server loads current DB state and merges
+    const result = await patchDraftFieldAction(projectId, path, value);
+    if (!result.error && result.merged) {
+      // Update local state with the full merged object from the server
+      setDraft(result.merged);
+    }
     return result;
   }
 
@@ -669,12 +673,22 @@ export function DraftRequestEditor({
       setError("Invalid JSON");
       return;
     }
+    // Client-side pre-validation: warn if required fields are missing
+    const requiredKeys = ["version", "business", "contact"];
+    const missing = requiredKeys.filter((k) => !(k in parsed));
+    if (missing.length > 0) {
+      setError(
+        `Missing required fields: ${missing.join(", ")}. These are needed for generation. The server will attempt to restore defaults, but you should include them.`,
+      );
+      // Don't block save — the server-side merge will fill in defaults
+    }
     startTransition(async () => {
       const result = await updateDraftRequestAction(projectId, parsed);
       if (result.error) {
         setError(result.error);
       } else {
         setEditing(false);
+        setError(null);
       }
     });
   }

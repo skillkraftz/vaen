@@ -30,11 +30,16 @@ export async function generateSite(
     manifest.template.id
   );
 
-  // Copy template to output
-  // Clean stale .next cache from any previous build (prevents build errors on re-generation)
-  const staleNext = join(siteDir, ".next");
-  if (existsSync(staleNext)) {
-    await rm(staleNext, { recursive: true });
+  // Clean previous site source files before copying template.
+  // Preserves node_modules (expensive to reinstall) but removes everything
+  // else so stale files from a prior generation cannot persist.
+  if (existsSync(siteDir)) {
+    const existing = await readdir(siteDir, { withFileTypes: true });
+    await Promise.all(
+      existing
+        .filter((e) => e.name !== "node_modules")
+        .map((e) => rm(join(siteDir, e.name), { recursive: true })),
+    );
   }
   await mkdir(siteDir, { recursive: true });
   await cp(templateSource, siteDir, {

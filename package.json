@@ -9,10 +9,14 @@
     "lint": "pnpm -r lint",
     "generate": "node packages/generator/dist/cli.js",
     "review": "bash scripts/review.sh",
-    "worker:run-job": "node apps/worker/dist/run-job.js"
+    "worker:run-job": "node apps/worker/dist/run-job.js",
+    "test": "pnpm -r test"
   },
   "engines": {
     "node": ">=18",
     "pnpm": ">=9"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.2"
   }
 }

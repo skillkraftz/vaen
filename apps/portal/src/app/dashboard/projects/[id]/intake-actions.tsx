@@ -13,7 +13,12 @@ import {
   getProjectJobsAction,
   getJobStatusAction,
   getScreenshotAction,
+  reprocessIntakeAction,
+  reExportAction,
+  resetToDraftAction,
+  getProjectDiagnosticsAction,
 } from "./actions";
+import type { ProjectDiagnostics } from "./actions";
 import type { JobRecord } from "@/lib/types";
 
 // ── Types ─────────────────────────────────────────────────────────────
@@ -205,6 +210,22 @@ export function WorkflowPanel({ projectId, slug, status }: WorkflowPanelProps) {
       {/* Screenshot viewer */}
       <ScreenshotViewer slug={slug} />
 
+      {/* Recovery (always visible) */}
+      <ActionSection label="Recovery">
+        <ReprocessBtn projectId={projectId} />
+        <ReExportBtn projectId={projectId} />
+        <ResetToDraftBtn projectId={projectId} />
+        {canGenerate && (
+          <GenerateBtn projectId={projectId} onDispatched={refreshJobs} />
+        )}
+        {canReview && (
+          <ReviewBtn projectId={projectId} onDispatched={refreshJobs} />
+        )}
+      </ActionSection>
+
+      {/* Diagnostics */}
+      <DiagnosticsPanel projectId={projectId} slug={slug} />
+
       {/* Deploy placeholder */}
       {(phase === "deploy" || phase === "done") && (
         <ActionSection label="Deploy">
@@ -335,6 +356,11 @@ function formatJobTime(job: JobRecord): string {
 
 function JobDetails({ job }: { job: JobRecord }) {
   const [showLogs, setShowLogs] = useState(false);
+  /* eslint-disable @typescript-eslint/no-explicit-any */
+  const result = job.result as any;
+  const payload = job.payload as any;
+  const execution = payload?.execution as any;
+  const validation = result?.validation as any;
 
   return (
     <div
@@ -348,21 +374,92 @@ function JobDetails({ job }: { job: JobRecord }) {
       }}
     >
       {/* Result message */}
-      {job.result && (
+      {result && (
         <p
           style={{
-            color: job.result.success
+            color: (result.success as boolean)
               ? "var(--color-success)"
               : "var(--color-error)",
             marginBottom: "0.35rem",
           }}
         >
-          {job.result.message}
+          {result.message as string}
         </p>
       )}
 
+      {/* Execution details */}
+      {execution && (
+        <div
+          style={{
+            fontSize: "0.7rem",
+            marginBottom: "0.35rem",
+            padding: "0.35rem",
+            background: "#f0f0f0",
+            borderRadius: "3px",
+            fontFamily: "monospace",
+          }}
+        >
+          {execution.command && (
+            <div>cmd: {execution.command as string}</div>
+          )}
+          {execution.site_path && (
+            <div>site: {execution.site_path as string}</div>
+          )}
+          {execution.site_age && (
+            <div>age: {execution.site_age as string}</div>
+          )}
+          {execution.generation_job_id && (
+            <div>gen job: {(execution.generation_job_id as string).slice(0, 8)}...</div>
+          )}
+          {result?.files_written != null && (
+            <div>
+              files: {result.files_written as number} written
+              {(result.files_removed as number) > 0 && `, ${result.files_removed} removed`}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Validation results */}
+      {validation && (
+        <div
+          style={{
+            fontSize: "0.7rem",
+            marginBottom: "0.35rem",
+            padding: "0.35rem",
+            background: validation.valid ? "#d1fae5" : "#fce4ec",
+            borderRadius: "3px",
+          }}
+        >
+          <strong>Validation: {validation.valid ? "PASS" : "FAIL"}</strong>
+          {validation.checks && (
+            <div style={{ marginTop: "0.2rem" }}>
+              {Object.entries(validation.checks).map(([check, passed]) => (
+                <span
+                  key={check}
+                  style={{
+                    display: "inline-block",
+                    marginRight: "0.5rem",
+                    color: passed ? "#065f46" : "#b71c1c",
+                  }}
+                >
+                  {passed ? "\u2713" : "\u2717"} {check.replace(/_/g, " ")}
+                </span>
+              ))}
+            </div>
+          )}
+          {validation.errors && validation.errors.length > 0 && (
+            <div style={{ marginTop: "0.2rem", color: "#b71c1c" }}>
+              {(validation.errors as string[]).map((e: string, i: number) => (
+                <div key={i}>{e}</div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Error detail */}
-      {job.result?.error && (
+      {result?.error && (
         <pre
           style={{
             fontSize: "0.7rem",
@@ -374,7 +471,7 @@ function JobDetails({ job }: { job: JobRecord }) {
             marginBottom: "0.35rem",
           }}
         >
-          {job.result.error}
+          {result.error as string}
         </pre>
       )}
 
@@ -971,6 +1068,282 @@ function ReviewBtn({
       success={result}
       primary
     />
+  );
+}
+
+// ── Recovery buttons ──────────────────────────────────────────────────
+
+function ReprocessBtn({ projectId }: { projectId: string }) {
+  const [isPending, startTransition] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+
+  function handleClick() {
+    setError(null);
+    setSuccess(null);
+    startTransition(async () => {
+      const result = await reprocessIntakeAction(projectId);
+      if (result.error) setError(result.error);
+      else setSuccess("Intake re-processed. Draft, summary, and recommendations updated.");
+    });
+  }
+
+  return (
+    <ActionButton
+      label="Re-process Intake"
+      pendingLabel="Processing..."
+      isPending={isPending}
+      onClick={handleClick}
+      error={error}
+      success={success}
+    />
+  );
+}
+
+function ReExportBtn({ projectId }: { projectId: string }) {
+  const [isPending, startTransition] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+
+  function handleClick() {
+    setError(null);
+    setSuccess(null);
+    startTransition(async () => {
+      const result = await reExportAction(projectId);
+      if (result.error) setError(result.error);
+      else setSuccess(`Exported to ${result.path}`);
+    });
+  }
+
+  return (
+    <ActionButton
+      label="Re-export to Disk"
+      pendingLabel="Exporting..."
+      isPending={isPending}
+      onClick={handleClick}
+      error={error}
+      success={success}
+    />
+  );
+}
+
+function ResetToDraftBtn({ projectId }: { projectId: string }) {
+  const [isPending, startTransition] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+  const [confirm, setConfirm] = useState(false);
+
+  function handleClick() {
+    if (!confirm) {
+      setConfirm(true);
+      return;
+    }
+    setError(null);
+    setConfirm(false);
+    startTransition(async () => {
+      const result = await resetToDraftAction(projectId);
+      if (result.error) setError(result.error);
+    });
+  }
+
+  return (
+    <div>
+      <button
+        className="btn btn-sm"
+        onClick={handleClick}
+        disabled={isPending}
+        style={confirm ? { background: "#fef3c7", borderColor: "#f59e0b" } : undefined}
+      >
+        {isPending ? "Resetting..." : confirm ? "Click again to confirm reset" : "Reset to Draft"}
+      </button>
+      {error && (
+        <p className="text-sm" style={{ color: "var(--color-error)", marginTop: "0.35rem" }}>
+          {error}
+        </p>
+      )}
+    </div>
+  );
+}
+
+// ── Diagnostics panel ────────────────────────────────────────────────
+
+function DiagnosticsPanel({ projectId, slug }: { projectId: string; slug: string }) {
+  const [open, setOpen] = useState(false);
+  const [diag, setDiag] = useState<ProjectDiagnostics | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  async function load() {
+    if (!open) {
+      setOpen(true);
+      setLoading(true);
+      const result = await getProjectDiagnosticsAction(projectId, slug);
+      setDiag(result);
+      setLoading(false);
+    } else {
+      setOpen(false);
+    }
+  }
+
+  async function refresh() {
+    setLoading(true);
+    const result = await getProjectDiagnosticsAction(projectId, slug);
+    setDiag(result);
+    setLoading(false);
+  }
+
+  return (
+    <div style={{ borderBottom: "1px solid var(--color-border)" }}>
+      <div
+        style={{
+          padding: "0.75rem 1.25rem",
+          cursor: "pointer",
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+        }}
+        onClick={load}
+      >
+        <span
+          className="text-sm"
+          style={{
+            color: "var(--color-text-muted)",
+            fontWeight: 500,
+            fontSize: "0.75rem",
+            textTransform: "uppercase",
+            letterSpacing: "0.05em",
+          }}
+        >
+          Diagnostics {open ? "▾" : "▸"}
+        </span>
+        {open && (
+          <button
+            className="btn btn-sm"
+            style={{ fontSize: "0.65rem", padding: "0.1rem 0.4rem" }}
+            onClick={(e) => { e.stopPropagation(); refresh(); }}
+          >
+            {loading ? "Loading..." : "Refresh"}
+          </button>
+        )}
+      </div>
+
+      {open && diag && (
+        <div
+          style={{
+            padding: "0 1.25rem 1rem",
+            fontSize: "0.8rem",
+            display: "flex",
+            flexDirection: "column",
+            gap: "0.75rem",
+          }}
+        >
+          {/* Draft status */}
+          <DiagSection title="Draft Request">
+            <DiagRow label="Exists" ok={diag.draft.exists} />
+            <DiagRow label="version" ok={diag.draft.hasVersion} />
+            <DiagRow label="business" ok={diag.draft.hasBusiness} />
+            <DiagRow label="contact" ok={diag.draft.hasContact} />
+            <DiagRow label={`services (${diag.draft.servicesCount})`} ok={diag.draft.hasServices} />
+            <p className="text-mono" style={{ fontSize: "0.7rem", color: "var(--color-text-muted)" }}>
+              Keys: {diag.draft.topLevelKeys.join(", ") || "none"}
+            </p>
+          </DiagSection>
+
+          {/* File status */}
+          <DiagSection title="Files on Disk">
+            <DiagRow label="client-request.json (exported)" ok={diag.files.hasExportedRequest} />
+            <DiagRow label="Generated workspace" ok={diag.files.hasWorkspace} />
+            <DiagRow label="Site build (.next)" ok={diag.files.hasBuild} />
+            <DiagRow label={`Screenshots (${diag.files.screenshotCount})`} ok={diag.files.hasScreenshots} />
+          </DiagSection>
+
+          {/* Jobs */}
+          <DiagSection title="Last Jobs">
+            {diag.jobs.lastGenerate ? (
+              <p className="text-sm">
+                Generate: <JobStatusBadge status={diag.jobs.lastGenerate.status as JobRecord["status"]} />
+                <span className="text-mono" style={{ fontSize: "0.65rem", marginLeft: "0.35rem" }}>
+                  {diag.jobs.lastGenerate.id.slice(0, 8)}
+                </span>
+              </p>
+            ) : (
+              <p className="text-sm text-muted">No generate jobs</p>
+            )}
+            {diag.jobs.lastReview ? (
+              <p className="text-sm">
+                Review: <JobStatusBadge status={diag.jobs.lastReview.status as JobRecord["status"]} />
+                <span className="text-mono" style={{ fontSize: "0.65rem", marginLeft: "0.35rem" }}>
+                  {diag.jobs.lastReview.id.slice(0, 8)}
+                </span>
+              </p>
+            ) : (
+              <p className="text-sm text-muted">No review jobs</p>
+            )}
+          </DiagSection>
+
+          {/* Timestamps */}
+          <DiagSection title="Timestamps">
+            <p className="text-sm">
+              Last processed: {diag.timestamps.lastProcessedAt
+                ? new Date(diag.timestamps.lastProcessedAt).toLocaleString()
+                : "never"}
+            </p>
+            <p className="text-sm">
+              Last exported: {diag.timestamps.lastExportedAt
+                ? new Date(diag.timestamps.lastExportedAt).toLocaleString()
+                : "never"}
+            </p>
+          </DiagSection>
+
+          {/* Live missing info */}
+          <DiagSection title={`Live Missing Info (${diag.liveMissingInfo.length})`}>
+            {diag.liveMissingInfo.length === 0 ? (
+              <p className="text-sm text-muted">All clear</p>
+            ) : (
+              diag.liveMissingInfo.map((item, i) => (
+                <p key={i} className="text-sm">
+                  <span style={{
+                    color: item.severity === "required" ? "var(--color-error)"
+                      : item.severity === "recommended" ? "#b45309"
+                      : "var(--color-text-muted)",
+                    fontWeight: 500,
+                  }}>
+                    [{item.severity}]
+                  </span>
+                  {" "}{item.label}
+                  {item.hint && <span className="text-muted"> — {item.hint}</span>}
+                </p>
+              ))
+            )}
+          </DiagSection>
+        </div>
+      )}
+
+      {open && loading && !diag && (
+        <div style={{ padding: "0 1.25rem 1rem" }}>
+          <span className="text-sm text-muted">Loading diagnostics...</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function DiagSection({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <p style={{ fontWeight: 600, fontSize: "0.75rem", marginBottom: "0.25rem" }}>
+        {title}
+      </p>
+      <div style={{ display: "flex", flexDirection: "column", gap: "0.15rem", paddingLeft: "0.5rem" }}>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function DiagRow({ label, ok }: { label: string; ok: boolean }) {
+  return (
+    <p className="text-sm" style={{ color: ok ? "var(--color-success)" : "var(--color-text-muted)" }}>
+      {ok ? "[ok]" : "[--]"} {label}
+    </p>
   );
 }
 
