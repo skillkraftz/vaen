@@ -269,22 +269,26 @@ export async function exportToGeneratorAction(projectId: string): Promise<{ erro
     return { error: `Can only export approved intakes. Current status: "${p.status}"` };
   }
 
-  if (!p.draft_request) {
-    return { error: "No draft client-request.json found. Process the intake first." };
+  // Prefer final_request (AI-improved) over draft_request
+  const requestSource = (p as unknown as Record<string, unknown>).final_request ?? p.draft_request;
+  const requestLabel = (p as unknown as Record<string, unknown>).final_request ? "final" : "draft";
+
+  if (!requestSource) {
+    return { error: "No client-request.json found. Process the intake first." };
   }
 
-  // Validate draft integrity before export
-  const draft = p.draft_request as Record<string, unknown>;
+  // Validate integrity before export
+  const draft = requestSource as Record<string, unknown>;
 
   // Ensure required fields exist (guard against past corruption)
   const missingFields = REQUIRED_DRAFT_KEYS.filter((key) => !(key in draft));
   if (missingFields.length > 0) {
-    return { error: `Cannot export: draft is missing required fields: ${missingFields.join(", ")}. Re-process the intake to fix.` };
+    return { error: `Cannot export: ${requestLabel} request is missing required fields: ${missingFields.join(", ")}. Re-process the intake to fix.` };
   }
 
   const services = Array.isArray(draft.services) ? draft.services : [];
   if (services.length === 0) {
-    return { error: "Cannot export: services list is empty. Add services before exporting." };
+    return { error: `Cannot export: services list is empty. Add services before exporting.` };
   }
 
   // Write client-request.json to the canonical target path
@@ -315,6 +319,7 @@ export async function exportToGeneratorAction(projectId: string): Promise<{ erro
     metadata: {
       output_path: targetPath,
       exported_by: user.id,
+      request_source: requestLabel,
     },
   });
 
@@ -1132,5 +1137,217 @@ export async function getProjectDiagnosticsAction(
       lastExportedAt: lastExportedEvent?.created_at ?? null,
     },
     liveMissingInfo: liveMissing,
+  };
+}
+
+// ── Phase 3B: Export prompt.txt ──────────────────────────────────────
+
+/**
+ * Generate and write prompt.txt — a single artifact containing everything
+ * needed for Codex/OpenClaw to produce a polished client-request.json.
+ *
+ * Writes to: generated/<slug>/artifacts/prompt.txt
+ */
+export async function exportPromptAction(
+  projectId: string,
+): Promise<{ error?: string; path?: string; content?: string }> {
+  const supabase = await createClient();
+
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated" };
+
+  const { data: project } = await supabase
+    .from("projects")
+    .select("*")
+    .eq("id", projectId)
+    .single();
+
+  if (!project) return { error: "Project not found" };
+
+  const p = project as Project;
+
+  if (!p.draft_request) {
+    return { error: "No draft request found. Process the intake first." };
+  }
+
+  const draft = p.draft_request as Record<string, unknown>;
+
+  // Validate draft has minimum required fields
+  const missingFields = REQUIRED_DRAFT_KEYS.filter((key) => !(key in draft));
+  if (missingFields.length > 0) {
+    return { error: `Cannot export prompt: draft is missing required fields: ${missingFields.join(", ")}` };
+  }
+
+  // Generate the prompt
+  const { generatePrompt } = await import("@/lib/generate-prompt");
+
+  const promptContent = generatePrompt({
+    project: {
+      name: p.name,
+      slug: p.slug,
+      businessType: p.business_type,
+      contactName: p.contact_name,
+      contactEmail: p.contact_email,
+      contactPhone: p.contact_phone,
+      notes: p.notes,
+    },
+    draftRequest: draft,
+    recommendations: p.recommendations as {
+      template: { id: string; name: string; reasoning: string };
+      modules: Array<{ id: string; name: string; reasoning: string }>;
+    } | null,
+    clientSummary: p.client_summary,
+    missingInfo: p.missing_info as Array<{ field: string; severity: string; hint: string }> | null,
+  });
+
+  // Write prompt.txt to artifacts dir
+  const repoRoot = join(process.cwd(), "../..");
+  const artifactsDir = join(repoRoot, "generated", p.slug, "artifacts");
+  const promptPath = join(artifactsDir, "prompt.txt");
+
+  try {
+    await mkdir(artifactsDir, { recursive: true });
+    await writeFile(promptPath, promptContent, "utf-8");
+  } catch (err) {
+    return { error: `Failed to write prompt.txt: ${err instanceof Error ? err.message : String(err)}` };
+  }
+
+  await supabase.from("project_events").insert({
+    project_id: projectId,
+    event_type: "prompt_exported",
+    from_status: p.status,
+    to_status: p.status,
+    metadata: {
+      output_path: promptPath,
+      triggered_by: user.id,
+      prompt_length: promptContent.length,
+    },
+  });
+
+  revalidatePath(`/dashboard/projects/${projectId}`);
+  return { path: promptPath, content: promptContent };
+}
+
+// ── Phase 3B: Import final client-request.json ──────────────────────
+
+/**
+ * Import an AI-improved client-request.json as the canonical generation input.
+ * Validates against the schema, stores in DB as final_request, and writes
+ * to disk so the generator can use it.
+ */
+export async function importFinalRequestAction(
+  projectId: string,
+  jsonContent: string,
+): Promise<{ error?: string; validationErrors?: string[] }> {
+  const supabase = await createClient();
+
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated" };
+
+  const { data: project } = await supabase
+    .from("projects")
+    .select("*")
+    .eq("id", projectId)
+    .single();
+
+  if (!project) return { error: "Project not found" };
+
+  const p = project as Project;
+
+  // Parse the JSON
+  let parsed: Record<string, unknown>;
+  try {
+    parsed = JSON.parse(jsonContent);
+  } catch (err) {
+    return { error: `Invalid JSON: ${err instanceof Error ? err.message : String(err)}` };
+  }
+
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    return { error: "Expected a JSON object, not an array or primitive." };
+  }
+
+  // Validate required structure
+  const errors: string[] = [];
+  if (parsed.version !== "1.0.0") {
+    errors.push(`version must be "1.0.0", got "${parsed.version ?? "missing"}"`);
+  }
+  if (!parsed.business || typeof parsed.business !== "object") {
+    errors.push("missing required field: business");
+  } else {
+    const biz = parsed.business as Record<string, unknown>;
+    if (!biz.name) errors.push("missing required field: business.name");
+    if (!biz.type) errors.push("missing required field: business.type");
+  }
+  if (!parsed.contact || typeof parsed.contact !== "object") {
+    errors.push("missing required field: contact");
+  }
+  if (!Array.isArray(parsed.services)) {
+    errors.push("missing required field: services (must be an array)");
+  } else if (parsed.services.length === 0) {
+    errors.push("services array must not be empty");
+  }
+
+  if (errors.length > 0) {
+    return { error: "Validation failed", validationErrors: errors };
+  }
+
+  // Store in DB as final_request
+  const { error: updateError } = await supabase
+    .from("projects")
+    .update({ final_request: parsed })
+    .eq("id", projectId);
+
+  if (updateError) return { error: updateError.message };
+
+  // Also write to disk as the canonical client-request.json for the generator
+  const repoRoot = join(process.cwd(), "../..");
+  const targetDir = join(repoRoot, "generated", p.slug);
+  const targetPath = join(targetDir, "client-request.json");
+
+  try {
+    await mkdir(targetDir, { recursive: true });
+    await writeFile(targetPath, JSON.stringify(parsed, null, 2) + "\n", "utf-8");
+  } catch (err) {
+    return { error: `Saved to DB but failed to write to disk: ${err instanceof Error ? err.message : String(err)}` };
+  }
+
+  await supabase.from("project_events").insert({
+    project_id: projectId,
+    event_type: "final_request_imported",
+    from_status: p.status,
+    to_status: p.status,
+    metadata: {
+      triggered_by: user.id,
+      output_path: targetPath,
+      services_count: (parsed.services as unknown[]).length,
+    },
+  });
+
+  revalidatePath(`/dashboard/projects/${projectId}`);
+  return {};
+}
+
+// ── Phase 3B: Check which request source is canonical ────────────────
+
+export async function getRequestSourceAction(
+  projectId: string,
+): Promise<{ source: "final" | "draft" | "none"; hasFinal: boolean; hasDraft: boolean }> {
+  const supabase = await createClient();
+
+  const { data: project } = await supabase
+    .from("projects")
+    .select("draft_request, final_request")
+    .eq("id", projectId)
+    .single();
+
+  if (!project) return { source: "none", hasFinal: false, hasDraft: false };
+
+  const hasFinal = project.final_request !== null;
+  const hasDraft = project.draft_request !== null;
+
+  return {
+    source: hasFinal ? "final" : hasDraft ? "draft" : "none",
+    hasFinal,
+    hasDraft,
   };
 }

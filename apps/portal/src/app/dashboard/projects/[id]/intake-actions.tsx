@@ -17,6 +17,9 @@ import {
   reExportAction,
   resetToDraftAction,
   getProjectDiagnosticsAction,
+  exportPromptAction,
+  importFinalRequestAction,
+  getRequestSourceAction,
 } from "./actions";
 import type { ProjectDiagnostics } from "./actions";
 import type { JobRecord } from "@/lib/types";
@@ -201,6 +204,15 @@ export function WorkflowPanel({ projectId, slug, status }: WorkflowPanelProps) {
               Job running — waiting for worker...
             </span>
           )}
+        </ActionSection>
+      )}
+
+      {/* AI Handoff — available once exported */}
+      {(phase === "build" || status === "intake_approved" || status === "intake_parsed") && (
+        <ActionSection label="AI Handoff">
+          <ExportPromptBtn projectId={projectId} />
+          <ImportFinalRequestPanel projectId={projectId} />
+          <RequestSourceIndicator projectId={projectId} />
         </ActionSection>
       )}
 
@@ -1068,6 +1080,230 @@ function ReviewBtn({
       success={result}
       primary
     />
+  );
+}
+
+// ── AI Handoff components ─────────────────────────────────────────────
+
+function ExportPromptBtn({ projectId }: { projectId: string }) {
+  const [isPending, startTransition] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+  const [promptContent, setPromptContent] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  function handleClick() {
+    setError(null);
+    setPromptContent(null);
+    startTransition(async () => {
+      const res = await exportPromptAction(projectId);
+      if (res.error) setError(res.error);
+      else if (res.content) setPromptContent(res.content);
+    });
+  }
+
+  async function handleCopy() {
+    if (!promptContent) return;
+    await navigator.clipboard.writeText(promptContent);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }
+
+  return (
+    <div style={{ flexBasis: "100%" }}>
+      <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
+        <button
+          className="btn btn-sm btn-primary"
+          onClick={handleClick}
+          disabled={isPending}
+        >
+          {isPending ? "Generating..." : "Export prompt.txt"}
+        </button>
+        {promptContent && (
+          <button
+            className="btn btn-sm"
+            onClick={handleCopy}
+            style={copied ? { background: "#d1fae5", borderColor: "#065f46" } : undefined}
+          >
+            {copied ? "Copied!" : "Copy to clipboard"}
+          </button>
+        )}
+      </div>
+      {error && (
+        <p className="text-sm" style={{ color: "var(--color-error)", marginTop: "0.35rem" }}>
+          {error}
+        </p>
+      )}
+      {promptContent && (
+        <pre
+          style={{
+            marginTop: "0.5rem",
+            fontSize: "0.7rem",
+            lineHeight: 1.4,
+            whiteSpace: "pre-wrap",
+            wordBreak: "break-word",
+            maxHeight: "300px",
+            overflow: "auto",
+            background: "#1e1e1e",
+            color: "#d4d4d4",
+            padding: "0.75rem",
+            borderRadius: "4px",
+          }}
+        >
+          {promptContent}
+        </pre>
+      )}
+    </div>
+  );
+}
+
+function ImportFinalRequestPanel({ projectId }: { projectId: string }) {
+  const [isPending, startTransition] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+  const [validationErrors, setValidationErrors] = useState<string[]>([]);
+  const [success, setSuccess] = useState(false);
+  const [showForm, setShowForm] = useState(false);
+  const [jsonInput, setJsonInput] = useState("");
+
+  function handleImport() {
+    if (!jsonInput.trim()) return;
+    setError(null);
+    setValidationErrors([]);
+    setSuccess(false);
+    startTransition(async () => {
+      const res = await importFinalRequestAction(projectId, jsonInput.trim());
+      if (res.error) {
+        setError(res.error);
+      } else if (res.validationErrors && res.validationErrors.length > 0) {
+        setValidationErrors(res.validationErrors);
+      } else {
+        setSuccess(true);
+        setJsonInput("");
+        setShowForm(false);
+      }
+    });
+  }
+
+  if (!showForm) {
+    return (
+      <div>
+        <button className="btn btn-sm" onClick={() => setShowForm(true)}>
+          Import Final Request
+        </button>
+        {success && (
+          <p className="text-sm" style={{ color: "var(--color-success)", marginTop: "0.35rem" }}>
+            Final request imported successfully.
+          </p>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ flexBasis: "100%", display: "flex", flexDirection: "column", gap: "0.35rem" }}>
+      <p className="text-sm" style={{ color: "var(--color-text-muted)" }}>
+        Paste the AI-improved client-request.json below:
+      </p>
+      <textarea
+        className="form-input"
+        rows={8}
+        placeholder='{"version": "1.0.0", "business": { ... }, ...}'
+        value={jsonInput}
+        onChange={(e) => setJsonInput(e.target.value)}
+        style={{ fontSize: "0.8rem", fontFamily: "monospace" }}
+      />
+      <div style={{ display: "flex", gap: "0.35rem" }}>
+        <button
+          className="btn btn-sm btn-primary"
+          onClick={handleImport}
+          disabled={isPending || !jsonInput.trim()}
+        >
+          {isPending ? "Validating..." : "Import"}
+        </button>
+        <button
+          className="btn btn-sm"
+          onClick={() => {
+            setShowForm(false);
+            setJsonInput("");
+            setError(null);
+            setValidationErrors([]);
+          }}
+        >
+          Cancel
+        </button>
+      </div>
+      {error && (
+        <p className="text-sm" style={{ color: "var(--color-error)" }}>
+          {error}
+        </p>
+      )}
+      {validationErrors.length > 0 && (
+        <div
+          style={{
+            padding: "0.5rem",
+            background: "#fce4ec",
+            borderRadius: "4px",
+            fontSize: "0.8rem",
+          }}
+        >
+          <strong style={{ color: "#b71c1c" }}>Validation failed:</strong>
+          <ul style={{ margin: "0.25rem 0 0 1rem", color: "#b71c1c" }}>
+            {validationErrors.map((err, i) => (
+              <li key={i}>{err}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function RequestSourceIndicator({ projectId }: { projectId: string }) {
+  const [info, setInfo] = useState<{
+    source: "final" | "draft" | "none";
+    hasFinal: boolean;
+    hasDraft: boolean;
+  } | null>(null);
+
+  useEffect(() => {
+    getRequestSourceAction(projectId).then(setInfo);
+  }, [projectId]);
+
+  if (!info) return null;
+
+  const labels: Record<string, { text: string; color: string; bg: string }> = {
+    final: {
+      text: "Generation will use: Final (AI-improved) request",
+      color: "#065f46",
+      bg: "#d1fae5",
+    },
+    draft: {
+      text: "Generation will use: Draft request",
+      color: "#92400e",
+      bg: "#fef3c7",
+    },
+    none: {
+      text: "No request available — process intake first",
+      color: "#b71c1c",
+      bg: "#fce4ec",
+    },
+  };
+
+  const style = labels[info.source];
+
+  return (
+    <div
+      style={{
+        flexBasis: "100%",
+        padding: "0.35rem 0.5rem",
+        borderRadius: "4px",
+        background: style.bg,
+        color: style.color,
+        fontSize: "0.8rem",
+        fontWeight: 500,
+      }}
+    >
+      {style.text}
+    </div>
   );
 }
 

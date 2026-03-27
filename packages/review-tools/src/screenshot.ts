@@ -41,6 +41,9 @@ export async function captureScreenshots(
 
         await browserPage.goto(fullUrl, { waitUntil: "networkidle" });
 
+        // Stabilization delay — let fonts, images, and CSS transitions settle
+        await browserPage.waitForTimeout(1500);
+
         const filename = `${page.name}-${viewport.name}.png`;
         const filepath = join(outputDir, filename);
 
