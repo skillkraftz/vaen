@@ -1,8 +1,9 @@
 import { getSiteConfig } from "@/lib/site-config";
 
-const config = getSiteConfig();
+export const dynamic = "force-dynamic";
 
 export default function HomePage() {
+  const config = getSiteConfig();
   return (
     <>
       {/* Hero */}

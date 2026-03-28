@@ -170,7 +170,8 @@ rm -rf "$SCREENSHOTS_DIR"
 mkdir -p "$SCREENSHOTS_DIR"
 node packages/review-tools/dist/cli.js \
   --url "http://localhost:$PORT" \
-  --output "$SCREENSHOTS_DIR"
+  --output "$SCREENSHOTS_DIR" \
+  --site-dir "$SITE_DIR"
 
 echo ""
 echo "✅ Review complete!"

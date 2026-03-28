@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
 export interface SiteConfig {
   business: {
     name: string;
@@ -155,20 +158,17 @@ function deepMerge(target: Record<string, unknown>, source: Record<string, unkno
   return result;
 }
 
-let _config: SiteConfig | null = null;
-
 export function getSiteConfig(): SiteConfig {
-  if (_config) return _config;
-
   try {
-    // In generated sites, config.json is placed at the project root
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const loaded = require("../config.json");
-    _config = deepMerge(
+    // In generated sites, config.json is placed at the project root.
+    // Read it from the runtime working directory to avoid stale module-cache
+    // behavior between regeneration and review-time serving.
+    const raw = readFileSync(join(process.cwd(), "config.json"), "utf-8");
+    const loaded = JSON.parse(raw) as Record<string, unknown>;
+    return deepMerge(
       defaultConfig as unknown as Record<string, unknown>,
-      loaded as Record<string, unknown>
+      loaded
     ) as unknown as SiteConfig;
-    return _config;
   } catch {
     return defaultConfig;
   }

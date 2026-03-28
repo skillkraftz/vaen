@@ -47,6 +47,14 @@ interface ReviewManifest {
   screenshots_dir: string;
   manifest_path: string;
   screenshot_files: ReviewManifestFile[];
+  review_probe_path?: string | null;
+  content_verification?: {
+    status: "matched" | "mismatched" | "unknown";
+    expected_business_name: string | null;
+    observed_home_title: string | null;
+    observed_home_h1: string | null;
+    mismatches: string[];
+  };
   upload_summary?: {
     compared_at: string;
     matched: boolean;

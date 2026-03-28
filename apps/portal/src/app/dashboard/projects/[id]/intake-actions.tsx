@@ -74,6 +74,14 @@ interface ReviewManifest {
   screenshots_dir: string;
   manifest_path: string;
   screenshot_files: ReviewManifestFile[];
+  review_probe_path?: string | null;
+  content_verification?: {
+    status: "matched" | "mismatched" | "unknown";
+    expected_business_name: string | null;
+    observed_home_title: string | null;
+    observed_home_h1: string | null;
+    mismatches: string[];
+  };
   upload_summary?: {
     compared_at: string;
     matched: boolean;
@@ -826,6 +834,7 @@ function ScreenshotViewer({ slug, projectId, lastReviewedRevisionId, status }: {
       {manifest && (
         <p className="text-mono" data-testid="screenshot-manifest-path" style={{ fontSize: "0.6rem", color: "var(--color-text-muted)", marginBottom: "0.5rem" }}>
           manifest {manifest.manifest_path}
+          {manifest.review_probe_path ? ` · probe ${manifest.review_probe_path}` : ""}
           {manifest.served_title ? ` · title ${manifest.served_title}` : ""}
           {manifest.served_url ? ` · ${manifest.served_url}` : ""}
         </p>
@@ -838,6 +847,28 @@ function ScreenshotViewer({ slug, projectId, lastReviewedRevisionId, status }: {
       >
         {verificationSummary}
       </p>
+      {manifest?.content_verification && (
+        <p
+          className="text-mono"
+          data-testid="screenshot-content-verification"
+          data-content-verification-state={manifest.content_verification.status}
+          style={{ fontSize: "0.6rem", color: manifest.content_verification.status === "matched" ? "var(--color-success)" : "var(--color-text-muted)", marginBottom: "0.5rem", whiteSpace: "pre-wrap" }}
+        >
+          content {manifest.content_verification.status}
+          {manifest.content_verification.expected_business_name
+            ? ` · expected ${manifest.content_verification.expected_business_name}`
+            : ""}
+          {manifest.content_verification.observed_home_title
+            ? ` · home title ${manifest.content_verification.observed_home_title}`
+            : ""}
+          {manifest.content_verification.observed_home_h1
+            ? ` · home h1 ${manifest.content_verification.observed_home_h1}`
+            : ""}
+          {manifest.content_verification.mismatches.length > 0
+            ? ` · ${manifest.content_verification.mismatches.join(" | ")}`
+            : ""}
+        </p>
+      )}
 
       {/* Thumbnail buttons */}
       <div data-testid="screenshot-thumbnails" style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>

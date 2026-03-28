@@ -2,18 +2,22 @@ import type { Metadata } from "next";
 import { getSiteConfig } from "@/lib/site-config";
 import "./globals.css";
 
-const config = getSiteConfig();
+export const dynamic = "force-dynamic";
 
-export const metadata: Metadata = {
-  title: config.seo.title,
-  description: config.seo.description,
-};
+export function generateMetadata(): Metadata {
+  const config = getSiteConfig();
+  return {
+    title: config.seo.title,
+    description: config.seo.description,
+  };
+}
 
 export default function RootLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  const config = getSiteConfig();
   return (
     <html lang="en">
       <body
@@ -26,15 +30,15 @@ export default function RootLayout({
           } as React.CSSProperties
         }
       >
-        <Header />
+        <Header config={config} />
         <main>{children}</main>
-        <Footer />
+        <Footer config={config} />
       </body>
     </html>
   );
 }
 
-function Header() {
+function Header({ config }: { config: ReturnType<typeof getSiteConfig> }) {
   return (
     <header className="header">
       <div className="container header-inner">
@@ -56,7 +60,7 @@ function Header() {
   );
 }
 
-function Footer() {
+function Footer({ config }: { config: ReturnType<typeof getSiteConfig> }) {
   return (
     <footer className="footer">
       <div className="container footer-inner">

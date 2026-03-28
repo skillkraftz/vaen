@@ -95,6 +95,14 @@ interface ScreenshotManifest {
   screenshots_dir: string;
   manifest_path: string;
   screenshot_files: ScreenshotManifestFile[];
+  review_probe_path?: string | null;
+  content_verification?: {
+    status: "matched" | "mismatched" | "unknown";
+    expected_business_name: string | null;
+    observed_home_title: string | null;
+    observed_home_h1: string | null;
+    mismatches: string[];
+  };
   upload_summary?: {
     compared_at: string;
     matched: boolean;
@@ -104,6 +112,40 @@ interface ScreenshotManifest {
     extra_uploaded: string[];
     hash_mismatches: string[];
   };
+}
+
+interface ReviewProbeArtifact {
+  screenshots: string[];
+  probePath: string;
+  expectedContent: {
+    config_path: string | null;
+    business_name: string | null;
+    seo_title: string | null;
+    hero_headline: string | null;
+    contact_heading: string | null;
+  };
+  contentVerification: {
+    status: "matched" | "mismatched" | "unknown";
+    expected_business_name: string | null;
+    observed_home_title: string | null;
+    observed_home_h1: string | null;
+    mismatches: string[];
+  };
+  captures: Array<{
+    page_name: string;
+    route_path: string;
+    viewport: string;
+    screenshot_file: string;
+    screenshot_path: string;
+    html_snapshot_path: string | null;
+    url: string;
+    final_url: string;
+    title: string;
+    h1: string | null;
+    body_text_snippet: string;
+    body_text_hash: string;
+    html_hash: string;
+  }>;
 }
 
 // ── Main ──────────────────────────────────────────────────────────────
@@ -310,6 +352,29 @@ async function writeScreenshotManifest(
 ): Promise<void> {
   await mkdir(dirname(manifestPath), { recursive: true });
   await writeFile(manifestPath, JSON.stringify(manifest, null, 2) + "\n", "utf-8");
+}
+
+async function readReviewProbe(
+  screenshotsDir: string,
+  repoRoot: string,
+): Promise<ReviewProbeArtifact | null> {
+  const probePath = join(screenshotsDir, "review-probe.json");
+  try {
+    const raw = await readFile(probePath, "utf-8");
+    const parsed = JSON.parse(raw) as ReviewProbeArtifact;
+    parsed.probePath = relative(repoRoot, probePath);
+    parsed.captures = parsed.captures.map((capture) => ({
+      ...capture,
+      screenshot_path: relative(repoRoot, capture.screenshot_path),
+      html_snapshot_path: capture.html_snapshot_path
+        ? relative(repoRoot, capture.html_snapshot_path)
+        : null,
+    }));
+    parsed.screenshots = parsed.screenshots.map((path) => relative(repoRoot, path));
+    return parsed;
+  } catch {
+    return null;
+  }
 }
 
 // ── Site Validation ──────────────────────────────────────────────────
@@ -776,6 +841,7 @@ async function executeReview(
   const now = new Date().toISOString();
   const runtime = extractReviewRuntime(stdout);
   const screenshotFiles = await collectScreenshotManifest(screenshotsDir, repoRoot);
+  const reviewProbe = await readReviewProbe(screenshotsDir, repoRoot);
   const manifestBase: ScreenshotManifest = {
     schema_version: 1,
     status: exitCode === 0 ? "completed" : "failed",
@@ -792,6 +858,8 @@ async function executeReview(
     screenshots_dir: relative(repoRoot, screenshotsDir),
     manifest_path: relative(repoRoot, manifestPath),
     screenshot_files: screenshotFiles,
+    review_probe_path: reviewProbe?.probePath ?? null,
+    content_verification: reviewProbe?.contentVerification,
   };
   await writeScreenshotManifest(manifestPath, manifestBase);
 
@@ -834,6 +902,7 @@ async function executeReview(
           validation,
           site_age: siteAge,
           review_manifest: manifestBase,
+          review_probe: reviewProbe,
           ...(diagMessage ? { diagnostic: diagMessage } : {}),
         },
         stdout: stdout.slice(0, 50_000),
@@ -853,8 +922,10 @@ async function executeReview(
         command: fullCommand,
         site_age: siteAge,
         review_manifest_path: manifestBase.manifest_path,
+        review_probe_path: reviewProbe?.probePath ?? null,
         review_served_title: runtime.servedTitle,
         review_served_url: runtime.servedUrl,
+        content_verification: reviewProbe?.contentVerification,
         ...(diagMessage ? { diagnostic: diagMessage } : {}),
       },
     });
@@ -1000,6 +1071,7 @@ async function executeReview(
         site_age: siteAge,
         screenshot_count: screenshotCount,
         review_manifest: manifestBase,
+        review_probe: reviewProbe,
         uploaded_screenshots: uploadedScreenshots,
         upload_summary: uploadSummary,
       },
@@ -1022,8 +1094,10 @@ async function executeReview(
       site_age: siteAge,
       revision_id: reviewRevisionId,
       review_manifest_path: manifestBase.manifest_path,
+      review_probe_path: reviewProbe?.probePath ?? null,
       review_served_title: runtime.servedTitle,
       review_served_url: runtime.servedUrl,
+      content_verification: reviewProbe?.contentVerification,
       upload_summary: uploadSummary,
     },
   });

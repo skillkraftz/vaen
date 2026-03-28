@@ -35,6 +35,7 @@ Options:
 
   const url = args.url;
   const outputDir = args.output;
+  const siteDir = args["site-dir"] ?? process.env.REVIEW_SITE_DIR;
 
   if (!url || !outputDir) {
     console.error("Error: --url and --output are required.");
@@ -46,10 +47,17 @@ Options:
   console.log(`   URL:    ${url}`);
   console.log(`   Output: ${outputDir}\n`);
 
-  const captured = await captureScreenshots({ url, outputDir });
+  const captured = await captureScreenshots({ url, outputDir, siteDir });
 
-  console.log(`\n✅ Captured ${captured.length} screenshots:`);
-  captured.forEach((f) => console.log(`   ${f}`));
+  console.log(`\n✅ Captured ${captured.screenshots.length} screenshots:`);
+  captured.screenshots.forEach((f) => console.log(`   ${f}`));
+  console.log(`   Probe: ${captured.probePath}`);
+  console.log(
+    `   Content verification: ${captured.contentVerification.status}` +
+      (captured.contentVerification.expected_business_name
+        ? ` (expected ${captured.contentVerification.expected_business_name})`
+        : ""),
+  );
   console.log();
 }
 

@@ -475,6 +475,10 @@ test("11 — screenshot viewer", async ({ shared: page }) => {
   const verification = page.getByTestId("screenshot-verification");
   const verificationText = await verification.textContent();
   const verificationState = await verification.getAttribute("data-verification-state");
+  const contentVerification = page.getByTestId("screenshot-content-verification");
+  const contentVerificationText = await contentVerification.isVisible().catch(() => false)
+    ? await contentVerification.textContent()
+    : null;
 
   await snap(page, outputDir, "screenshot-viewer-thumbnails", {
     status,
@@ -482,7 +486,8 @@ test("11 — screenshot viewer", async ({ shared: page }) => {
       `${screenshotCount} screenshots loaded` +
       `${provenanceText ? ` (${provenanceText})` : ""}` +
       `${manifestPath ? ` · manifest ${manifestPath}` : ""}` +
-      `${verificationText ? ` · ${verificationText}` : ""}`,
+      `${verificationText ? ` · ${verificationText}` : ""}` +
+      `${contentVerificationText ? ` · ${contentVerificationText}` : ""}`,
   });
 
   if (provenanceText) {
@@ -497,6 +502,9 @@ test("11 — screenshot viewer", async ({ shared: page }) => {
       addFailure("Screenshot Viewer", "upload_mismatch", verificationText);
       addBlocker(`Screenshot manifest/upload mismatch: ${verificationText}`);
     }
+  }
+  if (contentVerificationText) {
+    addObservation(`Screenshot content verification: ${contentVerificationText}`);
   }
 
   // Click the first thumbnail to open a preview
