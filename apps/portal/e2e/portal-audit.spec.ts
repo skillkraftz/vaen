@@ -440,12 +440,21 @@ test("11 — screenshot viewer", async ({ shared: page }) => {
   await goToProject(page);
 
   const viewer = page.getByTestId("screenshot-viewer");
-  if (!(await viewer.isVisible({ timeout: 5_000 }).catch(() => false))) {
-    addBlocker("Screenshot viewer not visible — review may not have produced screenshots");
-    const status = await getStatusText(page);
-    await snap(page, outputDir, "screenshots-NOT-AVAILABLE", {
-      status,
-      note: "No screenshots to display",
+  await expect(viewer).toBeVisible({ timeout: 10_000 });
+
+  // Wait for viewer to finish loading (transitions from loading → loaded/empty).
+  // The viewer now always renders with data-viewer-state to distinguish states.
+  await expect(viewer).not.toHaveAttribute("data-viewer-state", "loading", {
+    timeout: 15_000,
+  });
+
+  const viewerState = await viewer.getAttribute("data-viewer-state");
+
+  if (viewerState === "empty") {
+    addBlocker("Screenshot viewer loaded but found no screenshots");
+    await snap(page, outputDir, "screenshots-EMPTY", {
+      status: await getStatusText(page),
+      note: "Viewer fetched but no screenshots found for this project/revision",
     });
     return;
   }
@@ -453,36 +462,35 @@ test("11 — screenshot viewer", async ({ shared: page }) => {
   reachedScreenshots = true;
   await viewer.scrollIntoViewIfNeeded();
 
-  const thumbnailButtons = viewer.getByTestId("screenshot-thumbnails").locator("button");
-  const thumbnailCount = await thumbnailButtons.count();
-  if (thumbnailCount === 0) {
-    addBlocker("Screenshot viewer visible but contains no screenshot thumbnails");
-    await snap(page, outputDir, "screenshots-EMPTY", {
-      status: await getStatusText(page),
-      note: "Viewer rendered without real screenshot thumbnails",
-    });
-    return;
-  }
-
+  const screenshotCount = await viewer.getAttribute("data-screenshot-count");
   const status = await getStatusText(page);
+
+  // Read provenance metadata if present
+  const provenance = page.getByTestId("screenshot-provenance");
+  const provenanceText = await provenance.isVisible().catch(() => false)
+    ? await provenance.textContent()
+    : null;
+
   await snap(page, outputDir, "screenshot-viewer-thumbnails", {
     status,
-    note: `Screenshot viewer with ${thumbnailCount} real thumbnail button(s)`,
+    note: `${screenshotCount} screenshots loaded${provenanceText ? ` (${provenanceText})` : ""}`,
   });
 
+  if (provenanceText) {
+    addObservation(`Screenshot provenance: ${provenanceText}`);
+  }
+
   // Click the first thumbnail to open a preview
-  const thumbnails = page.getByTestId("screenshot-thumbnails");
-  const firstThumb = thumbnails.locator("button").first();
+  const firstThumb = viewer.getByTestId("screenshot-thumbnails").locator("button").first();
   if (await firstThumb.isVisible().catch(() => false)) {
     await firstThumb.click();
 
-    // Wait for the preview image to load
     const preview = page.getByTestId("screenshot-preview");
     await expect(preview).toBeVisible({ timeout: 15_000 });
     await viewer.scrollIntoViewIfNeeded();
     await snap(page, outputDir, "screenshot-viewer-preview", {
       status,
-      note: "Screenshot preview image loaded",
+      note: "Screenshot preview image loaded — verify correct project content",
     });
   }
 });

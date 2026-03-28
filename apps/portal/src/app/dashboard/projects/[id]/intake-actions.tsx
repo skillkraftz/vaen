@@ -576,22 +576,46 @@ function ScreenshotViewer({ slug, projectId, lastReviewedRevisionId, status }: {
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [imageData, setImageData] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState<string | null>(null);
+  const [fetchDone, setFetchDone] = useState(false);
 
   useEffect(() => {
+    // Reset fetch state on dependency change so we show loading again
+    setFetchDone(false);
     // Load both local and Supabase screenshots.
     // Deps include status so we re-fetch after router.refresh() updates it.
-    getArtifactStatusAction(slug).then(setArtifacts);
-    // Filter by reviewed revision if available — shows only screenshots
-    // from the last review of the correct version
-    getScreenshotsForProjectAction(projectId, lastReviewedRevisionId).then(({ screenshots }) => {
-      setSupabaseScreenshots(screenshots);
+    let cancelled = false;
+    Promise.all([
+      getArtifactStatusAction(slug),
+      getScreenshotsForProjectAction(projectId, lastReviewedRevisionId),
+    ]).then(([artifactResult, screenshotResult]) => {
+      if (cancelled) return;
+      setArtifacts(artifactResult);
+      setSupabaseScreenshots(screenshotResult.screenshots);
+      setFetchDone(true);
     });
+    return () => { cancelled = true; };
   }, [slug, projectId, lastReviewedRevisionId, status]);
 
   const hasSupabase = supabaseScreenshots.length > 0;
   const hasLocal = artifacts?.hasScreenshots;
 
-  if (!hasSupabase && !hasLocal) return null; // nothing to show
+  // Show loading state while fetching — never return null before fetch completes.
+  // This prevents the audit from concluding "no screenshots" during the async gap.
+  if (!fetchDone) {
+    return (
+      <div data-testid="screenshot-viewer" data-viewer-state="loading" style={{ padding: "0.75rem 1.25rem", borderBottom: "1px solid var(--color-border)" }}>
+        <span className="text-sm text-muted">Loading screenshots...</span>
+      </div>
+    );
+  }
+
+  if (!hasSupabase && !hasLocal) {
+    return (
+      <div data-testid="screenshot-viewer" data-viewer-state="empty" style={{ padding: "0.75rem 1.25rem", borderBottom: "1px solid var(--color-border)" }}>
+        <span className="text-sm text-muted">No screenshots available.</span>
+      </div>
+    );
+  }
 
   // Prefer Supabase screenshots; fall back to local
   const screenshotItems = hasSupabase
@@ -601,6 +625,7 @@ function ScreenshotViewer({ slug, projectId, lastReviewedRevisionId, status }: {
         source: "supabase" as const,
         storagePath: s.storage_path,
         jobId: s.source_job_id,
+        revisionId: s.request_revision_id,
         date: s.created_at,
       }))
     : (artifacts?.screenshotNames ?? []).map((name) => ({
@@ -609,6 +634,7 @@ function ScreenshotViewer({ slug, projectId, lastReviewedRevisionId, status }: {
         source: "local" as const,
         storagePath: null,
         jobId: null,
+        revisionId: null,
         date: null,
       }));
 
@@ -637,9 +663,16 @@ function ScreenshotViewer({ slug, projectId, lastReviewedRevisionId, status }: {
     setLoading(null);
   }
 
+  // Provenance info for the first screenshot (all share the same batch)
+  const batchJobId = screenshotItems[0]?.jobId ?? null;
+  const batchRevisionId = screenshotItems[0]?.revisionId ?? null;
+  const batchDate = screenshotItems[0]?.date ?? null;
+
   return (
     <div
       data-testid="screenshot-viewer"
+      data-viewer-state="loaded"
+      data-screenshot-count={screenshotItems.length}
       style={{
         padding: "0.75rem 1.25rem",
         borderBottom: "1px solid var(--color-border)",
@@ -654,7 +687,7 @@ function ScreenshotViewer({ slug, projectId, lastReviewedRevisionId, status }: {
           textTransform: "uppercase",
           letterSpacing: "0.05em",
           display: "block",
-          marginBottom: "0.5rem",
+          marginBottom: "0.25rem",
         }}
       >
         Latest Screenshots ({screenshotItems.length})
@@ -664,6 +697,14 @@ function ScreenshotViewer({ slug, projectId, lastReviewedRevisionId, status }: {
           </span>
         )}
       </span>
+      {/* Provenance: show which revision/job produced these screenshots */}
+      {hasSupabase && (batchRevisionId || batchJobId) && (
+        <p className="text-mono" data-testid="screenshot-provenance" style={{ fontSize: "0.6rem", color: "var(--color-text-muted)", marginBottom: "0.5rem" }}>
+          {batchRevisionId && <>rev {batchRevisionId.slice(0, 8)}</>}
+          {batchJobId && <>{batchRevisionId ? " · " : ""}job {batchJobId.slice(0, 8)}</>}
+          {batchDate && <> · {new Date(batchDate).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</>}
+        </p>
+      )}
 
       {/* Thumbnail buttons */}
       <div data-testid="screenshot-thumbnails" style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
