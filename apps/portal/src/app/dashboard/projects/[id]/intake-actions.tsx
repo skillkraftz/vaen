@@ -44,6 +44,45 @@ interface ArtifactStatus {
   hasScreenshots: boolean;
   screenshotCount: number;
   screenshotNames: string[];
+  screenshotManifest: ReviewManifest | null;
+}
+
+interface ReviewManifestFile {
+  file_name: string;
+  path: string;
+  size_bytes: number;
+  sha256: string;
+  modified_at: string;
+  uploaded_storage_path?: string | null;
+  uploaded_asset_id?: string | null;
+  uploaded_at?: string | null;
+}
+
+interface ReviewManifest {
+  schema_version: number;
+  status: "completed" | "failed";
+  project_id: string | null;
+  slug: string;
+  revision_id: string | null;
+  job_id: string | null;
+  review_started_at: string | null;
+  review_completed_at: string | null;
+  served_url: string | null;
+  served_title: string | null;
+  port: number | null;
+  site_dir: string;
+  screenshots_dir: string;
+  manifest_path: string;
+  screenshot_files: ReviewManifestFile[];
+  upload_summary?: {
+    compared_at: string;
+    matched: boolean;
+    manifest_count: number;
+    uploaded_count: number;
+    missing_in_upload: string[];
+    extra_uploaded: string[];
+    hash_mismatches: string[];
+  };
 }
 
 // ── Workflow state logic ──────────────────────────────────────────────
@@ -571,7 +610,16 @@ function JobDetails({ job }: { job: JobRecord }) {
 function ScreenshotViewer({ slug, projectId, lastReviewedRevisionId, status }: { slug: string; projectId: string; lastReviewedRevisionId: string | null; status: string; }) {
   const [artifacts, setArtifacts] = useState<ArtifactStatus | null>(null);
   const [supabaseScreenshots, setSupabaseScreenshots] = useState<
-    Array<{ id: string; file_name: string; storage_path: string; source_job_id: string | null; request_revision_id: string | null; created_at: string }>
+    Array<{
+      id: string;
+      file_name: string;
+      storage_path: string;
+      source_job_id: string | null;
+      request_revision_id: string | null;
+      checksum_sha256: string | null;
+      metadata: Record<string, unknown>;
+      created_at: string;
+    }>
   >([]);
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [imageData, setImageData] = useState<Record<string, string>>({});
@@ -598,6 +646,7 @@ function ScreenshotViewer({ slug, projectId, lastReviewedRevisionId, status }: {
 
   const hasSupabase = supabaseScreenshots.length > 0;
   const hasLocal = artifacts?.hasScreenshots;
+  const manifest = artifacts?.screenshotManifest ?? null;
 
   // Show loading state while fetching — never return null before fetch completes.
   // This prevents the audit from concluding "no screenshots" during the async gap.
@@ -621,22 +670,89 @@ function ScreenshotViewer({ slug, projectId, lastReviewedRevisionId, status }: {
   const screenshotItems = hasSupabase
     ? supabaseScreenshots.map((s) => ({
         key: s.id,
+        fileName: s.file_name,
         label: s.file_name.replace(/\.png$/, ""),
         source: "supabase" as const,
         storagePath: s.storage_path,
         jobId: s.source_job_id,
         revisionId: s.request_revision_id,
+        checksumSha256: s.checksum_sha256,
+        metadata: s.metadata,
         date: s.created_at,
       }))
     : (artifacts?.screenshotNames ?? []).map((name) => ({
         key: name,
+        fileName: name,
         label: name.replace(/\.png$/, ""),
         source: "local" as const,
         storagePath: null,
         jobId: null,
         revisionId: null,
+        checksumSha256: null,
+        metadata: {},
         date: null,
       }));
+
+  const selectedItem = screenshotItems.find((item) => item.key === selectedImage) ?? null;
+
+  const manifestByFile = new Map(
+    (manifest?.screenshot_files ?? []).map((file) => [file.file_name, file]),
+  );
+
+  const uploadedByFile = new Map<
+    string,
+    Array<{
+      id: string;
+      file_name: string;
+      checksum_sha256: string | null;
+      storage_path: string;
+    }>
+  >();
+  for (const screenshot of supabaseScreenshots) {
+    const existing = uploadedByFile.get(screenshot.file_name) ?? [];
+    existing.push({
+      id: screenshot.id,
+      file_name: screenshot.file_name,
+      checksum_sha256: screenshot.checksum_sha256,
+      storage_path: screenshot.storage_path,
+    });
+    uploadedByFile.set(screenshot.file_name, existing);
+  }
+
+  const missingInUpload: string[] = [];
+  const hashMismatches: string[] = [];
+  if (manifest) {
+    for (const file of manifest.screenshot_files) {
+      const uploaded = uploadedByFile.get(file.file_name);
+      if (!uploaded || uploaded.length === 0) {
+        missingInUpload.push(file.file_name);
+        continue;
+      }
+      if (uploaded.some((item) => item.checksum_sha256 !== file.sha256)) {
+        hashMismatches.push(file.file_name);
+      }
+    }
+  }
+
+  const extraUploaded = manifest
+    ? Array.from(uploadedByFile.keys()).filter((fileName) => !manifestByFile.has(fileName))
+    : [];
+
+  const verificationMatched =
+    manifest != null &&
+    missingInUpload.length === 0 &&
+    extraUploaded.length === 0 &&
+    hashMismatches.length === 0;
+  const verificationState = manifest == null
+    ? "manifest-missing"
+    : verificationMatched
+      ? "matched"
+      : "mismatch";
+  const verificationSummary = manifest == null
+    ? "No screenshot manifest found on disk for this review run."
+    : verificationMatched
+      ? `Disk manifest matches uploaded assets (${manifest.screenshot_files.length} files).`
+      : `Mismatch detected — missing upload: ${missingInUpload.length}, extra uploaded: ${extraUploaded.length}, hash mismatches: ${hashMismatches.length}.`;
 
   async function loadImage(key: string, source: "supabase" | "local", storagePath: string | null) {
     if (imageData[key]) {
@@ -673,6 +789,8 @@ function ScreenshotViewer({ slug, projectId, lastReviewedRevisionId, status }: {
       data-testid="screenshot-viewer"
       data-viewer-state="loaded"
       data-screenshot-count={screenshotItems.length}
+      data-manifest-path={manifest?.manifest_path ?? ""}
+      data-verification-state={verificationState}
       style={{
         padding: "0.75rem 1.25rem",
         borderBottom: "1px solid var(--color-border)",
@@ -705,6 +823,21 @@ function ScreenshotViewer({ slug, projectId, lastReviewedRevisionId, status }: {
           {batchDate && <> · {new Date(batchDate).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</>}
         </p>
       )}
+      {manifest && (
+        <p className="text-mono" data-testid="screenshot-manifest-path" style={{ fontSize: "0.6rem", color: "var(--color-text-muted)", marginBottom: "0.5rem" }}>
+          manifest {manifest.manifest_path}
+          {manifest.served_title ? ` · title ${manifest.served_title}` : ""}
+          {manifest.served_url ? ` · ${manifest.served_url}` : ""}
+        </p>
+      )}
+      <p
+        className="text-mono"
+        data-testid="screenshot-verification"
+        data-verification-state={verificationState}
+        style={{ fontSize: "0.6rem", color: verificationState === "matched" ? "var(--color-success)" : "var(--color-text-muted)", marginBottom: "0.5rem" }}
+      >
+        {verificationSummary}
+      </p>
 
       {/* Thumbnail buttons */}
       <div data-testid="screenshot-thumbnails" style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
@@ -743,7 +876,7 @@ function ScreenshotViewer({ slug, projectId, lastReviewedRevisionId, status }: {
             }}
           >
             <span className="text-sm text-mono" style={{ fontSize: "0.7rem" }}>
-              {screenshotItems.find((i) => i.key === selectedImage)?.label ?? selectedImage}
+              {selectedItem?.label ?? selectedImage}
             </span>
             <button
               className="btn btn-sm"
@@ -753,9 +886,18 @@ function ScreenshotViewer({ slug, projectId, lastReviewedRevisionId, status }: {
               Close
             </button>
           </div>
+          <p className="text-mono" data-testid="screenshot-preview-meta" style={{ fontSize: "0.6rem", color: "var(--color-text-muted)", marginBottom: "0.35rem", wordBreak: "break-all" }}>
+            {selectedItem?.fileName ?? selectedImage}
+            {selectedItem?.checksumSha256 ? ` · sha ${selectedItem.checksumSha256.slice(0, 12)}` : ""}
+            {selectedItem?.storagePath ? ` · ${selectedItem.storagePath}` : ""}
+          </p>
           <img
             src={imageData[selectedImage]}
             alt={selectedImage}
+            data-testid="screenshot-preview-image"
+            data-preview-filename={selectedItem?.fileName ?? selectedImage}
+            data-preview-source={selectedItem?.source ?? ""}
+            data-preview-src={imageData[selectedImage]}
             style={{
               maxWidth: "100%",
               border: "1px solid var(--color-border)",

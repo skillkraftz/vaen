@@ -32,8 +32,10 @@ const __workerDir = dirname(fileURLToPath(import.meta.url));
 config({ path: join(__workerDir, "..", ".env") });
 
 import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import {
   access,
+  mkdir,
   readdir,
   readFile,
   rm,
@@ -64,6 +66,44 @@ interface ValidationResult {
   valid: boolean;
   checks: Record<string, boolean>;
   errors: string[];
+}
+
+interface ScreenshotManifestFile {
+  file_name: string;
+  path: string;
+  size_bytes: number;
+  sha256: string;
+  modified_at: string;
+  uploaded_storage_path?: string | null;
+  uploaded_asset_id?: string | null;
+  uploaded_at?: string | null;
+}
+
+interface ScreenshotManifest {
+  schema_version: number;
+  status: "completed" | "failed";
+  project_id: string | null;
+  slug: string;
+  revision_id: string | null;
+  job_id: string | null;
+  review_started_at: string | null;
+  review_completed_at: string | null;
+  served_url: string | null;
+  served_title: string | null;
+  port: number | null;
+  site_dir: string;
+  screenshots_dir: string;
+  manifest_path: string;
+  screenshot_files: ScreenshotManifestFile[];
+  upload_summary?: {
+    compared_at: string;
+    matched: boolean;
+    manifest_count: number;
+    uploaded_count: number;
+    missing_in_upload: string[];
+    extra_uploaded: string[];
+    hash_mismatches: string[];
+  };
 }
 
 // ── Main ──────────────────────────────────────────────────────────────
@@ -156,13 +196,14 @@ function runCommand(
   args: string[],
   cwd: string,
   timeoutMs: number,
+  envOverrides: Record<string, string> = {},
 ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
   return new Promise((resolve, reject) => {
     const child = spawn(cmd, args, {
       cwd,
       timeout: timeoutMs,
       stdio: ["ignore", "pipe", "pipe"],
-      env: { ...process.env, FORCE_COLOR: "0" },
+      env: { ...process.env, FORCE_COLOR: "0", ...envOverrides },
     });
 
     let stdout = "";
@@ -211,6 +252,64 @@ function extractErrorSummary(stderr: string, stdout: string): string {
   const outputLines = combinedOutput.trim().split("\n");
   const tailLines = outputLines.slice(-20).join("\n");
   return tailLines.slice(0, 1000);
+}
+
+function sha256(buffer: Buffer): string {
+  return createHash("sha256").update(buffer).digest("hex");
+}
+
+function extractReviewRuntime(stdout: string): {
+  servedTitle: string | null;
+  port: number | null;
+  servedUrl: string | null;
+  screenshotOutputDir: string | null;
+} {
+  const servedTitle = stdout.match(/Served title:\s*(.+)/)?.[1]?.trim() ?? null;
+  const portValue = stdout.match(/Port:\s*(\d+)/)?.[1] ?? null;
+  const servedUrlFromStdout = stdout.match(/Served URL:\s*(.+)/)?.[1]?.trim() ?? null;
+  const screenshotOutputDir = stdout.match(/Screenshots:\s*(.+)/)?.[1]?.trim() ?? null;
+  const port = portValue ? Number(portValue) : null;
+  return {
+    servedTitle,
+    port,
+    servedUrl: servedUrlFromStdout ?? (port ? `http://localhost:${port}` : null),
+    screenshotOutputDir,
+  };
+}
+
+async function collectScreenshotManifest(
+  screenshotsDir: string,
+  repoRoot: string,
+): Promise<ScreenshotManifestFile[]> {
+  try {
+    const names = (await readdir(screenshotsDir))
+      .filter((name) => /\.(png|jpg|jpeg)$/i.test(name))
+      .sort();
+
+    const files: ScreenshotManifestFile[] = [];
+    for (const name of names) {
+      const filePath = join(screenshotsDir, name);
+      const [fileData, fileStat] = await Promise.all([readFile(filePath), stat(filePath)]);
+      files.push({
+        file_name: name,
+        path: relative(repoRoot, filePath),
+        size_bytes: fileData.length,
+        sha256: sha256(fileData),
+        modified_at: fileStat.mtime.toISOString(),
+      });
+    }
+    return files;
+  } catch {
+    return [];
+  }
+}
+
+async function writeScreenshotManifest(
+  manifestPath: string,
+  manifest: ScreenshotManifest,
+): Promise<void> {
+  await mkdir(dirname(manifestPath), { recursive: true });
+  await writeFile(manifestPath, JSON.stringify(manifest, null, 2) + "\n", "utf-8");
 }
 
 // ── Site Validation ──────────────────────────────────────────────────
@@ -553,6 +652,10 @@ async function executeReview(
   const slug = project.slug;
   const siteDir = join(repoRoot, "generated", slug, "site");
   const metaPath = join(siteDir, ".vaen-meta.json");
+  const screenshotsDir = join(repoRoot, "generated", slug, "artifacts", "screenshots");
+  const manifestPath = join(screenshotsDir, "manifest.json");
+  const reviewRevisionId = (job.payload?.revision_id as string) ?? null;
+  const reviewStartedAt = new Date().toISOString();
 
   // ── Site freshness check ──────────────────────────────────────────
   let siteAge = "unknown";
@@ -575,7 +678,6 @@ async function executeReview(
   }
 
   // Clean stale screenshots from prior review runs
-  const screenshotsDir = join(repoRoot, "generated", slug, "artifacts", "screenshots");
   await rm(screenshotsDir, { recursive: true, force: true });
   console.log(`[review] cleaned stale screenshots: ${screenshotsDir}`);
 
@@ -593,8 +695,10 @@ async function executeReview(
           cwd: repoRoot,
           target_slug: slug,
           site_path: relative(repoRoot, siteDir),
+          screenshots_path: relative(repoRoot, screenshotsDir),
           site_age: siteAge,
           generation_job_id: generationJobId,
+          review_started_at: reviewStartedAt,
         },
       },
     })
@@ -652,14 +756,44 @@ async function executeReview(
     .eq("id", project.id);
 
   // Run review (build + screenshot capture)
+  const reviewEnv = {
+    REVIEW_JOB_ID: job.id,
+    REVIEW_PROJECT_ID: project.id,
+    REVIEW_REVISION_ID: reviewRevisionId ?? "",
+    REVIEW_SLUG: slug,
+    REVIEW_SITE_DIR: siteDir,
+    REVIEW_SCREENSHOTS_DIR: screenshotsDir,
+    REVIEW_MANIFEST_PATH: manifestPath,
+  };
   const { stdout, stderr, exitCode } = await runCommand(
     "pnpm",
     cmdArgs,
     repoRoot,
     120_000,
+    reviewEnv,
   );
 
   const now = new Date().toISOString();
+  const runtime = extractReviewRuntime(stdout);
+  const screenshotFiles = await collectScreenshotManifest(screenshotsDir, repoRoot);
+  const manifestBase: ScreenshotManifest = {
+    schema_version: 1,
+    status: exitCode === 0 ? "completed" : "failed",
+    project_id: project.id,
+    slug,
+    revision_id: reviewRevisionId,
+    job_id: job.id,
+    review_started_at: reviewStartedAt,
+    review_completed_at: now,
+    served_url: runtime.servedUrl,
+    served_title: runtime.servedTitle,
+    port: runtime.port,
+    site_dir: relative(repoRoot, siteDir),
+    screenshots_dir: relative(repoRoot, screenshotsDir),
+    manifest_path: relative(repoRoot, manifestPath),
+    screenshot_files: screenshotFiles,
+  };
+  await writeScreenshotManifest(manifestPath, manifestBase);
 
   if (exitCode !== 0) {
     const errorSummary = extractErrorSummary(stderr, stdout);
@@ -699,6 +833,7 @@ async function executeReview(
           exit_code: exitCode,
           validation,
           site_age: siteAge,
+          review_manifest: manifestBase,
           ...(diagMessage ? { diagnostic: diagMessage } : {}),
         },
         stdout: stdout.slice(0, 50_000),
@@ -717,6 +852,9 @@ async function executeReview(
         error: errorSummary,
         command: fullCommand,
         site_age: siteAge,
+        review_manifest_path: manifestBase.manifest_path,
+        review_served_title: runtime.servedTitle,
+        review_served_url: runtime.servedUrl,
         ...(diagMessage ? { diagnostic: diagMessage } : {}),
       },
     });
@@ -733,16 +871,9 @@ async function executeReview(
   }
 
   // Count screenshots (screenshotsDir declared at top of executeReview)
-  let screenshotCount = 0;
-  try {
-    const files = await readdir(screenshotsDir);
-    screenshotCount = files.filter((f) => f.endsWith(".png")).length;
-  } catch {
-    /* noop */
-  }
+  const screenshotCount = screenshotFiles.length;
 
   // Success — update project status BEFORE job status (see generate success comment)
-  const reviewRevisionId = (job.payload?.revision_id as string) ?? null;
   await db
     .from("projects")
     .update({
@@ -751,6 +882,110 @@ async function executeReview(
     })
     .eq("id", project.id);
 
+  // Upload screenshots to Supabase storage + create asset records
+  const uploadedScreenshots: Array<{
+    asset_id: string | null;
+    file_name: string;
+    storage_path: string;
+    file_size: number;
+    checksum_sha256: string;
+  }> = [];
+  try {
+    for (const file of screenshotFiles) {
+      const filePath = join(screenshotsDir, file.file_name);
+      const fileData = await readFile(filePath);
+      const storagePath = `${project.id}/${job.id}/${file.file_name}`;
+
+      const { error: uploadError } = await db.storage
+        .from("review-screenshots")
+        .upload(storagePath, fileData, {
+          contentType: file.file_name.endsWith(".png") ? "image/png" : "image/jpeg",
+          upsert: true,
+        });
+
+      if (uploadError) {
+        console.error(`[worker] Screenshot upload failed for ${file.file_name}:`, uploadError.message);
+        continue;
+      }
+
+      // Create asset record linked to project, job, and revision
+      const { data: assetRow, error: assetError } = await db
+        .from("assets")
+        .insert({
+          project_id: project.id,
+          file_name: file.file_name,
+          file_type: file.file_name.endsWith(".png") ? "image/png" : "image/jpeg",
+          file_size: fileData.length,
+          storage_path: storagePath,
+          category: "image",
+          asset_type: "review_screenshot",
+          source_job_id: job.id,
+          request_revision_id: reviewRevisionId,
+          checksum_sha256: file.sha256,
+          metadata: {
+            manifest_path: manifestBase.manifest_path,
+            local_path: file.path,
+            review_started_at: reviewStartedAt,
+            review_completed_at: now,
+            served_title: runtime.servedTitle,
+            served_url: runtime.servedUrl,
+          },
+        })
+        .select("id")
+        .single();
+
+      if (assetError) {
+        console.error(`[worker] Asset insert failed for ${file.file_name}:`, assetError.message);
+        continue;
+      }
+
+      file.uploaded_asset_id = assetRow?.id ?? null;
+      file.uploaded_storage_path = storagePath;
+      file.uploaded_at = now;
+      uploadedScreenshots.push({
+        asset_id: assetRow?.id ?? null,
+        file_name: file.file_name,
+        storage_path: storagePath,
+        file_size: fileData.length,
+        checksum_sha256: file.sha256,
+      });
+    }
+
+    console.log(`[worker] Uploaded ${uploadedScreenshots.length} screenshots to Supabase for ${slug}`);
+  } catch (err) {
+    console.error("[worker] Screenshot upload to Supabase failed:", err);
+    // Non-fatal — screenshots are still on disk
+  }
+
+  const uploadedByName = new Map(uploadedScreenshots.map((file) => [file.file_name, file]));
+  const missingInUpload = screenshotFiles
+    .filter((file) => !uploadedByName.has(file.file_name))
+    .map((file) => file.file_name);
+  const extraUploaded = uploadedScreenshots
+    .filter((file) => !screenshotFiles.some((manifestFile) => manifestFile.file_name === file.file_name))
+    .map((file) => file.file_name);
+  const hashMismatches = screenshotFiles
+    .filter((file) => {
+      const uploaded = uploadedByName.get(file.file_name);
+      return uploaded != null && uploaded.checksum_sha256 !== file.sha256;
+    })
+    .map((file) => file.file_name);
+  const uploadSummary = {
+    compared_at: now,
+    matched:
+      missingInUpload.length === 0 &&
+      extraUploaded.length === 0 &&
+      hashMismatches.length === 0 &&
+      uploadedScreenshots.length === screenshotFiles.length,
+    manifest_count: screenshotFiles.length,
+    uploaded_count: uploadedScreenshots.length,
+    missing_in_upload: missingInUpload,
+    extra_uploaded: extraUploaded,
+    hash_mismatches: hashMismatches,
+  };
+  manifestBase.upload_summary = uploadSummary;
+  await writeScreenshotManifest(manifestPath, manifestBase);
+
   await db
     .from("jobs")
     .update({
@@ -758,61 +993,21 @@ async function executeReview(
       result: {
         success: true,
         message: `Review complete — ${screenshotCount} screenshots captured`,
-        artifacts: [screenshotsDir],
+        artifacts: [screenshotsDir, manifestPath],
         command: fullCommand,
         exit_code: exitCode,
         validation,
         site_age: siteAge,
         screenshot_count: screenshotCount,
+        review_manifest: manifestBase,
+        uploaded_screenshots: uploadedScreenshots,
+        upload_summary: uploadSummary,
       },
       stdout: stdout.slice(0, 50_000),
       stderr: stderr.slice(0, 50_000),
       completed_at: now,
     })
     .eq("id", job.id);
-
-  // Upload screenshots to Supabase storage + create asset records
-  try {
-    const screenshotFiles = readdirSync(screenshotsDir).filter((f) =>
-      f.endsWith(".png") || f.endsWith(".jpg") || f.endsWith(".jpeg"),
-    );
-
-    for (const file of screenshotFiles) {
-      const filePath = join(screenshotsDir, file);
-      const fileData = await readFile(filePath);
-      const storagePath = `${project.id}/${job.id}/${file}`;
-
-      const { error: uploadError } = await db.storage
-        .from("review-screenshots")
-        .upload(storagePath, fileData, {
-          contentType: file.endsWith(".png") ? "image/png" : "image/jpeg",
-          upsert: true,
-        });
-
-      if (uploadError) {
-        console.error(`[worker] Screenshot upload failed for ${file}:`, uploadError.message);
-        continue;
-      }
-
-      // Create asset record linked to project, job, and revision
-      await db.from("assets").insert({
-        project_id: project.id,
-        file_name: file,
-        file_type: file.endsWith(".png") ? "image/png" : "image/jpeg",
-        file_size: fileData.length,
-        storage_path: storagePath,
-        category: "image",
-        asset_type: "review_screenshot",
-        source_job_id: job.id,
-        request_revision_id: reviewRevisionId,
-      });
-    }
-
-    console.log(`[worker] Uploaded ${screenshotFiles.length} screenshots to Supabase for ${slug}`);
-  } catch (err) {
-    console.error("[worker] Screenshot upload to Supabase failed:", err);
-    // Non-fatal — screenshots are still on disk
-  }
 
   await db.from("project_events").insert({
     project_id: project.id,
@@ -826,13 +1021,17 @@ async function executeReview(
       validation,
       site_age: siteAge,
       revision_id: reviewRevisionId,
+      review_manifest_path: manifestBase.manifest_path,
+      review_served_title: runtime.servedTitle,
+      review_served_url: runtime.servedUrl,
+      upload_summary: uploadSummary,
     },
   });
 
   await notifyDiscordTransition(db, project, "review_completed");
 
   console.log(
-    `[worker] Review complete for ${slug} (${screenshotCount} screenshots, site ${siteAge})`,
+    `[worker] Review complete for ${slug} (${screenshotCount} screenshots, site ${siteAge}, upload match: ${uploadSummary.matched ? "yes" : "no"})`,
   );
 }
 

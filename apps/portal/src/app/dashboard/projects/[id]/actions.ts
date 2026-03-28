@@ -20,6 +20,44 @@ import {
   ensureDraftDefaults,
 } from "@/lib/draft-helpers";
 
+interface ReviewManifestFile {
+  file_name: string;
+  path: string;
+  size_bytes: number;
+  sha256: string;
+  modified_at: string;
+  uploaded_storage_path?: string | null;
+  uploaded_asset_id?: string | null;
+  uploaded_at?: string | null;
+}
+
+interface ReviewManifest {
+  schema_version: number;
+  status: "completed" | "failed";
+  project_id: string | null;
+  slug: string;
+  revision_id: string | null;
+  job_id: string | null;
+  review_started_at: string | null;
+  review_completed_at: string | null;
+  served_url: string | null;
+  served_title: string | null;
+  port: number | null;
+  site_dir: string;
+  screenshots_dir: string;
+  manifest_path: string;
+  screenshot_files: ReviewManifestFile[];
+  upload_summary?: {
+    compared_at: string;
+    matched: boolean;
+    manifest_count: number;
+    uploaded_count: number;
+    missing_in_upload: string[];
+    extra_uploaded: string[];
+    hash_mismatches: string[];
+  };
+}
+
 // ── Revision helpers (internal) ──────────────────────────────────────
 
 /**
@@ -833,6 +871,8 @@ export async function getScreenshotsForProjectAction(
     storage_path: string;
     source_job_id: string | null;
     request_revision_id: string | null;
+    checksum_sha256: string | null;
+    metadata: Record<string, unknown>;
     created_at: string;
   }>;
   error?: string;
@@ -844,7 +884,7 @@ export async function getScreenshotsForProjectAction(
 
   let query = supabase
     .from("assets")
-    .select("id, file_name, storage_path, source_job_id, request_revision_id, created_at")
+    .select("id, file_name, storage_path, source_job_id, request_revision_id, checksum_sha256, metadata, created_at")
     .eq("project_id", projectId)
     .eq("asset_type", "review_screenshot")
     .order("created_at", { ascending: false });
@@ -943,7 +983,7 @@ function spawnWorker(jobId: string): void {
   // briefly, but guarantees the spawned process uses fresh code.
   try {
     execSync(
-      "pnpm --filter @vaen/worker --filter @vaen/generator build",
+      "pnpm --filter @vaen/worker --filter @vaen/generator --filter @vaen/review-tools build",
       { cwd: repoRoot, stdio: "pipe", timeout: 30_000 },
     );
   } catch (err) {
@@ -1205,6 +1245,7 @@ export async function getArtifactStatusAction(
   hasScreenshots: boolean;
   screenshotCount: number;
   screenshotNames: string[];
+  screenshotManifest: ReviewManifest | null;
 }> {
   const repoRoot = join(process.cwd(), "../..");
   const result = {
@@ -1214,6 +1255,7 @@ export async function getArtifactStatusAction(
     hasScreenshots: false,
     screenshotCount: 0,
     screenshotNames: [] as string[],
+    screenshotManifest: null as ReviewManifest | null,
   };
 
   try {
@@ -1238,6 +1280,19 @@ export async function getArtifactStatusAction(
     result.hasScreenshots = pngs.length > 0;
     result.screenshotCount = pngs.length;
     result.screenshotNames = pngs;
+  } catch { /* noop */ }
+
+  try {
+    const manifestPath = join(
+      repoRoot,
+      "generated",
+      slug,
+      "artifacts",
+      "screenshots",
+      "manifest.json",
+    );
+    const manifestRaw = await readFile(manifestPath, "utf-8");
+    result.screenshotManifest = JSON.parse(manifestRaw) as ReviewManifest;
   } catch { /* noop */ }
 
   return result;

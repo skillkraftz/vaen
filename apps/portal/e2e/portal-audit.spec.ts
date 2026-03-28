@@ -3,6 +3,7 @@ import {
   createOutputDir,
   resetStepIndex,
   snap,
+  snapLocator,
   getStatusText,
   waitForRevisionsLoaded,
   waitForJobCompletion,
@@ -470,27 +471,85 @@ test("11 — screenshot viewer", async ({ shared: page }) => {
   const provenanceText = await provenance.isVisible().catch(() => false)
     ? await provenance.textContent()
     : null;
+  const manifestPath = await viewer.getAttribute("data-manifest-path");
+  const verification = page.getByTestId("screenshot-verification");
+  const verificationText = await verification.textContent();
+  const verificationState = await verification.getAttribute("data-verification-state");
 
   await snap(page, outputDir, "screenshot-viewer-thumbnails", {
     status,
-    note: `${screenshotCount} screenshots loaded${provenanceText ? ` (${provenanceText})` : ""}`,
+    note:
+      `${screenshotCount} screenshots loaded` +
+      `${provenanceText ? ` (${provenanceText})` : ""}` +
+      `${manifestPath ? ` · manifest ${manifestPath}` : ""}` +
+      `${verificationText ? ` · ${verificationText}` : ""}`,
   });
 
   if (provenanceText) {
     addObservation(`Screenshot provenance: ${provenanceText}`);
   }
+  if (manifestPath) {
+    addObservation(`Screenshot manifest: ${manifestPath}`);
+  }
+  if (verificationText) {
+    addObservation(`Screenshot verification (${verificationState}): ${verificationText}`);
+    if (verificationState === "mismatch") {
+      addFailure("Screenshot Viewer", "upload_mismatch", verificationText);
+      addBlocker(`Screenshot manifest/upload mismatch: ${verificationText}`);
+    }
+  }
 
   // Click the first thumbnail to open a preview
   const firstThumb = viewer.getByTestId("screenshot-thumbnails").locator("button").first();
   if (await firstThumb.isVisible().catch(() => false)) {
+    const clickedLabel = (await firstThumb.textContent())?.trim() ?? "unknown";
     await firstThumb.click();
 
     const preview = page.getByTestId("screenshot-preview");
     await expect(preview).toBeVisible({ timeout: 15_000 });
-    await viewer.scrollIntoViewIfNeeded();
+
+    const previewImage = page.getByTestId("screenshot-preview-image");
+    await expect(previewImage).toBeVisible({ timeout: 15_000 });
+    await expect
+      .poll(async () => {
+        const src = await previewImage.getAttribute("src");
+        return src && src.length > 0 ? "set" : "empty";
+      }, { timeout: 15_000 })
+      .toBe("set");
+    await expect
+      .poll(
+        async () =>
+          previewImage.evaluate((img) => {
+            const node = img as HTMLImageElement;
+            return node.complete && node.naturalWidth > 0 && node.naturalHeight > 0;
+          }),
+        { timeout: 15_000 },
+      )
+      .toBe(true);
+    await previewImage.evaluate(async (img) => {
+      const node = img as HTMLImageElement;
+      if ("decode" in node) {
+        await node.decode().catch(() => undefined);
+      }
+    });
+    await previewImage.scrollIntoViewIfNeeded();
+    await page.evaluate(() => window.scrollBy(0, -120));
+    await page.waitForTimeout(500);
+
+    const previewMeta = page.getByTestId("screenshot-preview-meta");
+    const previewMetaText = await previewMeta.textContent();
+    const previewSrc = await previewImage.getAttribute("src");
+
     await snap(page, outputDir, "screenshot-viewer-preview", {
       status,
-      note: "Screenshot preview image loaded — verify correct project content",
+      note:
+        `Preview loaded for ${clickedLabel}` +
+        `${previewMetaText ? ` · ${previewMetaText}` : ""}` +
+        `${previewSrc ? ` · src ${previewSrc.slice(0, 120)}` : ""}`,
+    });
+    await snapLocator(preview, outputDir, "screenshot-preview-focused", {
+      status,
+      note: `Focused preview capture for ${clickedLabel}`,
     });
   }
 });

@@ -60,6 +60,30 @@ export async function snap(
   return filepath;
 }
 
+export async function snapLocator(
+  locator: Locator,
+  outputDir: string,
+  name: string,
+  meta?: { status?: string; cta?: string; note?: string },
+): Promise<string> {
+  stepIndex++;
+  const padded = String(stepIndex).padStart(2, "0");
+  const filename = `${padded}-${name}.png`;
+  const filepath = join(outputDir, filename);
+  await locator.screenshot({ path: filepath });
+
+  stepLog.push({
+    index: stepIndex,
+    filename,
+    name,
+    status: meta?.status ?? null,
+    cta: meta?.cta ?? null,
+    note: meta?.note ?? null,
+  });
+
+  return filepath;
+}
+
 // ── Waiting helpers ──────────────────────────────────────────────────
 
 /** Read the current workflow status label text */
@@ -212,7 +236,8 @@ interface FailureRecord {
     | "button_disabled"
     | "selector_ambiguity"
     | "job_failed"
-    | "job_timed_out";
+    | "job_timed_out"
+    | "upload_mismatch";
   detail: string;
 }
 

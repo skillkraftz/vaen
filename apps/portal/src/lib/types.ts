@@ -67,6 +67,8 @@ export interface Asset {
   asset_type: "uploaded" | "generated" | "review_screenshot" | null;
   source_job_id: string | null;
   request_revision_id: string | null;
+  checksum_sha256?: string | null;
+  metadata?: Record<string, unknown>;
   created_at: string;
 }
 

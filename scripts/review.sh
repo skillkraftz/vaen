@@ -58,6 +58,7 @@ echo "   Target:      $TARGET"
 echo "   Site dir:    $SITE_DIR"
 echo "   Screenshots: $SCREENSHOTS_DIR"
 echo "   Port:        $PORT"
+echo "   Manifest:    ${REVIEW_MANIFEST_PATH:-$SCREENSHOTS_DIR/manifest.json}"
 echo ""
 
 # Step 1: Install site dependencies if needed
@@ -154,6 +155,8 @@ done
 
 # Verify we're serving the correct site by checking the page title
 SERVED_TITLE=$(curl -s "http://localhost:$PORT/" | grep -oP '<title>\K[^<]+' || echo "unknown")
+SERVED_URL="http://localhost:$PORT"
+echo "   Served URL:   $SERVED_URL"
 echo "   Served title: $SERVED_TITLE"
 
 # Brief stabilization — let the server fully warm up (JIT, caches, etc.)
