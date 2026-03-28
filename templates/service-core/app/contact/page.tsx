@@ -1,9 +1,9 @@
-import { getSiteConfig } from "@/lib/site-config";
+import { getSiteConfigForRoute } from "@/lib/site-config";
 
 export const dynamic = "force-dynamic";
 
 export default function ContactPage() {
-  const config = getSiteConfig();
+  const config = getSiteConfigForRoute("/contact");
   return (
     <div className="contact-page">
       <div className="container">

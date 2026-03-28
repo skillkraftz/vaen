@@ -58,6 +58,12 @@ Options:
         ? ` (expected ${captured.contentVerification.expected_business_name})`
         : ""),
   );
+  console.log(
+    `   Runtime config: ${captured.runtimeConfigVerification.status}` +
+      (captured.runtimeConfigVerification.runtime_business_name
+        ? ` (${captured.runtimeConfigVerification.runtime_business_name})`
+        : ""),
+  );
   console.log();
 }
 

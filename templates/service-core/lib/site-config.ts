@@ -1,5 +1,6 @@
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { createHash } from "node:crypto";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 
 export interface SiteConfig {
   business: {
@@ -59,6 +60,21 @@ export interface SiteConfig {
       enabled: boolean;
     };
   };
+}
+
+export interface SiteConfigRuntimeDiagnostics {
+  timestamp: string;
+  route: string;
+  process_cwd: string;
+  configured_path: string | null;
+  resolved_config_path: string;
+  config_exists: boolean;
+  config_sha256: string | null;
+  business_name: string | null;
+  seo_title: string | null;
+  hero_headline: string | null;
+  expected_business_name: string | null;
+  runtime_config_status: "matched" | "mismatched" | "unknown";
 }
 
 // Default config used during development and as fallback
@@ -149,7 +165,7 @@ function deepMerge(target: Record<string, unknown>, source: Record<string, unkno
     ) {
       result[key] = deepMerge(
         target[key] as Record<string, unknown>,
-        source[key] as Record<string, unknown>
+        source[key] as Record<string, unknown>,
       );
     } else {
       result[key] = source[key];
@@ -158,18 +174,118 @@ function deepMerge(target: Record<string, unknown>, source: Record<string, unkno
   return result;
 }
 
-export function getSiteConfig(): SiteConfig {
-  try {
-    // In generated sites, config.json is placed at the project root.
-    // Read it from the runtime working directory to avoid stale module-cache
-    // behavior between regeneration and review-time serving.
-    const raw = readFileSync(join(process.cwd(), "config.json"), "utf-8");
-    const loaded = JSON.parse(raw) as Record<string, unknown>;
-    return deepMerge(
-      defaultConfig as unknown as Record<string, unknown>,
-      loaded
-    ) as unknown as SiteConfig;
-  } catch {
-    return defaultConfig;
+function sha256(input: string): string {
+  return createHash("sha256").update(input).digest("hex");
+}
+
+function resolveConfigPath(): {
+  configuredPath: string | null;
+  resolvedPath: string;
+  exists: boolean;
+} {
+  const configuredPath = process.env.VAEN_SITE_CONFIG_PATH ?? null;
+  const candidates = [
+    configuredPath,
+    join(process.cwd(), "config.json"),
+    join(process.cwd(), "..", "config.json"),
+  ].filter((value): value is string => Boolean(value));
+
+  for (const candidate of candidates) {
+    if (existsSync(candidate)) {
+      return {
+        configuredPath,
+        resolvedPath: candidate,
+        exists: true,
+      };
+    }
   }
+
+  return {
+    configuredPath,
+    resolvedPath: candidates[0] ?? join(process.cwd(), "config.json"),
+    exists: false,
+  };
+}
+
+function appendRuntimeProbe(entry: SiteConfigRuntimeDiagnostics) {
+  const probePath = process.env.VAEN_RUNTIME_PROBE_PATH;
+  if (!probePath) return;
+
+  try {
+    mkdirSync(dirname(probePath), { recursive: true });
+    const existing = existsSync(probePath)
+      ? JSON.parse(readFileSync(probePath, "utf-8")) as SiteConfigRuntimeDiagnostics[]
+      : [];
+    existing.push(entry);
+    writeFileSync(probePath, JSON.stringify(existing, null, 2) + "\n", "utf-8");
+  } catch {
+    // Probe writing is best-effort and must never break rendering.
+  }
+}
+
+function loadSiteConfig(route = "unknown"): {
+  config: SiteConfig;
+  diagnostics: SiteConfigRuntimeDiagnostics;
+} {
+  const resolved = resolveConfigPath();
+  const expectedBusinessName = process.env.VAEN_EXPECTED_BUSINESS_NAME ?? null;
+
+  try {
+    const raw = readFileSync(resolved.resolvedPath, "utf-8");
+    const loaded = JSON.parse(raw) as Record<string, unknown>;
+    const config = deepMerge(
+      defaultConfig as unknown as Record<string, unknown>,
+      loaded,
+    ) as unknown as SiteConfig;
+    const diagnostics: SiteConfigRuntimeDiagnostics = {
+      timestamp: new Date().toISOString(),
+      route,
+      process_cwd: process.cwd(),
+      configured_path: resolved.configuredPath,
+      resolved_config_path: resolved.resolvedPath,
+      config_exists: true,
+      config_sha256: sha256(raw),
+      business_name: config.business.name,
+      seo_title: config.seo.title,
+      hero_headline: config.hero.headline,
+      expected_business_name: expectedBusinessName,
+      runtime_config_status:
+        expectedBusinessName == null
+          ? "unknown"
+          : config.business.name === expectedBusinessName
+            ? "matched"
+            : "mismatched",
+    };
+    appendRuntimeProbe(diagnostics);
+    return { config, diagnostics };
+  } catch {
+    const diagnostics: SiteConfigRuntimeDiagnostics = {
+      timestamp: new Date().toISOString(),
+      route,
+      process_cwd: process.cwd(),
+      configured_path: resolved.configuredPath,
+      resolved_config_path: resolved.resolvedPath,
+      config_exists: resolved.exists,
+      config_sha256: null,
+      business_name: defaultConfig.business.name,
+      seo_title: defaultConfig.seo.title,
+      hero_headline: defaultConfig.hero.headline,
+      expected_business_name: expectedBusinessName,
+      runtime_config_status: expectedBusinessName == null ? "unknown" : "mismatched",
+    };
+    appendRuntimeProbe(diagnostics);
+    return { config: defaultConfig, diagnostics };
+  }
+}
+
+export function getSiteConfig(): SiteConfig {
+  return loadSiteConfig().config;
+}
+
+export function getSiteConfigForRoute(route: string): SiteConfig {
+  return loadSiteConfig(route).config;
+}
+
+export function getSiteConfigDiagnostics(route: string): SiteConfigRuntimeDiagnostics {
+  return loadSiteConfig(route).diagnostics;
 }

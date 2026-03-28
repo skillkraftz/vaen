@@ -1,12 +1,11 @@
-import { getSiteConfig } from "@/lib/site-config";
+import { getSiteConfigForRoute } from "@/lib/site-config";
 
 export const dynamic = "force-dynamic";
 
 export default function HomePage() {
-  const config = getSiteConfig();
+  const config = getSiteConfigForRoute("/");
   return (
     <>
-      {/* Hero */}
       <section className="hero">
         <div className="container">
           <h1>{config.hero.headline}</h1>
@@ -22,7 +21,6 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* Services */}
       <section id="services" className="section">
         <div className="container">
           <h2 className="section-title">Our Services</h2>
@@ -38,7 +36,6 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* About */}
       <section className="section section-alt">
         <div className="container">
           <h2 className="section-title">About {config.business.name}</h2>
@@ -46,7 +43,6 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* Testimonials */}
       {config.modules.testimonials?.enabled &&
         config.testimonials.length > 0 && (
           <section id="testimonials" className="section">
@@ -70,7 +66,6 @@ export default function HomePage() {
           </section>
         )}
 
-      {/* Gallery */}
       {config.gallery.length > 0 && (
         <section id="gallery" className="section section-alt">
           <div className="container">
@@ -86,7 +81,6 @@ export default function HomePage() {
         </section>
       )}
 
-      {/* Map */}
       {config.modules.mapsEmbed?.enabled && (
         <section className="section">
           <div className="container">
@@ -104,7 +98,6 @@ export default function HomePage() {
         </section>
       )}
 
-      {/* CTA */}
       <section className="cta">
         <div className="container">
           <h2>Ready to Get Started?</h2>

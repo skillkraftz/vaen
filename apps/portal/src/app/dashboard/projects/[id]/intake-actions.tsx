@@ -82,6 +82,12 @@ interface ReviewManifest {
     observed_home_h1: string | null;
     mismatches: string[];
   };
+  runtime_config_probe_path?: string | null;
+  runtime_config_status?: "matched" | "mismatched" | "unknown";
+  expected_business_name?: string | null;
+  runtime_business_name?: string | null;
+  runtime_config_path?: string | null;
+  runtime_cwd?: string | null;
   review_identity_status?: "matched" | "mismatched" | "unknown";
   mismatch_stage?: "generated_source" | "review_probe" | "unknown" | null;
   site_config_snapshot_path?: string | null;
@@ -840,6 +846,7 @@ function ScreenshotViewer({ slug, projectId, lastReviewedRevisionId, status }: {
         <p className="text-mono" data-testid="screenshot-manifest-path" style={{ fontSize: "0.6rem", color: "var(--color-text-muted)", marginBottom: "0.5rem" }}>
           manifest {manifest.manifest_path}
           {manifest.review_probe_path ? ` · probe ${manifest.review_probe_path}` : ""}
+          {manifest.runtime_config_probe_path ? ` · runtime ${manifest.runtime_config_probe_path}` : ""}
           {manifest.site_config_snapshot_path ? ` · config ${manifest.site_config_snapshot_path}` : ""}
           {manifest.site_source_summary_path ? ` · source ${manifest.site_source_summary_path}` : ""}
           {manifest.site_identity_scan_path ? ` · scan ${manifest.site_identity_scan_path}` : ""}
@@ -878,6 +885,20 @@ function ScreenshotViewer({ slug, projectId, lastReviewedRevisionId, status }: {
           {manifest.content_verification.mismatches.length > 0
             ? ` · ${manifest.content_verification.mismatches.join(" | ")}`
             : ""}
+        </p>
+      )}
+      {manifest?.runtime_config_status && (
+        <p
+          className="text-mono"
+          data-testid="screenshot-runtime-config"
+          data-runtime-config-state={manifest.runtime_config_status}
+          style={{ fontSize: "0.6rem", color: manifest.runtime_config_status === "matched" ? "var(--color-success)" : "var(--color-text-muted)", marginBottom: "0.5rem", whiteSpace: "pre-wrap" }}
+        >
+          runtime {manifest.runtime_config_status}
+          {manifest.expected_business_name ? ` · expected ${manifest.expected_business_name}` : ""}
+          {manifest.runtime_business_name ? ` · business ${manifest.runtime_business_name}` : ""}
+          {manifest.runtime_config_path ? ` · path ${manifest.runtime_config_path}` : ""}
+          {manifest.runtime_cwd ? ` · cwd ${manifest.runtime_cwd}` : ""}
         </p>
       )}
 

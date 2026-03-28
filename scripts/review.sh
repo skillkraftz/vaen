@@ -12,7 +12,7 @@ set -euo pipefail
 # The target must be a directory under generated/, e.g.:
 #   generated/<client-slug>/
 
-PORT=4173
+PORT=""
 TARGET=""
 
 while [[ $# -gt 0 ]]; do
@@ -26,7 +26,7 @@ while [[ $# -gt 0 ]]; do
       echo ""
       echo "Options:"
       echo "  --target   Client slug (directory name under generated/)"
-      echo "  --port     Port for local server (default: 4173)"
+      echo "  --port     Port for local server (default: auto-select free port)"
       echo "  --help     Show this help"
       echo ""
       exit 0
@@ -52,6 +52,10 @@ if [ ! -d "$SITE_DIR" ]; then
   exit 1
 fi
 
+if [ -z "$PORT" ]; then
+  PORT=$(node -e 'const net=require("node:net"); const server=net.createServer(); server.listen(0, "127.0.0.1", () => { const address=server.address(); console.log(address.port); server.close(); });')
+fi
+
 echo ""
 echo "📸 vaen review"
 echo "   Target:      $TARGET"
@@ -59,6 +63,8 @@ echo "   Site dir:    $SITE_DIR"
 echo "   Screenshots: $SCREENSHOTS_DIR"
 echo "   Port:        $PORT"
 echo "   Manifest:    ${REVIEW_MANIFEST_PATH:-$SCREENSHOTS_DIR/manifest.json}"
+echo "   Config path: ${VAEN_SITE_CONFIG_PATH:-$SITE_DIR/config.json}"
+echo "   Runtime:     ${VAEN_RUNTIME_PROBE_PATH:-$WORKSPACE/artifacts/runtime-config-probe.json}"
 echo ""
 
 # Step 1: Install site dependencies if needed
@@ -102,21 +108,31 @@ rm -f "$BUILD_LOG"
 echo "4. Starting site on port $PORT..."
 
 # Kill any process already holding this port (stale from a previous run)
-STALE_PID=$(lsof -ti :"$PORT" 2>/dev/null || true)
-if [ -n "$STALE_PID" ]; then
-  echo "   ⚠ Killing stale process on port $PORT (PID $STALE_PID)"
-  kill "$STALE_PID" 2>/dev/null || true
+PORT_PIDS=$(
+  {
+    lsof -ti :"$PORT" 2>/dev/null || true
+    ss -ltnp "( sport = :$PORT )" 2>/dev/null | sed -n 's/.*pid=\([0-9]\+\).*/\1/p'
+  } | sort -u
+)
+if [ -n "$PORT_PIDS" ]; then
+  echo "   ⚠ Killing stale process(es) on port $PORT: $PORT_PIDS"
+  while read -r STALE_PID; do
+    [ -z "$STALE_PID" ] && continue
+    kill "$STALE_PID" 2>/dev/null || true
+  done <<< "$PORT_PIDS"
   sleep 1
-  # Force-kill if still alive
-  if kill -0 "$STALE_PID" 2>/dev/null; then
-    kill -9 "$STALE_PID" 2>/dev/null || true
-    sleep 1
-  fi
+  while read -r STALE_PID; do
+    [ -z "$STALE_PID" ] && continue
+    if kill -0 "$STALE_PID" 2>/dev/null; then
+      kill -9 "$STALE_PID" 2>/dev/null || true
+    fi
+  done <<< "$PORT_PIDS"
+  sleep 1
 fi
 
 SERVER_LOG=$(mktemp)
 cd "$SITE_DIR"
-npx next start -p "$PORT" > "$SERVER_LOG" 2>&1 &
+PORT="$PORT" npm run dev -- -p "$PORT" > "$SERVER_LOG" 2>&1 &
 SERVER_PID=$!
 cd - > /dev/null
 
@@ -139,7 +155,7 @@ for i in $(seq 1 30); do
     echo "────────────────"
     exit 1
   fi
-  if curl -s -o /dev/null "http://localhost:$PORT/" 2>/dev/null; then
+  if curl -s -o /dev/null "http://127.0.0.1:$PORT/" 2>/dev/null; then
     echo "   ✓ Server ready (PID $SERVER_PID)"
     break
   fi
@@ -153,11 +169,34 @@ for i in $(seq 1 30); do
   sleep 1
 done
 
+RUNTIME_URL="http://127.0.0.1:$PORT/api/vaen-runtime?route=/"
+RUNTIME_RESPONSE=$(curl -s "$RUNTIME_URL" || true)
+if [[ "$RUNTIME_RESPONSE" != \{* ]]; then
+  echo "   ✗ Runtime probe endpoint did not return JSON"
+  echo "   Probe URL: $RUNTIME_URL"
+  echo "── Runtime response ──"
+  echo "$RUNTIME_RESPONSE" | head -40
+  echo "──────────────────────"
+  exit 1
+fi
+
+if [ -n "${VAEN_EXPECTED_BUSINESS_NAME:-}" ]; then
+  if ! echo "$RUNTIME_RESPONSE" | grep -F "\"business_name\":\"${VAEN_EXPECTED_BUSINESS_NAME}\"" >/dev/null; then
+    echo "   ✗ Runtime business name mismatch before screenshot capture"
+    echo "   Expected: ${VAEN_EXPECTED_BUSINESS_NAME}"
+    echo "── Runtime response ──"
+    echo "$RUNTIME_RESPONSE"
+    echo "──────────────────────"
+    exit 1
+  fi
+fi
+
 # Verify we're serving the correct site by checking the page title
-SERVED_TITLE=$(curl -s "http://localhost:$PORT/" | grep -oP '<title>\K[^<]+' || echo "unknown")
-SERVED_URL="http://localhost:$PORT"
+SERVED_TITLE=$(curl -s "http://127.0.0.1:$PORT/" | grep -oP '<title>\K[^<]+' || echo "unknown")
+SERVED_URL="http://127.0.0.1:$PORT"
 echo "   Served URL:   $SERVED_URL"
 echo "   Served title: $SERVED_TITLE"
+echo "   Runtime URL:  $RUNTIME_URL"
 
 # Brief stabilization — let the server fully warm up (JIT, caches, etc.)
 echo "   Waiting 3s for server stabilization..."

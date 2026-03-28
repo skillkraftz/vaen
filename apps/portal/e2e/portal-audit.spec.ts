@@ -479,6 +479,10 @@ test("11 — screenshot viewer", async ({ shared: page }) => {
   const contentVerificationText = await contentVerification.isVisible().catch(() => false)
     ? await contentVerification.textContent()
     : null;
+  const runtimeConfig = page.getByTestId("screenshot-runtime-config");
+  const runtimeConfigText = await runtimeConfig.isVisible().catch(() => false)
+    ? await runtimeConfig.textContent()
+    : null;
 
   await snap(page, outputDir, "screenshot-viewer-thumbnails", {
     status,
@@ -487,7 +491,8 @@ test("11 — screenshot viewer", async ({ shared: page }) => {
       `${provenanceText ? ` (${provenanceText})` : ""}` +
       `${manifestPath ? ` · manifest ${manifestPath}` : ""}` +
       `${verificationText ? ` · ${verificationText}` : ""}` +
-      `${contentVerificationText ? ` · ${contentVerificationText}` : ""}`,
+      `${contentVerificationText ? ` · ${contentVerificationText}` : ""}` +
+      `${runtimeConfigText ? ` · ${runtimeConfigText}` : ""}`,
   });
 
   if (provenanceText) {
@@ -505,6 +510,9 @@ test("11 — screenshot viewer", async ({ shared: page }) => {
   }
   if (contentVerificationText) {
     addObservation(`Screenshot content verification: ${contentVerificationText}`);
+  }
+  if (runtimeConfigText) {
+    addObservation(`Screenshot runtime config: ${runtimeConfigText}`);
   }
 
   // Click the first thumbnail to open a preview

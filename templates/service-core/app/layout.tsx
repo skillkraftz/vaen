@@ -1,11 +1,11 @@
 import type { Metadata } from "next";
-import { getSiteConfig } from "@/lib/site-config";
+import { getSiteConfigForRoute } from "@/lib/site-config";
 import "./globals.css";
 
 export const dynamic = "force-dynamic";
 
 export function generateMetadata(): Metadata {
-  const config = getSiteConfig();
+  const config = getSiteConfigForRoute("/(metadata)");
   return {
     title: config.seo.title,
     description: config.seo.description,
@@ -17,7 +17,7 @@ export default function RootLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const config = getSiteConfig();
+  const config = getSiteConfigForRoute("/(layout)");
   return (
     <html lang="en">
       <body
@@ -38,7 +38,7 @@ export default function RootLayout({
   );
 }
 
-function Header({ config }: { config: ReturnType<typeof getSiteConfig> }) {
+function Header({ config }: { config: ReturnType<typeof getSiteConfigForRoute> }) {
   return (
     <header className="header">
       <div className="container header-inner">
@@ -60,7 +60,7 @@ function Header({ config }: { config: ReturnType<typeof getSiteConfig> }) {
   );
 }
 
-function Footer({ config }: { config: ReturnType<typeof getSiteConfig> }) {
+function Footer({ config }: { config: ReturnType<typeof getSiteConfigForRoute> }) {
   return (
     <footer className="footer">
       <div className="container footer-inner">

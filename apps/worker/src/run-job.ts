@@ -103,6 +103,12 @@ interface ScreenshotManifest {
     observed_home_h1: string | null;
     mismatches: string[];
   };
+  runtime_config_probe_path?: string | null;
+  runtime_config_status?: "matched" | "mismatched" | "unknown";
+  expected_business_name?: string | null;
+  runtime_business_name?: string | null;
+  runtime_config_path?: string | null;
+  runtime_cwd?: string | null;
   review_identity_status?: "matched" | "mismatched" | "unknown";
   mismatch_stage?: "generated_source" | "review_probe" | "unknown" | null;
   site_config_snapshot_path?: string | null;
@@ -136,6 +142,15 @@ interface ReviewProbeArtifact {
     observed_home_h1: string | null;
     mismatches: string[];
   };
+  runtimeConfigVerification: {
+    status: "matched" | "mismatched" | "unknown";
+    expected_business_name: string | null;
+    runtime_business_name: string | null;
+    runtime_config_path: string | null;
+    runtime_cwd: string | null;
+    route: string | null;
+    mismatches: string[];
+  };
   captures: Array<{
     page_name: string;
     route_path: string;
@@ -150,7 +165,36 @@ interface ReviewProbeArtifact {
     body_text_snippet: string;
     body_text_hash: string;
     html_hash: string;
+    runtime_config: {
+      timestamp: string;
+      route: string;
+      process_cwd: string;
+      configured_path: string | null;
+      resolved_config_path: string;
+      config_exists: boolean;
+      config_sha256: string | null;
+      business_name: string | null;
+      seo_title: string | null;
+      hero_headline: string | null;
+      expected_business_name: string | null;
+      runtime_config_status: "matched" | "mismatched" | "unknown";
+    } | null;
   }>;
+}
+
+interface RuntimeConfigProbeEntry {
+  timestamp: string;
+  route: string;
+  process_cwd: string;
+  configured_path: string | null;
+  resolved_config_path: string;
+  config_exists: boolean;
+  config_sha256: string | null;
+  business_name: string | null;
+  seo_title: string | null;
+  hero_headline: string | null;
+  expected_business_name: string | null;
+  runtime_config_status: "matched" | "mismatched" | "unknown";
 }
 
 interface SiteConfigSnapshot {
@@ -454,6 +498,17 @@ async function readReviewProbe(
   }
 }
 
+async function readRuntimeConfigProbe(
+  probePath: string,
+): Promise<RuntimeConfigProbeEntry[] | null> {
+  try {
+    const raw = await readFile(probePath, "utf-8");
+    return JSON.parse(raw) as RuntimeConfigProbeEntry[];
+  } catch {
+    return null;
+  }
+}
+
 async function safeReadJson(path: string): Promise<Record<string, unknown> | null> {
   try {
     const raw = await readFile(path, "utf-8");
@@ -653,7 +708,17 @@ function deriveIdentityVerdict(
     };
   }
 
-  if (reviewProbe?.contentVerification.status === "matched") {
+  if (reviewProbe?.runtimeConfigVerification.status === "mismatched") {
+    return {
+      review_identity_status: "mismatched",
+      mismatch_stage: "review_probe",
+    };
+  }
+
+  if (
+    reviewProbe?.contentVerification.status === "matched" ||
+    reviewProbe?.runtimeConfigVerification.status === "matched"
+  ) {
     return {
       review_identity_status: "matched",
       mismatch_stage: null,
@@ -1008,6 +1073,13 @@ async function executeReview(
   const metaPath = join(siteDir, ".vaen-meta.json");
   const screenshotsDir = join(repoRoot, "generated", slug, "artifacts", "screenshots");
   const manifestPath = join(screenshotsDir, "manifest.json");
+  const runtimeConfigProbePath = join(
+    repoRoot,
+    "generated",
+    slug,
+    "artifacts",
+    "runtime-config-probe.json",
+  );
   const reviewRevisionId = (job.payload?.revision_id as string) ?? null;
   const reviewStartedAt = new Date().toISOString();
   const siteArtifacts = await snapshotSiteInputs(
@@ -1128,6 +1200,9 @@ async function executeReview(
     REVIEW_SITE_DIR: siteDir,
     REVIEW_SCREENSHOTS_DIR: screenshotsDir,
     REVIEW_MANIFEST_PATH: manifestPath,
+    VAEN_SITE_CONFIG_PATH: join(siteDir, "config.json"),
+    VAEN_RUNTIME_PROBE_PATH: runtimeConfigProbePath,
+    VAEN_EXPECTED_BUSINESS_NAME: siteArtifacts.siteConfigSnapshot.business_name ?? "",
   };
   const { stdout, stderr, exitCode } = await runCommand(
     "pnpm",
@@ -1141,6 +1216,12 @@ async function executeReview(
   const runtime = extractReviewRuntime(stdout);
   const screenshotFiles = await collectScreenshotManifest(screenshotsDir, repoRoot);
   const reviewProbe = await readReviewProbe(screenshotsDir, repoRoot);
+  const runtimeConfigProbe = await readRuntimeConfigProbe(runtimeConfigProbePath);
+  const homeRuntimeProbe =
+    runtimeConfigProbe?.find((entry) => entry.route === "/") ??
+    runtimeConfigProbe?.find((entry) => entry.route === "/contact") ??
+    runtimeConfigProbe?.[0] ??
+    null;
   const identityVerdict = deriveIdentityVerdict(siteArtifacts.siteIdentityScan, reviewProbe);
   const manifestBase: ScreenshotManifest = {
     schema_version: 1,
@@ -1160,6 +1241,27 @@ async function executeReview(
     screenshot_files: screenshotFiles,
     review_probe_path: reviewProbe?.probePath ?? null,
     content_verification: reviewProbe?.contentVerification,
+    runtime_config_probe_path: relative(repoRoot, runtimeConfigProbePath),
+    runtime_config_status:
+      reviewProbe?.runtimeConfigVerification.status ??
+      homeRuntimeProbe?.runtime_config_status ??
+      "unknown",
+    expected_business_name:
+      reviewProbe?.runtimeConfigVerification.expected_business_name ??
+      homeRuntimeProbe?.expected_business_name ??
+      siteArtifacts.siteConfigSnapshot.business_name,
+    runtime_business_name:
+      reviewProbe?.runtimeConfigVerification.runtime_business_name ??
+      homeRuntimeProbe?.business_name ??
+      null,
+    runtime_config_path:
+      reviewProbe?.runtimeConfigVerification.runtime_config_path ??
+      homeRuntimeProbe?.resolved_config_path ??
+      null,
+    runtime_cwd:
+      reviewProbe?.runtimeConfigVerification.runtime_cwd ??
+      homeRuntimeProbe?.process_cwd ??
+      null,
     review_identity_status: identityVerdict.review_identity_status,
     mismatch_stage: identityVerdict.mismatch_stage,
     site_config_snapshot_path: siteArtifacts.paths.configSnapshotPath,
@@ -1208,6 +1310,7 @@ async function executeReview(
           site_age: siteAge,
           review_manifest: manifestBase,
           review_probe: reviewProbe,
+          runtime_config_probe: runtimeConfigProbe,
           site_config_snapshot: siteArtifacts.siteConfigSnapshot,
           site_source_summary: siteArtifacts.siteSourceSummary,
           site_identity_scan: siteArtifacts.siteIdentityScan,
@@ -1233,9 +1336,11 @@ async function executeReview(
         site_age: siteAge,
         review_manifest_path: manifestBase.manifest_path,
         review_probe_path: reviewProbe?.probePath ?? null,
+        runtime_config_probe_path: manifestBase.runtime_config_probe_path,
         review_served_title: runtime.servedTitle,
         review_served_url: runtime.servedUrl,
         content_verification: reviewProbe?.contentVerification,
+        runtime_config_verification: reviewProbe?.runtimeConfigVerification,
         site_config_snapshot_path: siteArtifacts.paths.configSnapshotPath,
         site_source_summary_path: siteArtifacts.paths.sourceSummaryPath,
         site_identity_scan_path: siteArtifacts.paths.identityScanPath,
@@ -1391,6 +1496,7 @@ async function executeReview(
         screenshot_count: screenshotCount,
         review_manifest: manifestBase,
         review_probe: reviewProbe,
+        runtime_config_probe: runtimeConfigProbe,
         site_config_snapshot: siteArtifacts.siteConfigSnapshot,
         site_source_summary: siteArtifacts.siteSourceSummary,
         site_identity_scan: siteArtifacts.siteIdentityScan,
@@ -1419,9 +1525,11 @@ async function executeReview(
       revision_id: reviewRevisionId,
       review_manifest_path: manifestBase.manifest_path,
       review_probe_path: reviewProbe?.probePath ?? null,
+      runtime_config_probe_path: manifestBase.runtime_config_probe_path,
       review_served_title: runtime.servedTitle,
       review_served_url: runtime.servedUrl,
       content_verification: reviewProbe?.contentVerification,
+      runtime_config_verification: reviewProbe?.runtimeConfigVerification,
       site_config_snapshot_path: siteArtifacts.paths.configSnapshotPath,
       site_source_summary_path: siteArtifacts.paths.sourceSummaryPath,
       site_identity_scan_path: siteArtifacts.paths.identityScanPath,

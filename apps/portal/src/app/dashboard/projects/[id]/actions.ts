@@ -55,6 +55,12 @@ interface ReviewManifest {
     observed_home_h1: string | null;
     mismatches: string[];
   };
+  runtime_config_probe_path?: string | null;
+  runtime_config_status?: "matched" | "mismatched" | "unknown";
+  expected_business_name?: string | null;
+  runtime_business_name?: string | null;
+  runtime_config_path?: string | null;
+  runtime_cwd?: string | null;
   review_identity_status?: "matched" | "mismatched" | "unknown";
   mismatch_stage?: "generated_source" | "review_probe" | "unknown" | null;
   site_config_snapshot_path?: string | null;

@@ -10,6 +10,21 @@ export interface ScreenshotOptions {
   pages?: Array<{ path: string; name: string }>;
 }
 
+export interface RuntimeConfigDiagnostics {
+  timestamp: string;
+  route: string;
+  process_cwd: string;
+  configured_path: string | null;
+  resolved_config_path: string;
+  config_exists: boolean;
+  config_sha256: string | null;
+  business_name: string | null;
+  seo_title: string | null;
+  hero_headline: string | null;
+  expected_business_name: string | null;
+  runtime_config_status: "matched" | "mismatched" | "unknown";
+}
+
 export interface CaptureProbe {
   page_name: string;
   route_path: string;
@@ -24,6 +39,7 @@ export interface CaptureProbe {
   body_text_snippet: string;
   body_text_hash: string;
   html_hash: string;
+  runtime_config: RuntimeConfigDiagnostics | null;
 }
 
 export interface CaptureResult {
@@ -41,6 +57,15 @@ export interface CaptureResult {
     expected_business_name: string | null;
     observed_home_title: string | null;
     observed_home_h1: string | null;
+    mismatches: string[];
+  };
+  runtimeConfigVerification: {
+    status: "matched" | "mismatched" | "unknown";
+    expected_business_name: string | null;
+    runtime_business_name: string | null;
+    runtime_config_path: string | null;
+    runtime_cwd: string | null;
+    route: string | null;
     mismatches: string[];
   };
   captures: CaptureProbe[];
@@ -91,6 +116,27 @@ async function readExpectedContent(siteDir?: string): Promise<CaptureResult["exp
       hero_headline: null,
       contact_heading: null,
     };
+  }
+}
+
+async function fetchRuntimeConfig(
+  baseUrl: string,
+  routePath: string,
+): Promise<RuntimeConfigDiagnostics | null> {
+  const runtimeUrl = new URL("/api/vaen-runtime", baseUrl);
+  runtimeUrl.searchParams.set("route", routePath);
+
+  try {
+    const response = await fetch(runtimeUrl, {
+      headers: {
+        "Cache-Control": "no-cache",
+        Pragma: "no-cache",
+      },
+    });
+    if (!response.ok) return null;
+    return (await response.json()) as RuntimeConfigDiagnostics;
+  } catch {
+    return null;
   }
 }
 
@@ -174,6 +220,7 @@ export async function captureScreenshots(
         const bodyText = await browserPage.locator("body").innerText().catch(() => "");
         const bodyTextSnippet = bodyText.replace(/\s+/g, " ").trim().slice(0, 500);
         const html = await browserPage.content();
+        const runtimeConfig = await fetchRuntimeConfig(url, page.path);
         let htmlSnapshotPath: string | null = null;
         if (!htmlSnapshotPaths.has(page.name)) {
           htmlSnapshotPath = join(outputDir, `${page.name}.html`);
@@ -201,6 +248,7 @@ export async function captureScreenshots(
           body_text_snippet: bodyTextSnippet,
           body_text_hash: sha256(bodyText),
           html_hash: sha256(html),
+          runtime_config: runtimeConfig,
         });
         await context.close();
       }
@@ -236,12 +284,42 @@ export async function captureScreenshots(
     mismatches,
   };
 
+  const homeRuntime = homeDesktop?.runtime_config ?? null;
+  const runtimeMismatches: string[] = [];
+  if (expectedContent.business_name) {
+    if (!homeRuntime) {
+      runtimeMismatches.push("Runtime config diagnostics were not available for homepage.");
+    } else {
+      if (homeRuntime.business_name !== expectedContent.business_name) {
+        runtimeMismatches.push("Runtime business name does not match expected business name.");
+      }
+      if (!homeRuntime.config_exists) {
+        runtimeMismatches.push("Runtime config file did not exist at resolved path.");
+      }
+    }
+  }
+  const runtimeConfigVerification: CaptureResult["runtimeConfigVerification"] = {
+    status:
+      expectedContent.business_name == null
+        ? "unknown"
+        : runtimeMismatches.length === 0
+          ? "matched"
+          : "mismatched",
+    expected_business_name: expectedContent.business_name,
+    runtime_business_name: homeRuntime?.business_name ?? null,
+    runtime_config_path: homeRuntime?.resolved_config_path ?? null,
+    runtime_cwd: homeRuntime?.process_cwd ?? null,
+    route: homeRuntime?.route ?? null,
+    mismatches: runtimeMismatches,
+  };
+
   const probePath = join(outputDir, "review-probe.json");
   const result: CaptureResult = {
     screenshots: captured,
     probePath,
     expectedContent,
     contentVerification,
+    runtimeConfigVerification,
     captures: probes,
   };
   await writeFile(probePath, JSON.stringify(result, null, 2) + "\n", "utf-8");
