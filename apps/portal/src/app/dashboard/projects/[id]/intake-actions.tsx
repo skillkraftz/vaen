@@ -104,8 +104,12 @@ export function WorkflowPanel({ projectId, slug, status, lastReviewedRevisionId 
   // Detect job completion: was active → now not active → refresh page
   useEffect(() => {
     if (prevActiveRef.current && !hasActiveJob) {
-      // A job just finished — refresh the server component to get new status
+      // A job just finished — refresh the server component to get new status.
+      // The worker updates project status before marking job done, but we
+      // also re-refresh after 1s as a safety net for any remaining race.
       router.refresh();
+      const safetyTimer = setTimeout(() => router.refresh(), 1000);
+      return () => clearTimeout(safetyTimer);
     }
     prevActiveRef.current = hasActiveJob;
   }, [hasActiveJob, router]);
@@ -213,10 +217,10 @@ export function WorkflowPanel({ projectId, slug, status, lastReviewedRevisionId 
       )}
 
       {/* Artifact status */}
-      <ArtifactStatusRow slug={slug} />
+      <ArtifactStatusRow slug={slug} status={status} />
 
       {/* Screenshot viewer */}
-      <ScreenshotViewer slug={slug} projectId={projectId} lastReviewedRevisionId={lastReviewedRevisionId} />
+      <ScreenshotViewer slug={slug} projectId={projectId} lastReviewedRevisionId={lastReviewedRevisionId} status={status} />
 
       {/* Recovery (always visible) */}
       <ActionSection label="Recovery">
@@ -546,7 +550,7 @@ function JobDetails({ job }: { job: JobRecord }) {
 
 // ── Screenshot viewer ─────────────────────────────────────────────────
 
-function ScreenshotViewer({ slug, projectId, lastReviewedRevisionId }: { slug: string; projectId: string; lastReviewedRevisionId: string | null }) {
+function ScreenshotViewer({ slug, projectId, lastReviewedRevisionId, status }: { slug: string; projectId: string; lastReviewedRevisionId: string | null; status: string }) {
   const [artifacts, setArtifacts] = useState<ArtifactStatus | null>(null);
   const [supabaseScreenshots, setSupabaseScreenshots] = useState<
     Array<{ id: string; file_name: string; storage_path: string; source_job_id: string | null; request_revision_id: string | null; created_at: string }>
@@ -556,14 +560,15 @@ function ScreenshotViewer({ slug, projectId, lastReviewedRevisionId }: { slug: s
   const [loading, setLoading] = useState<string | null>(null);
 
   useEffect(() => {
-    // Load both local and Supabase screenshots
+    // Load both local and Supabase screenshots.
+    // Deps include status so we re-fetch after router.refresh() updates it.
     getArtifactStatusAction(slug).then(setArtifacts);
     // Filter by reviewed revision if available — shows only screenshots
     // from the last review of the correct version
     getScreenshotsForProjectAction(projectId, lastReviewedRevisionId).then(({ screenshots }) => {
       setSupabaseScreenshots(screenshots);
     });
-  }, [slug, projectId, lastReviewedRevisionId]);
+  }, [slug, projectId, lastReviewedRevisionId, status]);
 
   const hasSupabase = supabaseScreenshots.length > 0;
   const hasLocal = artifacts?.hasScreenshots;
@@ -777,12 +782,12 @@ function ActionSection({
 
 // ── Artifact status row ───────────────────────────────────────────────
 
-function ArtifactStatusRow({ slug }: { slug: string }) {
+function ArtifactStatusRow({ slug, status }: { slug: string; status: string }) {
   const [artifacts, setArtifacts] = useState<ArtifactStatus | null>(null);
 
   useEffect(() => {
     getArtifactStatusAction(slug).then(setArtifacts);
-  }, [slug]);
+  }, [slug, status]);
 
   if (!artifacts) return null;
 

@@ -1442,6 +1442,11 @@ export async function reprocessIntakeAction(
       draft_request: finalDraft, // legacy sync
       missing_info: result.missingInfo,
       recommendations: result.recommendations,
+      // Invalidate downstream pointers — the new revision hasn't been
+      // exported/generated/reviewed yet, so those artifacts are stale
+      last_exported_revision_id: null,
+      last_generated_revision_id: null,
+      last_reviewed_revision_id: null,
     })
     .eq("id", projectId);
 
@@ -1453,6 +1458,25 @@ export async function reprocessIntakeAction(
     p.current_revision_id, "Re-processed intake (merged with existing edits)",
   );
 
+  // Clean stale disk artifacts that no longer match the active revision
+  const repoRoot = join(process.cwd(), "../..");
+  const generatedDir = join(repoRoot, "generated", p.slug);
+  const staleTargets = [
+    join(generatedDir, "client-request.json"),
+    join(generatedDir, "artifacts", "prompt.txt"),
+    join(generatedDir, "artifacts", "screenshots"),
+  ];
+  for (const target of staleTargets) {
+    await rm(target, { recursive: true, force: true }).catch(() => {});
+  }
+
+  // Delete screenshot asset records — they point to the old revision
+  await supabase
+    .from("assets")
+    .delete()
+    .eq("project_id", projectId)
+    .eq("asset_type", "review_screenshot");
+
   await supabase.from("project_events").insert({
     project_id: projectId,
     event_type: "intake_reprocessed",
@@ -1463,6 +1487,7 @@ export async function reprocessIntakeAction(
       reason: "manual recovery",
       merged_keys: Object.keys(finalDraft),
       services_count: Array.isArray(finalDraft.services) ? (finalDraft.services as unknown[]).length : 0,
+      invalidated: ["export", "generate", "review", "screenshots"],
     },
   });
 
@@ -1747,8 +1772,9 @@ export async function exportPromptAction(
 
   const p = project as Project;
 
-  // Read from active revision
+  // Read from active revision (single source of truth)
   let draft: Record<string, unknown> | null = null;
+  let promptSource: "revision" | "draft_request" = "revision";
   if (p.current_revision_id) {
     const { data: rev } = await supabase
       .from("project_request_revisions")
@@ -1757,13 +1783,16 @@ export async function exportPromptAction(
       .single();
     draft = (rev?.request_data as Record<string, unknown>) ?? null;
   }
-  // Legacy fallback
+  // Legacy fallback (pre-migration projects only)
   if (!draft) {
     draft = (p.draft_request as Record<string, unknown>) ?? null;
+    promptSource = "draft_request";
   }
   if (!draft) {
     return { error: "No request data found. Process the intake first." };
   }
+
+  console.log(`[prompt-export] project=${projectId} source=${promptSource} revision=${p.current_revision_id ?? "none"}`);
 
   // Validate draft has minimum required fields
   const missingFields = REQUIRED_DRAFT_KEYS.filter((key) => !(key in draft));
@@ -1814,6 +1843,8 @@ export async function exportPromptAction(
       output_path: promptPath,
       triggered_by: user.id,
       prompt_length: promptContent.length,
+      request_source: promptSource,
+      revision_id: p.current_revision_id ?? null,
     },
   });
 

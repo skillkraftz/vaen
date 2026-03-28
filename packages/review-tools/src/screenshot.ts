@@ -44,8 +44,43 @@ export async function captureScreenshots(
         // Wait for fonts to finish loading (runs in browser context)
         await browserPage.evaluate("document.fonts.ready");
 
-        // Wait for any CSS transitions/animations to settle
-        await browserPage.waitForTimeout(2000);
+        // Wait for all stylesheets to load and apply.
+        // Checks that every <link rel="stylesheet"> has loaded its sheet,
+        // then forces a layout reflow + paint via requestAnimationFrame.
+        // Passed as a string because this runs in the browser context —
+        // TypeScript's Node-targeted compiler doesn't have DOM types.
+        await browserPage.evaluate(`new Promise((resolve) => {
+          var links = Array.from(document.querySelectorAll('link[rel="stylesheet"]'));
+          var pending = links.filter(function(link) {
+            try { return !link.sheet; } catch(e) { return true; }
+          });
+          function waitForPaint() {
+            void document.body.offsetHeight;
+            requestAnimationFrame(function() {
+              requestAnimationFrame(function() { resolve(); });
+            });
+          }
+          if (pending.length === 0) {
+            waitForPaint();
+          } else {
+            var loaded = 0;
+            pending.forEach(function(link) {
+              link.addEventListener("load", function() {
+                loaded++;
+                if (loaded === pending.length) waitForPaint();
+              });
+              link.addEventListener("error", function() {
+                loaded++;
+                if (loaded === pending.length) waitForPaint();
+              });
+            });
+            setTimeout(waitForPaint, 5000);
+          }
+        })`);
+
+        // Final settle — let CSS transitions, lazy-loaded images,
+        // and any deferred rendering complete
+        await browserPage.waitForTimeout(3000);
 
         const filename = `${page.name}-${viewport.name}.png`;
         const filepath = join(outputDir, filename);

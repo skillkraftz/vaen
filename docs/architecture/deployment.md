@@ -1,5 +1,7 @@
 # Vaen Deployment Architecture
 
+> **Implementation status:** Phase 1 (local) is **CURRENT**. Phases 2-3 are **PLANNED** — not yet implemented.
+
 ## Overview
 
 Vaen splits into two runtime contexts: the **portal** (web UI, database access) and the **worker** (site generation, build, screenshot capture). This split allows the portal to run on Vercel while heavy compute runs on a local/cloud VM.
@@ -52,7 +54,7 @@ Worker (VM) polls jobs ---+
   +---> updates job/project status in Supabase DB
 ```
 
-## Current Architecture (Development)
+## Current Architecture (Development) — STATUS: CURRENT
 
 Portal and worker run on the same machine. The portal spawns the worker as a detached child process:
 
@@ -69,15 +71,15 @@ Portal (localhost:3100)
   +---> Supabase DB (remote)
 ```
 
-## Target Architecture (Production)
+## Target Architecture (Production) — STATUS: PLANNED (not implemented)
 
-### Portal on Vercel
+### Portal on Vercel — PLANNED
 - Deploy `apps/portal` to Vercel
 - Environment variables: `NEXT_PUBLIC_SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`
 - No filesystem access — all data goes through Supabase DB/Storage
 - Job dispatch: insert into `jobs` table (no child_process spawn)
 
-### Worker on VM (via Tailscale)
+### Worker on VM (via Tailscale) — PLANNED
 - Install Tailscale on VM
 - Worker polls `jobs` table for pending work
 - On new job: claim it (status: running), execute, update (status: completed/failed)
@@ -85,7 +87,7 @@ Portal (localhost:3100)
 - VM has Playwright installed for screenshots
 - Communication: VM ↔ Supabase (direct, no portal involvement)
 
-### Tailscale for phone testing
+### Tailscale for phone testing — PLANNED
 - Install Tailscale on phone and VM
 - Portal on Vercel is publicly accessible
 - For previewing generated sites before deploy:
@@ -112,19 +114,19 @@ OPENAI_API_KEY=sk-...  # for generator AI calls
 
 ## Migration Path
 
-### Phase 1 (current): Everything local
+### Phase 1: Everything local — CURRENT
 - Portal and worker on same machine
 - `child_process.spawn()` for job execution
 - Disk-based artifact sharing
 
-### Phase 2: Portal on Vercel, worker local
+### Phase 2: Portal on Vercel, worker local — PLANNED (next)
 - Deploy portal to Vercel
 - Add `apps/worker/src/poll.ts` — polls jobs table
 - Portal inserts jobs; worker polls and executes
 - Remove `spawnWorker()` from portal actions
 - Add fallback: portal detects no worker polling → shows message
 
-### Phase 3: Worker on cloud VM
+### Phase 3: Worker on cloud VM — PLANNED (future)
 - Move worker to cloud VM with Tailscale
 - Same polling mechanism as Phase 2
 - Add health check: worker reports last poll time to DB
@@ -145,7 +147,7 @@ OPENAI_API_KEY=sk-...  # for generator AI calls
 | Supabase DB access | x | x | |
 | File storage | | | Supabase Storage |
 
-## Required Code Changes for Phase 2
+## Required Code Changes for Phase 2 — NOT YET IMPLEMENTED
 
 1. **`apps/worker/src/poll.ts`** (new) — Long-running process that polls `jobs` table
 2. **`apps/portal/src/app/dashboard/projects/[id]/actions.ts`** — Remove `spawnWorker()`, replace with job-insert-only

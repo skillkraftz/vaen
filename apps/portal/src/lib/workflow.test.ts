@@ -236,6 +236,10 @@ function simulateReprocessIntake(state: ProjectState): { error?: string } {
     draft_request: finalDraft,
     missing_info: result.missingInfo,
     recommendations: result.recommendations,
+    // Invalidate downstream — new revision hasn't been exported/generated/reviewed
+    last_exported_revision_id: null,
+    last_generated_revision_id: null,
+    last_reviewed_revision_id: null,
   };
 
   return {};
@@ -668,6 +672,29 @@ describe("Status transition guards", () => {
       // Status should NOT change
       expect(state.project.status).toBe(status);
     }
+  });
+
+  it("re-process invalidates downstream revision pointers", () => {
+    const state = createProjectState({
+      status: "review_ready",
+      business_type: "Plumber",
+      contact_email: "a@b.com",
+      notes: "We offer drain cleaning.",
+      current_revision_id: "rev-1",
+      last_exported_revision_id: "rev-1",
+      last_generated_revision_id: "rev-1",
+      last_reviewed_revision_id: "rev-1",
+    });
+
+    simulateReprocessIntake(state);
+
+    // Downstream pointers must be cleared — old artifacts are stale
+    expect(state.project.last_exported_revision_id).toBeNull();
+    expect(state.project.last_generated_revision_id).toBeNull();
+    expect(state.project.last_reviewed_revision_id).toBeNull();
+
+    // Status is unchanged
+    expect(state.project.status).toBe("review_ready");
   });
 });
 

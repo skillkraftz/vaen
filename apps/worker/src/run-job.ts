@@ -488,6 +488,20 @@ async function executeGenerate(
   }
 
   // ── Success ───────────────────────────────────────────────────────
+
+  // IMPORTANT: Update project status BEFORE marking job as completed.
+  // The portal polls job status and calls router.refresh() when a job
+  // finishes. If we mark the job done first, the portal may refresh
+  // before the project status is updated, showing stale status.
+  const revisionId = (job.payload?.revision_id as string) ?? null;
+  await db
+    .from("projects")
+    .update({
+      status: "workspace_generated",
+      ...(revisionId ? { last_generated_revision_id: revisionId } : {}),
+    })
+    .eq("id", project.id);
+
   await db
     .from("jobs")
     .update({
@@ -508,16 +522,6 @@ async function executeGenerate(
       completed_at: now,
     })
     .eq("id", job.id);
-
-  // Advance project status + record which revision was generated
-  const revisionId = (job.payload?.revision_id as string) ?? null;
-  await db
-    .from("projects")
-    .update({
-      status: "workspace_generated",
-      ...(revisionId ? { last_generated_revision_id: revisionId } : {}),
-    })
-    .eq("id", project.id);
 
   await db.from("project_events").insert({
     project_id: project.id,
@@ -602,6 +606,12 @@ async function executeReview(
     const errorMsg = `Site validation failed before build: ${validation.errors.join("; ")}. Re-generate the site first.`;
     const now = new Date().toISOString();
 
+    // Update project status BEFORE job status (see generate success comment)
+    await db
+      .from("projects")
+      .update({ status: "build_failed" })
+      .eq("id", project.id);
+
     await db
       .from("jobs")
       .update({
@@ -616,11 +626,6 @@ async function executeReview(
         completed_at: now,
       })
       .eq("id", job.id);
-
-    await db
-      .from("projects")
-      .update({ status: "build_failed" })
-      .eq("id", project.id);
 
     await db.from("project_events").insert({
       project_id: project.id,
@@ -676,6 +681,12 @@ async function executeReview(
         `in next.config.ts. Trace: .next/server/chunks/611.js module 92 → HtmlContext.`
       : undefined;
 
+    // Update project status BEFORE job status (see generate success comment)
+    await db
+      .from("projects")
+      .update({ status: "build_failed" })
+      .eq("id", project.id);
+
     await db
       .from("jobs")
       .update({
@@ -695,11 +706,6 @@ async function executeReview(
         completed_at: now,
       })
       .eq("id", job.id);
-
-    await db
-      .from("projects")
-      .update({ status: "build_failed" })
-      .eq("id", project.id);
 
     await db.from("project_events").insert({
       project_id: project.id,
@@ -735,7 +741,16 @@ async function executeReview(
     /* noop */
   }
 
-  // Success
+  // Success — update project status BEFORE job status (see generate success comment)
+  const reviewRevisionId = (job.payload?.revision_id as string) ?? null;
+  await db
+    .from("projects")
+    .update({
+      status: "review_ready",
+      ...(reviewRevisionId ? { last_reviewed_revision_id: reviewRevisionId } : {}),
+    })
+    .eq("id", project.id);
+
   await db
     .from("jobs")
     .update({
@@ -755,16 +770,6 @@ async function executeReview(
       completed_at: now,
     })
     .eq("id", job.id);
-
-  // Advance project status + record which revision was reviewed
-  const reviewRevisionId = (job.payload?.revision_id as string) ?? null;
-  await db
-    .from("projects")
-    .update({
-      status: "review_ready",
-      ...(reviewRevisionId ? { last_reviewed_revision_id: reviewRevisionId } : {}),
-    })
-    .eq("id", project.id);
 
   // Upload screenshots to Supabase storage + create asset records
   try {

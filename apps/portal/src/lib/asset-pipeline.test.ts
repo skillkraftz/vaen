@@ -265,11 +265,12 @@ describe("portal displays screenshots for correct project/revision", () => {
     expect(source).toContain('source: "local"');
   });
 
-  it("ScreenshotViewer receives projectId and lastReviewedRevisionId", () => {
+  it("ScreenshotViewer receives projectId, lastReviewedRevisionId, and status", () => {
     const uiPath = join(__dirname, "../app/dashboard/projects/[id]/intake-actions.tsx");
     const source = readFileSync(uiPath, "utf-8");
-    expect(source).toContain("ScreenshotViewer({ slug, projectId, lastReviewedRevisionId }");
+    expect(source).toContain("ScreenshotViewer({ slug, projectId, lastReviewedRevisionId, status }");
     expect(source).toContain("projectId={projectId}");
+    expect(source).toContain("status={status}");
   });
 });
 
@@ -825,5 +826,287 @@ describe("page shows version tracking with staleness indicators", () => {
     const source = readFileSync(pagePath, "utf-8");
     expect(source).toContain("Last Reviewed");
     expect(source).toContain("last_reviewed_revision_id");
+  });
+});
+
+// ── Worker updates project status before job status ─────────────────
+
+describe("worker updates project status before job status (race condition fix)", () => {
+  it("generate success: project status updated before job marked completed", () => {
+    const workerPath = join(REPO_ROOT, "apps/worker/src/run-job.ts");
+    const source = readFileSync(workerPath, "utf-8");
+    const genFn = source.slice(
+      source.indexOf("async function executeGenerate"),
+      source.indexOf("async function executeReview"),
+    );
+
+    // Find the positions of key operations in the success path
+    const projectUpdateIdx = genFn.indexOf('status: "workspace_generated"');
+    const jobCompleteIdx = genFn.indexOf('status: "completed"');
+
+    expect(projectUpdateIdx).toBeGreaterThan(-1);
+    expect(jobCompleteIdx).toBeGreaterThan(-1);
+    // Project status MUST come before job completion
+    expect(projectUpdateIdx).toBeLessThan(jobCompleteIdx);
+  });
+
+  it("review success: project status updated before job marked completed", () => {
+    const workerPath = join(REPO_ROOT, "apps/worker/src/run-job.ts");
+    const source = readFileSync(workerPath, "utf-8");
+    const reviewFn = source.slice(
+      source.indexOf("async function executeReview"),
+    );
+
+    // Find success path: "review_ready" must come before the final "completed"
+    const projectUpdateIdx = reviewFn.indexOf('status: "review_ready"');
+    const jobCompleteIdx = reviewFn.indexOf('status: "completed"');
+
+    expect(projectUpdateIdx).toBeGreaterThan(-1);
+    expect(jobCompleteIdx).toBeGreaterThan(-1);
+    expect(projectUpdateIdx).toBeLessThan(jobCompleteIdx);
+  });
+
+  it("review failure: project status updated before job marked failed", () => {
+    const workerPath = join(REPO_ROOT, "apps/worker/src/run-job.ts");
+    const source = readFileSync(workerPath, "utf-8");
+    const reviewFn = source.slice(
+      source.indexOf("async function executeReview"),
+    );
+
+    // In the failure path, "build_failed" must come before the failure job update
+    const projectFailIdx = reviewFn.indexOf('status: "build_failed"');
+    const jobFailIdx = reviewFn.indexOf('status: "failed"');
+
+    expect(projectFailIdx).toBeGreaterThan(-1);
+    expect(jobFailIdx).toBeGreaterThan(-1);
+    expect(projectFailIdx).toBeLessThan(jobFailIdx);
+  });
+});
+
+// ── UI auto-refreshes artifacts and screenshots after job completion ──
+
+describe("UI auto-refreshes after job completion", () => {
+  it("ArtifactStatusRow depends on status for re-fetch", () => {
+    const uiPath = join(__dirname, "../app/dashboard/projects/[id]/intake-actions.tsx");
+    const source = readFileSync(uiPath, "utf-8");
+    const fnStart = source.indexOf("function ArtifactStatusRow");
+    const fnEnd = source.indexOf("function ProcessBtn") !== -1
+      ? source.indexOf("function ProcessBtn")
+      : source.indexOf("// ── Individual action buttons");
+    const fn = source.slice(fnStart, fnEnd);
+
+    // Must accept status prop
+    expect(fn).toContain("status");
+    // useEffect deps must include status
+    expect(fn).toContain("[slug, status]");
+  });
+
+  it("ScreenshotViewer depends on status for re-fetch", () => {
+    const uiPath = join(__dirname, "../app/dashboard/projects/[id]/intake-actions.tsx");
+    const source = readFileSync(uiPath, "utf-8");
+    const fnStart = source.indexOf("function ScreenshotViewer");
+    const fnEnd = source.indexOf("function PhaseIndicator");
+    const fn = source.slice(fnStart, fnEnd);
+
+    // Must accept status prop
+    expect(fn).toContain("status: string");
+    // useEffect deps must include status
+    expect(fn).toContain("lastReviewedRevisionId, status]");
+  });
+
+  it("WorkflowPanel has safety re-refresh after job completion", () => {
+    const uiPath = join(__dirname, "../app/dashboard/projects/[id]/intake-actions.tsx");
+    const source = readFileSync(uiPath, "utf-8");
+    const fnStart = source.indexOf("export function WorkflowPanel");
+    const fnEnd = source.indexOf("// ── Job status panel");
+    const fn = source.slice(fnStart, fnEnd);
+
+    // Must call router.refresh() on job completion
+    expect(fn).toContain("router.refresh()");
+    // Must have safety timer for re-refresh
+    expect(fn).toContain("setTimeout");
+    expect(fn).toContain("clearTimeout");
+  });
+});
+
+// ── Prompt export logs source ──────────────────────────────────────
+
+describe("prompt export logs which source was used", () => {
+  it("exportPromptAction logs source and revision_id", () => {
+    const actionsPath = join(__dirname, "../app/dashboard/projects/[id]/actions.ts");
+    const source = readFileSync(actionsPath, "utf-8");
+    const fnStart = source.indexOf("export async function exportPromptAction");
+    const fnEnd = source.indexOf("export async function importFinalRequestAction");
+    const fn = source.slice(fnStart, fnEnd);
+
+    // Must log the source
+    expect(fn).toContain("[prompt-export]");
+    expect(fn).toContain("source=");
+    // Must track which source was used
+    expect(fn).toContain("promptSource");
+  });
+
+  it("exportPromptAction includes source in event metadata", () => {
+    const actionsPath = join(__dirname, "../app/dashboard/projects/[id]/actions.ts");
+    const source = readFileSync(actionsPath, "utf-8");
+    const fnStart = source.indexOf("export async function exportPromptAction");
+    const fnEnd = source.indexOf("export async function importFinalRequestAction");
+    const fn = source.slice(fnStart, fnEnd);
+
+    expect(fn).toContain("request_source: promptSource");
+    expect(fn).toContain("revision_id:");
+  });
+});
+
+// ── Screenshot CSS stabilization ───────────────────────────────────
+
+describe("screenshot tool checks CSS stylesheet loading", () => {
+  it("checks all stylesheet links are loaded", () => {
+    const screenshotPath = join(REPO_ROOT, "packages/review-tools/src/screenshot.ts");
+    const source = readFileSync(screenshotPath, "utf-8");
+    expect(source).toContain("stylesheet");
+    expect(source).toContain(".sheet");
+  });
+
+  it("uses requestAnimationFrame for paint stability", () => {
+    const screenshotPath = join(REPO_ROOT, "packages/review-tools/src/screenshot.ts");
+    const source = readFileSync(screenshotPath, "utf-8");
+    expect(source).toContain("requestAnimationFrame");
+  });
+
+  it("forces layout reflow before capture", () => {
+    const screenshotPath = join(REPO_ROOT, "packages/review-tools/src/screenshot.ts");
+    const source = readFileSync(screenshotPath, "utf-8");
+    expect(source).toContain("offsetHeight");
+  });
+
+  it("final settle time is at least 2500ms", () => {
+    const screenshotPath = join(REPO_ROOT, "packages/review-tools/src/screenshot.ts");
+    const source = readFileSync(screenshotPath, "utf-8");
+    // Get the LAST waitForTimeout (the final settle)
+    const matches = [...source.matchAll(/waitForTimeout\((\d+)\)/g)];
+    expect(matches.length).toBeGreaterThan(0);
+    const lastTimeout = Number(matches[matches.length - 1][1]);
+    expect(lastTimeout).toBeGreaterThanOrEqual(2500);
+  });
+});
+
+// ── Reprocess invalidates downstream state ─────────────────────────
+
+describe("reprocessIntakeAction invalidates downstream state", () => {
+  it("clears downstream revision pointers", () => {
+    const actionsPath = join(__dirname, "../app/dashboard/projects/[id]/actions.ts");
+    const source = readFileSync(actionsPath, "utf-8");
+    const fnStart = source.indexOf("export async function reprocessIntakeAction");
+    const fnEnd = source.indexOf("// ── Recovery: Reset status to draft ready");
+    const fn = source.slice(fnStart, fnEnd);
+
+    // Must clear all downstream pointers
+    expect(fn).toContain("last_exported_revision_id: null");
+    expect(fn).toContain("last_generated_revision_id: null");
+    expect(fn).toContain("last_reviewed_revision_id: null");
+  });
+
+  it("cleans stale disk artifacts", () => {
+    const actionsPath = join(__dirname, "../app/dashboard/projects/[id]/actions.ts");
+    const source = readFileSync(actionsPath, "utf-8");
+    const fnStart = source.indexOf("export async function reprocessIntakeAction");
+    const fnEnd = source.indexOf("// ── Recovery: Reset status to draft ready");
+    const fn = source.slice(fnStart, fnEnd);
+
+    // Must clean stale files
+    expect(fn).toContain("client-request.json");
+    expect(fn).toContain("prompt.txt");
+    expect(fn).toContain("screenshots");
+    expect(fn).toContain("rm(target");
+  });
+
+  it("deletes stale screenshot asset records", () => {
+    const actionsPath = join(__dirname, "../app/dashboard/projects/[id]/actions.ts");
+    const source = readFileSync(actionsPath, "utf-8");
+    const fnStart = source.indexOf("export async function reprocessIntakeAction");
+    const fnEnd = source.indexOf("// ── Recovery: Reset status to draft ready");
+    const fn = source.slice(fnStart, fnEnd);
+
+    expect(fn).toContain(".delete()");
+    expect(fn).toContain("review_screenshot");
+  });
+
+  it("logs invalidation in event metadata", () => {
+    const actionsPath = join(__dirname, "../app/dashboard/projects/[id]/actions.ts");
+    const source = readFileSync(actionsPath, "utf-8");
+    const fnStart = source.indexOf("export async function reprocessIntakeAction");
+    const fnEnd = source.indexOf("// ── Recovery: Reset status to draft ready");
+    const fn = source.slice(fnStart, fnEnd);
+
+    expect(fn).toContain("invalidated:");
+  });
+});
+
+// ── RevisionAssetManager does not call server actions during render ──
+
+describe("RevisionAssetManager uses useEffect for data loading", () => {
+  it("loads attached assets in useEffect, not during render", () => {
+    const editorPath = join(__dirname, "../app/dashboard/projects/[id]/project-editor.tsx");
+    const source = readFileSync(editorPath, "utf-8");
+    const fnStart = source.indexOf("export function RevisionAssetManager");
+    const fn = source.slice(fnStart);
+
+    // Must use useEffect for the initial data load
+    expect(fn).toContain("useEffect(() => {");
+    expect(fn).toContain("listRevisionAssetsAction(currentRevisionId)");
+
+    // The server action call must be inside useEffect, not at render time
+    const useEffectIdx = fn.indexOf("useEffect(() => {");
+    const listCallIdx = fn.indexOf("listRevisionAssetsAction(currentRevisionId)");
+    expect(listCallIdx).toBeGreaterThan(useEffectIdx);
+  });
+
+  it("does not call server actions before useEffect", () => {
+    const editorPath = join(__dirname, "../app/dashboard/projects/[id]/project-editor.tsx");
+    const source = readFileSync(editorPath, "utf-8");
+    const fnStart = source.indexOf("export function RevisionAssetManager");
+    const fn = source.slice(fnStart);
+
+    // Between function declaration and useEffect, there should be no server action calls
+    const useEffectIdx = fn.indexOf("useEffect");
+    const beforeEffect = fn.slice(0, useEffectIdx);
+    expect(beforeEffect).not.toContain("listRevisionAssetsAction");
+    expect(beforeEffect).not.toContain("attachAssetToRevisionAction");
+    expect(beforeEffect).not.toContain("detachAssetFromRevisionAction");
+  });
+});
+
+// ── Deployment doc has clear status labels ─────────────────────────
+
+describe("deployment doc has clear implementation status labels", () => {
+  it("marks current architecture as CURRENT", () => {
+    const docPath = join(REPO_ROOT, "docs/architecture/deployment.md");
+    const source = readFileSync(docPath, "utf-8");
+    expect(source).toContain("CURRENT");
+    expect(source).toContain("Phase 1");
+  });
+
+  it("marks target architecture as PLANNED", () => {
+    const docPath = join(REPO_ROOT, "docs/architecture/deployment.md");
+    const source = readFileSync(docPath, "utf-8");
+    expect(source).toContain("PLANNED");
+    // Should appear near Vercel, Worker on VM, Tailscale, Phase 2, Phase 3
+    expect(source).toContain("Portal on Vercel — PLANNED");
+    expect(source).toContain("Worker on VM (via Tailscale) — PLANNED");
+  });
+
+  it("marks required code changes as not implemented", () => {
+    const docPath = join(REPO_ROOT, "docs/architecture/deployment.md");
+    const source = readFileSync(docPath, "utf-8");
+    expect(source).toContain("NOT YET IMPLEMENTED");
+  });
+
+  it("has top-level status summary", () => {
+    const docPath = join(REPO_ROOT, "docs/architecture/deployment.md");
+    const source = readFileSync(docPath, "utf-8");
+    // First paragraph should mention implementation status
+    const firstParagraph = source.slice(0, 300);
+    expect(firstParagraph).toContain("Implementation status");
   });
 });
