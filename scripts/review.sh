@@ -156,6 +156,10 @@ done
 SERVED_TITLE=$(curl -s "http://localhost:$PORT/" | grep -oP '<title>\K[^<]+' || echo "unknown")
 echo "   Served title: $SERVED_TITLE"
 
+# Brief stabilization — let the server fully warm up (JIT, caches, etc.)
+echo "   Waiting 3s for server stabilization..."
+sleep 3
+
 # Step 5: Capture screenshots
 echo "5. Capturing screenshots..."
 # Clean old screenshots so stale images never persist across reruns

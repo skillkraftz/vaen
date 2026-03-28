@@ -1002,14 +1002,54 @@ export async function generateSiteAction(
     return { error: `Cannot generate in status "${p.status}". Export intake first.` };
   }
 
-  // Verify client-request.json exists at the canonical export path
-  const repoRoot = join(process.cwd(), "../..");
-  const clientRequestPath = join(repoRoot, "generated", p.slug, "client-request.json");
-  try {
-    await access(clientRequestPath);
-  } catch {
-    return { error: `client-request.json not found at generated/${p.slug}/. Run Export first.` };
+  // ── Always rewrite client-request.json from active revision ──────
+  // This is the critical fix: the disk file must always reflect the
+  // active revision at the moment of dispatch, not whatever was last
+  // manually exported.
+  if (!p.current_revision_id) {
+    return { error: "No active version found. Process the intake first." };
   }
+
+  const { data: rev } = await supabase
+    .from("project_request_revisions")
+    .select("request_data")
+    .eq("id", p.current_revision_id)
+    .single();
+
+  if (!rev?.request_data) {
+    return { error: "Active version has no request data. Re-process the intake." };
+  }
+
+  const revisionData = { ...(rev.request_data as Record<string, unknown>) };
+  const repoRoot = join(process.cwd(), "../..");
+  const targetDir = join(repoRoot, "generated", p.slug);
+  const clientRequestPath = join(targetDir, "client-request.json");
+  const siteDir = join(targetDir, "site");
+
+  try {
+    await mkdir(targetDir, { recursive: true });
+
+    // Download revision-attached assets to site/public/images/
+    const galleryImages = await downloadRevisionAssetsToSite(
+      supabase, p.current_revision_id, projectId, siteDir,
+    );
+    if (galleryImages.length > 0) {
+      const content = (revisionData.content ?? {}) as Record<string, unknown>;
+      content.galleryImages = galleryImages;
+      revisionData.content = content;
+    }
+
+    await writeFile(clientRequestPath, JSON.stringify(revisionData, null, 2) + "\n", "utf-8");
+    console.log(`[generate] Wrote client-request.json from revision ${p.current_revision_id} for ${p.slug}`);
+  } catch (err) {
+    return { error: `Failed to write client-request.json: ${err instanceof Error ? err.message : String(err)}` };
+  }
+
+  // Update exported revision pointer
+  await supabase
+    .from("projects")
+    .update({ last_exported_revision_id: p.current_revision_id })
+    .eq("id", projectId);
 
   // Create job record with canonical paths for traceability
   const { data: job, error: insertErr } = await supabase

@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useTransition, useEffect, useCallback } from "react";
+import { useState, useTransition, useEffect, useCallback, useRef } from "react";
+import { useRouter } from "next/navigation";
 import {
   processIntakeAction,
   approveIntakeAction,
@@ -33,6 +34,7 @@ interface WorkflowPanelProps {
   projectId: string;
   slug: string;
   status: string;
+  lastReviewedRevisionId: string | null;
 }
 
 interface ArtifactStatus {
@@ -77,14 +79,17 @@ function statusPhase(status: string): "intake" | "build" | "deploy" | "done" {
 
 // ── Main workflow panel ───────────────────────────────────────────────
 
-export function WorkflowPanel({ projectId, slug, status }: WorkflowPanelProps) {
+export function WorkflowPanel({ projectId, slug, status, lastReviewedRevisionId }: WorkflowPanelProps) {
   const phase = statusPhase(status);
+  const router = useRouter();
   const [jobs, setJobs] = useState<JobRecord[]>([]);
+  const prevActiveRef = useRef(false);
 
   // Poll for job updates when there are active jobs
   const refreshJobs = useCallback(async () => {
     const result = await getProjectJobsAction(projectId);
     setJobs(result);
+    return result;
   }, [projectId]);
 
   useEffect(() => {
@@ -95,6 +100,15 @@ export function WorkflowPanel({ projectId, slug, status }: WorkflowPanelProps) {
   const hasActiveJob = jobs.some(
     (j) => j.status === "pending" || j.status === "running",
   );
+
+  // Detect job completion: was active → now not active → refresh page
+  useEffect(() => {
+    if (prevActiveRef.current && !hasActiveJob) {
+      // A job just finished — refresh the server component to get new status
+      router.refresh();
+    }
+    prevActiveRef.current = hasActiveJob;
+  }, [hasActiveJob, router]);
 
   useEffect(() => {
     if (!hasActiveJob) return;
@@ -202,7 +216,7 @@ export function WorkflowPanel({ projectId, slug, status }: WorkflowPanelProps) {
       <ArtifactStatusRow slug={slug} />
 
       {/* Screenshot viewer */}
-      <ScreenshotViewer slug={slug} projectId={projectId} />
+      <ScreenshotViewer slug={slug} projectId={projectId} lastReviewedRevisionId={lastReviewedRevisionId} />
 
       {/* Recovery (always visible) */}
       <ActionSection label="Recovery">
@@ -532,10 +546,10 @@ function JobDetails({ job }: { job: JobRecord }) {
 
 // ── Screenshot viewer ─────────────────────────────────────────────────
 
-function ScreenshotViewer({ slug, projectId }: { slug: string; projectId: string }) {
+function ScreenshotViewer({ slug, projectId, lastReviewedRevisionId }: { slug: string; projectId: string; lastReviewedRevisionId: string | null }) {
   const [artifacts, setArtifacts] = useState<ArtifactStatus | null>(null);
   const [supabaseScreenshots, setSupabaseScreenshots] = useState<
-    Array<{ id: string; file_name: string; storage_path: string; source_job_id: string | null; created_at: string }>
+    Array<{ id: string; file_name: string; storage_path: string; source_job_id: string | null; request_revision_id: string | null; created_at: string }>
   >([]);
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [imageData, setImageData] = useState<Record<string, string>>({});
@@ -544,10 +558,12 @@ function ScreenshotViewer({ slug, projectId }: { slug: string; projectId: string
   useEffect(() => {
     // Load both local and Supabase screenshots
     getArtifactStatusAction(slug).then(setArtifacts);
-    getScreenshotsForProjectAction(projectId).then(({ screenshots }) => {
+    // Filter by reviewed revision if available — shows only screenshots
+    // from the last review of the correct version
+    getScreenshotsForProjectAction(projectId, lastReviewedRevisionId).then(({ screenshots }) => {
       setSupabaseScreenshots(screenshots);
     });
-  }, [slug, projectId]);
+  }, [slug, projectId, lastReviewedRevisionId]);
 
   const hasSupabase = supabaseScreenshots.length > 0;
   const hasLocal = artifacts?.hasScreenshots;

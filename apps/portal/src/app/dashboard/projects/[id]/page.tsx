@@ -143,15 +143,51 @@ export default async function ProjectDetailPage({
 
       {/* ── Workflow Panel (always visible) ─────────────────────────── */}
       <div className="section">
-        <WorkflowPanel projectId={id} slug={p.slug} status={p.status} />
+        <WorkflowPanel projectId={id} slug={p.slug} status={p.status} lastReviewedRevisionId={p.last_reviewed_revision_id} />
       </div>
 
-      {/* ── Revision History ──────────────────────────────────────── */}
+      {/* ── Version Tracking ─────────────────────────────────────── */}
       <div className="section">
         <h2 className="mb-1" style={{ fontSize: "1rem", fontWeight: 600 }}>
-          Active Version
+          Version Tracking
         </h2>
-        <RevisionList projectId={id} project={p} />
+        <div className="card" style={{ padding: "0.75rem 1rem" }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: "0.35rem", fontSize: "0.85rem" }}>
+            <div>
+              <strong>Active Version:</strong>{" "}
+              {p.current_revision_id
+                ? <span className="text-mono" style={{ fontSize: "0.8rem" }}>{p.current_revision_id.slice(0, 8)}</span>
+                : <span className="text-muted">None yet</span>}
+            </div>
+            <div>
+              <strong>Last Exported:</strong>{" "}
+              {p.last_exported_revision_id
+                ? (p.last_exported_revision_id === p.current_revision_id
+                    ? <span style={{ color: "var(--color-success)" }}>Up to date</span>
+                    : <span style={{ color: "var(--color-warning, #b45309)" }}>Stale — re-export needed</span>)
+                : <span className="text-muted">Not yet exported</span>}
+            </div>
+            <div>
+              <strong>Last Generated:</strong>{" "}
+              {p.last_generated_revision_id
+                ? (p.last_generated_revision_id === p.current_revision_id
+                    ? <span style={{ color: "var(--color-success)" }}>Up to date</span>
+                    : <span style={{ color: "var(--color-warning, #b45309)" }}>Stale — re-generate needed</span>)
+                : <span className="text-muted">Not yet generated</span>}
+            </div>
+            <div>
+              <strong>Last Reviewed:</strong>{" "}
+              {p.last_reviewed_revision_id
+                ? (p.last_reviewed_revision_id === p.current_revision_id
+                    ? <span style={{ color: "var(--color-success)" }}>Up to date</span>
+                    : <span style={{ color: "var(--color-warning, #b45309)" }}>Stale — screenshots may not match</span>)
+                : <span className="text-muted">Not yet reviewed</span>}
+            </div>
+          </div>
+        </div>
+        <div style={{ marginTop: "0.75rem" }}>
+          <RevisionList projectId={id} project={p} />
+        </div>
       </div>
 
       {/* ── Missing info ───────────────────────────────────────────── */}
