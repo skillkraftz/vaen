@@ -7,9 +7,6 @@ import {
   getStatusText,
   waitForRevisionsLoaded,
   waitForJobCompletion,
-  requireVisibleSection,
-  noteDuplicateButtons,
-  getSectionButtonState,
   addBlocker,
   addFailure,
   addObservation,
@@ -169,7 +166,7 @@ test("04 — initial project state", async ({ shared: page }) => {
   const status = await getStatusText(page);
   await snap(page, outputDir, "project-initial-full", {
     status,
-    cta: "Process Intake",
+    cta: "Create Website Plan",
     note: "Full page at intake_received",
   });
 
@@ -187,26 +184,26 @@ test("04 — initial project state", async ({ shared: page }) => {
 test("05 — process intake", async ({ shared: page }) => {
   await goToProject(page);
 
-  const processBtn = page.getByTestId("btn-process-intake");
+  const processBtn = page.getByTestId("btn-create-website-plan");
   await expect(processBtn).toBeVisible();
   await snap(page, outputDir, "before-process", {
     status: await getStatusText(page),
-    cta: "Process Intake",
+    cta: "Create Website Plan",
   });
 
   await processBtn.click();
 
-  // intake_draft_ready → "Step 3: Review Draft"
+  // intake_draft_ready → "Step 3: Review Plan"
   await expect(page.getByTestId("workflow-status-label")).toContainText(
-    "Review Draft",
+    "Review Plan",
     { timeout: 30_000 },
   );
 
   const status = await getStatusText(page);
   await snap(page, outputDir, "after-process", {
     status,
-    cta: "Approve",
-    note: "Draft generated, recommendations visible",
+    cta: "Approve Plan",
+    note: "Plan generated, recommendations visible",
   });
 });
 
@@ -215,20 +212,20 @@ test("05 — process intake", async ({ shared: page }) => {
 test("06 — approve", async ({ shared: page }) => {
   await goToProject(page);
 
-  const approveBtn = page.getByTestId("btn-approve");
+  const approveBtn = page.getByTestId("btn-approve-plan");
   await expect(approveBtn).toBeVisible({ timeout: 10_000 });
   await approveBtn.click();
 
-  // intake_approved → "Step 4: Export Prompt"
+  // intake_approved → "Step 4: Approve Plan"
   await expect(page.getByTestId("workflow-status-label")).toContainText(
-    "Export Prompt",
+    "Approve Plan",
     { timeout: 15_000 },
   );
 
   const status = await getStatusText(page);
   await snap(page, outputDir, "after-approve", {
     status,
-    cta: "Export",
+    cta: "Prepare Content",
   });
 });
 
@@ -237,21 +234,21 @@ test("06 — approve", async ({ shared: page }) => {
 test("07 — export", async ({ shared: page }) => {
   await goToProject(page);
 
-  const exportBtn = page.getByTestId("btn-export");
+  const exportBtn = page.getByTestId("btn-prepare-content");
   await expect(exportBtn).toBeVisible({ timeout: 10_000 });
   await exportBtn.click();
 
-  // intake_parsed → "Step 5: Import Final"
+  // intake_parsed → "Step 5: Prepare Content"
   await expect(page.getByTestId("workflow-status-label")).toContainText(
-    "Import Final",
+    "Prepare Content",
     { timeout: 15_000 },
   );
 
   const status = await getStatusText(page);
   await snap(page, outputDir, "after-export", {
     status,
-    cta: "Generate Site / Export prompt.txt",
-    note: "Build section now visible with Generate + AI Handoff",
+    cta: "Build Website",
+    note: "Build section now visible",
   });
 });
 
@@ -259,6 +256,11 @@ test("07 — export", async ({ shared: page }) => {
 
 test("08 — AI handoff", async ({ shared: page }) => {
   await goToProject(page);
+
+  // AI Handoff is inside collapsible Advanced Tools
+  const advToggle = page.getByTestId("advanced-toggle");
+  await advToggle.scrollIntoViewIfNeeded();
+  await advToggle.click();
 
   const section = page.getByTestId("section-handoff");
   await expect(section).toBeVisible({ timeout: 10_000 });
@@ -285,38 +287,27 @@ test("08 — AI handoff", async ({ shared: page }) => {
 test("09 — generate site", async ({ shared: page }) => {
   await goToProject(page);
 
-  const buildSection = await requireVisibleSection(page, "section-build");
-  await noteDuplicateButtons(page, {
-    label: "Generate Site",
-    expectedTestIds: ["build-generate-site", "recovery-generate-site"],
-  });
+  // Generate button is in the NextStep banner (not section-build) when nextStep is active
+  const generateBtn = page.getByTestId("build-generate-site");
 
-  const generateState = await getSectionButtonState(
-    buildSection,
-    "build-generate-site",
-    "Generate Site",
-  );
-  if (generateState.kind !== "ready") {
-    addFailure(
-      "Generate Site",
-      generateState.kind === "disabled" ? "button_disabled" : "button_not_present",
-      generateState.detail,
-    );
-    addBlocker(generateState.detail);
+  if (!(await generateBtn.isVisible({ timeout: 10_000 }).catch(() => false))) {
+    const detail = "Generate Site button (build-generate-site) not visible — may be in wrong status";
+    addFailure("Generate Site", "button_not_present", detail);
+    addBlocker(detail);
     await snap(page, outputDir, "generate-BLOCKED", {
       status: await getStatusText(page),
-      note: generateState.detail,
+      note: detail,
     });
     return;
   }
 
   await snap(page, outputDir, "before-generate", {
     status: await getStatusText(page),
-    cta: "Generate Site",
-    note: "Clicking Build & Review section generate button",
+    cta: "Build Website",
+    note: "Clicking generate button from NextStep banner",
   });
 
-  await generateState.button.click();
+  await generateBtn.click();
 
   // Wait for job to be dispatched — running indicator or job panel appears
   await page.waitForTimeout(2000);
@@ -366,38 +357,27 @@ test("09 — generate site", async ({ shared: page }) => {
 test("10 — build and review", async ({ shared: page }) => {
   await goToProject(page);
 
-  const buildSection = await requireVisibleSection(page, "section-build");
-  await noteDuplicateButtons(page, {
-    label: "Build & Review",
-    expectedTestIds: ["build-review", "recovery-review"],
-  });
+  // Review button is in the NextStep banner when nextStep is active
+  const reviewBtn = page.getByTestId("build-review");
 
-  const reviewState = await getSectionButtonState(
-    buildSection,
-    "build-review",
-    "Build & Review",
-  );
-  if (reviewState.kind !== "ready") {
-    addFailure(
-      "Build & Review",
-      reviewState.kind === "disabled" ? "button_disabled" : "button_not_present",
-      reviewState.detail,
-    );
-    addBlocker(reviewState.detail);
+  if (!(await reviewBtn.isVisible({ timeout: 10_000 }).catch(() => false))) {
+    const detail = "Build & Review button (build-review) not visible — may be in wrong status";
+    addFailure("Build & Review", "button_not_present", detail);
+    addBlocker(detail);
     await snap(page, outputDir, "review-BLOCKED", {
       status: await getStatusText(page),
-      note: reviewState.detail,
+      note: detail,
     });
     return;
   }
 
   await snap(page, outputDir, "before-review", {
     status: await getStatusText(page),
-    cta: "Build & Review",
-    note: "Clicking Build & Review section review button",
+    cta: "Create Preview",
+    note: "Clicking review button from NextStep banner",
   });
 
-  await reviewState.button.click();
+  await reviewBtn.click();
   await page.waitForTimeout(2000);
   await snap(page, outputDir, "review-dispatched", {
     status: await getStatusText(page),
@@ -591,6 +571,11 @@ test("12 — post-review version tracking", async ({ shared: page }) => {
 test("13 — diagnostics", async ({ shared: page }) => {
   await goToProject(page);
 
+  // Diagnostics is inside collapsible Advanced Tools
+  const advToggle = page.getByTestId("advanced-toggle");
+  await advToggle.scrollIntoViewIfNeeded();
+  await advToggle.click();
+
   const toggle = page.getByTestId("diagnostics-toggle");
   await toggle.scrollIntoViewIfNeeded();
   await toggle.click();
@@ -611,6 +596,11 @@ test("13 — diagnostics", async ({ shared: page }) => {
 
 test("14 — recovery", async ({ shared: page }) => {
   await goToProject(page);
+
+  // Recovery is inside collapsible Advanced Tools
+  const advToggle = page.getByTestId("advanced-toggle");
+  await advToggle.scrollIntoViewIfNeeded();
+  await advToggle.click();
 
   const section = page.getByTestId("section-recovery");
   await section.scrollIntoViewIfNeeded();

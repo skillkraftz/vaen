@@ -341,6 +341,127 @@ textarea.form-input {
   margin-bottom: 2rem;
 }
 
+/* ── Next Step Banner ─────────────────── */
+
+.next-step-banner {
+  border: 1px solid var(--color-primary);
+  border-radius: var(--radius);
+  background: #0c1929;
+  padding: 1.25rem 1.5rem;
+  margin-bottom: 1.5rem;
+}
+
+.next-step-banner-label {
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--color-primary);
+  margin-bottom: 0.35rem;
+}
+
+.next-step-banner-heading {
+  font-size: 1.15rem;
+  font-weight: 600;
+  color: var(--color-text);
+  margin-bottom: 0.25rem;
+}
+
+.next-step-banner-desc {
+  font-size: 0.85rem;
+  color: var(--color-text-muted);
+  margin-bottom: 1rem;
+  line-height: 1.5;
+}
+
+.next-step-banner .btn-primary {
+  font-size: 0.9rem;
+  padding: 0.5rem 1.25rem;
+}
+
+/* ── Collapsible sections ────────────── */
+
+.collapsible-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-surface);
+  user-select: none;
+  transition: background 0.15s;
+}
+.collapsible-header:hover {
+  background: var(--color-surface-hover);
+}
+
+.collapsible-header-title {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--color-text-muted);
+}
+
+.collapsible-header-icon {
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+}
+
+.collapsible-body {
+  border: 1px solid var(--color-border);
+  border-top: none;
+  border-radius: 0 0 var(--radius) var(--radius);
+  background: var(--color-surface);
+  overflow: hidden;
+}
+
+.collapsible-header.open {
+  border-radius: var(--radius) var(--radius) 0 0;
+}
+
+/* ── Section label ────────────────────── */
+
+.section-label {
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--color-text-muted);
+  margin-bottom: 0.75rem;
+}
+
+/* ── Preview card ─────────────────────── */
+
+.preview-card {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-surface);
+  padding: 1.25rem;
+}
+
+.preview-card-empty {
+  text-align: center;
+  padding: 2.5rem 1.5rem;
+  color: var(--color-text-muted);
+  font-size: 0.9rem;
+}
+
+.preview-card-empty-icon {
+  font-size: 2rem;
+  margin-bottom: 0.5rem;
+  opacity: 0.4;
+}
+
+/* ── Workflow action row ──────────────── */
+
+.action-row {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
 .text-muted {
   color: var(--color-text-muted);
 }

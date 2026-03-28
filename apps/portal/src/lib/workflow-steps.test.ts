@@ -160,16 +160,16 @@ describe("getWorkflowStep", () => {
 
 describe("getStepLabel", () => {
   const expectedLabels: Record<number, string> = {
-    1: "Intake",
+    1: "New Project",
     2: "Processing",
-    3: "Review Draft",
-    4: "Export Prompt",
-    5: "Import Final",
-    6: "Select Active",
-    7: "Generate",
-    8: "Build",
-    9: "Review Screenshots",
-    10: "Ready for Deploy",
+    3: "Review Plan",
+    4: "Approve Plan",
+    5: "Prepare Content",
+    6: "Select Version",
+    7: "Build Website",
+    8: "Building",
+    9: "Preview Ready",
+    10: "Ready to Launch",
   };
 
   for (const [step, label] of Object.entries(expectedLabels)) {
@@ -194,7 +194,7 @@ describe("getStepDefinition", () => {
     const def = getStepDefinition(3);
     expect(def).not.toBeNull();
     expect(def!.step).toBe(3);
-    expect(def!.label).toBe("Review Draft");
+    expect(def!.label).toBe("Review Plan");
     expect(def!.statuses).toContain("intake_draft_ready");
   });
 
@@ -207,9 +207,9 @@ describe("getStepDefinition", () => {
 
 describe("formatStatusLabel", () => {
   it("formats known status as 'Step N: Label'", () => {
-    expect(formatStatusLabel("intake_received")).toBe("Step 1: Intake");
-    expect(formatStatusLabel("review_ready")).toBe("Step 9: Review Screenshots");
-    expect(formatStatusLabel("deployed")).toBe("Step 10: Ready for Deploy");
+    expect(formatStatusLabel("intake_received")).toBe("Step 1: New Project");
+    expect(formatStatusLabel("review_ready")).toBe("Step 9: Preview Ready");
+    expect(formatStatusLabel("deployed")).toBe("Step 10: Ready to Launch");
   });
 
   it("formats unknown status by replacing underscores with spaces", () => {

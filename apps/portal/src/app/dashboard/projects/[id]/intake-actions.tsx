@@ -106,6 +106,88 @@ interface ReviewManifest {
 
 // ── Workflow state logic ──────────────────────────────────────────────
 
+// ── Next Step Banner logic ────────────────────────────────────────────
+
+interface NextStepInfo {
+  heading: string;
+  description: string;
+  actionElement?: (
+    projectId: string,
+    refreshJobs: () => Promise<JobRecord[]>,
+    hasActiveJob: boolean,
+  ) => React.ReactNode;
+}
+
+function getNextStep(status: string, hasActiveJob: boolean): NextStepInfo | null {
+  if (hasActiveJob) {
+    return {
+      heading: "Working on it...",
+      description: "A background task is running. This page will update automatically when it finishes.",
+    };
+  }
+
+  switch (status) {
+    case "intake_received":
+    case "intake_needs_revision":
+      return {
+        heading: "Create a Website Plan",
+        description: "Process the project information to generate a website plan with content recommendations.",
+        actionElement: (pid) => <ProcessBtn projectId={pid} />,
+      };
+    case "intake_draft_ready":
+      return {
+        heading: "Review & Approve the Plan",
+        description: "Check the website plan below. When it looks good, approve it to move forward.",
+        actionElement: (pid) => <ApproveBtn projectId={pid} />,
+      };
+    case "intake_approved":
+      return {
+        heading: "Prepare the Content",
+        description: "Export the approved plan so the website content is ready to build.",
+        actionElement: (pid) => <ExportBtn projectId={pid} />,
+      };
+    case "intake_parsed":
+      return {
+        heading: "Build the Website",
+        description: "The content is ready. Click below to build the website from this plan.",
+        actionElement: (pid, refresh) => (
+          <GenerateBtn projectId={pid} onDispatched={refresh} testId="build-generate-site" />
+        ),
+      };
+    case "workspace_generated":
+      return {
+        heading: "Create a Preview",
+        description: "The website has been built. Create a preview to see how it looks.",
+        actionElement: (pid, refresh) => (
+          <ReviewBtn projectId={pid} onDispatched={refresh} testId="build-review" />
+        ),
+      };
+    case "build_failed":
+      return {
+        heading: "Build Failed",
+        description: "Something went wrong during the build. Check the details below and try again.",
+        actionElement: (pid, refresh) => (
+          <div className="action-row">
+            <GenerateBtn projectId={pid} onDispatched={refresh} testId="build-generate-site" />
+            <ReviewBtn projectId={pid} onDispatched={refresh} testId="build-review" />
+          </div>
+        ),
+      };
+    case "review_ready":
+      return {
+        heading: "Preview Ready!",
+        description: "Screenshots of the website are ready below. Review them and decide if you want to rebuild or proceed.",
+      };
+    case "deploy_ready":
+      return {
+        heading: "Ready to Launch",
+        description: "The website is approved. Deployment is coming soon.",
+      };
+    default:
+      return null;
+  }
+}
+
 function statusPhase(status: string): "intake" | "build" | "deploy" | "done" {
   if (
     [
@@ -199,128 +281,154 @@ export function WorkflowPanel({ projectId, slug, status, lastReviewedRevisionId 
     ["workspace_generated", "build_failed", "review_ready"].includes(status) &&
     !hasActiveJob;
 
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+
+  // Determine next step info for the banner
+  const nextStep = getNextStep(status, hasActiveJob);
+
   return (
-    <div className="card" data-testid="workflow-panel" style={{ padding: 0, overflow: "hidden" }}>
-      {/* Status header */}
-      <div
-        data-testid="workflow-status"
-        style={{
-          padding: "1rem 1.25rem",
-          borderBottom: "1px solid var(--color-border)",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-        }}
-      >
-        <div>
-          <span
-            className="text-sm"
-            style={{ color: "var(--color-text-muted)", marginRight: "0.5rem" }}
-          >
-            Status:
-          </span>
-          <strong data-testid="workflow-status-label">{formatStatusLabel(status)}</strong>
+    <div data-testid="workflow-panel">
+      {/* ── Next Step Banner ─────────────────────────────────────── */}
+      {nextStep && (
+        <div className="next-step-banner" data-testid="next-step-banner">
+          <div className="next-step-banner-label">Next Step</div>
+          <div className="next-step-banner-heading">{nextStep.heading}</div>
+          <div className="next-step-banner-desc">{nextStep.description}</div>
+          {nextStep.actionElement?.(projectId, refreshJobs, hasActiveJob)}
         </div>
-        <PhaseIndicator phase={phase} />
+      )}
+
+      {/* ── Workflow Card ────────────────────────────────────────── */}
+      <div className="card" style={{ padding: 0, overflow: "hidden", marginBottom: "1.5rem" }}>
+        {/* Status header */}
+        <div
+          data-testid="workflow-status"
+          style={{
+            padding: "1rem 1.25rem",
+            borderBottom: "1px solid var(--color-border)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+          }}
+        >
+          <div>
+            <span
+              className="text-sm"
+              style={{ color: "var(--color-text-muted)", marginRight: "0.5rem" }}
+            >
+              Status:
+            </span>
+            <strong data-testid="workflow-status-label">{formatStatusLabel(status)}</strong>
+          </div>
+          <PhaseIndicator phase={phase} />
+        </div>
+
+        {/* Active jobs */}
+        {jobs.length > 0 && <JobStatusPanel jobs={jobs} slug={slug} />}
+
+        {/* Intake actions */}
+        {phase === "intake" && !nextStep && (
+          <ActionSection label="Project Setup" testId="section-intake">
+            {canProcess && <ProcessBtn projectId={projectId} />}
+            {canApprove && <ApproveBtn projectId={projectId} />}
+            {canRevise && <RevisionBtn projectId={projectId} />}
+            {canQuote && <CustomQuoteBtn projectId={projectId} />}
+            {canExport && <ExportBtn projectId={projectId} />}
+          </ActionSection>
+        )}
+
+        {/* Build actions (no duplicates — only in main section) */}
+        {(phase === "build" || canGenerate) && !nextStep && (
+          <ActionSection label="Build" testId="section-build">
+            {canExport && <ExportBtn projectId={projectId} />}
+            {canGenerate && (
+              <GenerateBtn
+                projectId={projectId}
+                onDispatched={refreshJobs}
+                testId="build-generate-site"
+              />
+            )}
+            {canReview && (
+              <ReviewBtn
+                projectId={projectId}
+                onDispatched={refreshJobs}
+                testId="build-review"
+              />
+            )}
+            {hasActiveJob && (
+              <span className="text-sm text-muted" data-testid="job-running-indicator">
+                Working on it...
+              </span>
+            )}
+          </ActionSection>
+        )}
+
+        {/* Deploy placeholder */}
+        {(phase === "deploy" || phase === "done") && (
+          <ActionSection label="Launch">
+            <span className="text-sm text-muted">
+              Deployment coming soon.
+            </span>
+          </ActionSection>
+        )}
       </div>
 
-      {/* Active jobs */}
-      {jobs.length > 0 && <JobStatusPanel jobs={jobs} slug={slug} />}
+      {/* ── Website Preview ──────────────────────────────────────── */}
+      <div className="section" data-testid="preview-section">
+        <div className="section-label">Website Preview</div>
+        <ScreenshotViewer slug={slug} projectId={projectId} lastReviewedRevisionId={lastReviewedRevisionId} status={status} />
+      </div>
 
-      {/* Intake actions */}
-      {phase === "intake" && (
-        <ActionSection label="Intake" testId="section-intake">
-          {canProcess && <ProcessBtn projectId={projectId} />}
-          {canApprove && <ApproveBtn projectId={projectId} />}
-          {canRevise && <RevisionBtn projectId={projectId} />}
-          {canQuote && <CustomQuoteBtn projectId={projectId} />}
-          {canExport && <ExportBtn projectId={projectId} />}
-          {!canProcess && !canApprove && !canRevise && !canExport && (
-            <span className="text-sm text-muted">
-              No intake actions available in this state.
-            </span>
-          )}
-        </ActionSection>
-      )}
+      {/* ── Advanced Tools (collapsible) ─────────────────────────── */}
+      <div className="section" data-testid="advanced-section">
+        <div
+          className={`collapsible-header${advancedOpen ? " open" : ""}`}
+          onClick={() => setAdvancedOpen(!advancedOpen)}
+          data-testid="advanced-toggle"
+        >
+          <span className="collapsible-header-title">Advanced Tools</span>
+          <span className="collapsible-header-icon">{advancedOpen ? "▾" : "▸"}</span>
+        </div>
+        {advancedOpen && (
+          <div className="collapsible-body">
+            {/* AI Handoff */}
+            {(phase === "build" || status === "intake_approved" || status === "intake_parsed") && (
+              <ActionSection label="AI Handoff" testId="section-handoff">
+                <ExportPromptBtn projectId={projectId} />
+                <ImportFinalRequestPanel projectId={projectId} />
+                <RequestSourceIndicator projectId={projectId} />
+              </ActionSection>
+            )}
 
-      {/* Build/automation actions */}
-      {(phase === "build" || canGenerate) && (
-        <ActionSection label="Build & Review" testId="section-build">
-          {canExport && <ExportBtn projectId={projectId} />}
-          {canGenerate && (
-            <GenerateBtn
-              projectId={projectId}
-              onDispatched={refreshJobs}
-              testId="build-generate-site"
-            />
-          )}
-          {canReview && (
-            <ReviewBtn
-              projectId={projectId}
-              onDispatched={refreshJobs}
-              testId="build-review"
-            />
-          )}
-          {!canGenerate && !canReview && !canExport && !hasActiveJob && (
-            <span className="text-sm text-muted">
-              No build actions available in this state.
-            </span>
-          )}
-          {hasActiveJob && (
-            <span className="text-sm text-muted" data-testid="job-running-indicator">
-              Job running — waiting for worker...
-            </span>
-          )}
-        </ActionSection>
-      )}
+            {/* Recovery */}
+            <ActionSection label="Recovery" testId="section-recovery">
+              <ReprocessBtn projectId={projectId} />
+              <ReExportBtn projectId={projectId} />
+              <ResetToDraftBtn projectId={projectId} />
+              {canGenerate && (
+                <GenerateBtn
+                  projectId={projectId}
+                  onDispatched={refreshJobs}
+                  testId="recovery-generate-site"
+                />
+              )}
+              {canReview && (
+                <ReviewBtn
+                  projectId={projectId}
+                  onDispatched={refreshJobs}
+                  testId="recovery-review"
+                />
+              )}
+            </ActionSection>
 
-      {/* AI Handoff — available once exported */}
-      {(phase === "build" || status === "intake_approved" || status === "intake_parsed") && (
-        <ActionSection label="AI Handoff" testId="section-handoff">
-          <ExportPromptBtn projectId={projectId} />
-          <ImportFinalRequestPanel projectId={projectId} />
-          <RequestSourceIndicator projectId={projectId} />
-        </ActionSection>
-      )}
+            {/* Artifact status */}
+            <ArtifactStatusRow slug={slug} status={status} />
 
-      {/* Artifact status */}
-      <ArtifactStatusRow slug={slug} status={status} />
-
-      {/* Screenshot viewer */}
-      <ScreenshotViewer slug={slug} projectId={projectId} lastReviewedRevisionId={lastReviewedRevisionId} status={status} />
-
-      {/* Recovery (always visible) */}
-      <ActionSection label="Recovery" testId="section-recovery">
-        <ReprocessBtn projectId={projectId} />
-        <ReExportBtn projectId={projectId} />
-        <ResetToDraftBtn projectId={projectId} />
-        {canGenerate && (
-          <GenerateBtn
-            projectId={projectId}
-            onDispatched={refreshJobs}
-            testId="recovery-generate-site"
-          />
+            {/* Diagnostics */}
+            <DiagnosticsPanel projectId={projectId} slug={slug} />
+          </div>
         )}
-        {canReview && (
-          <ReviewBtn
-            projectId={projectId}
-            onDispatched={refreshJobs}
-            testId="recovery-review"
-          />
-        )}
-      </ActionSection>
-
-      {/* Diagnostics */}
-      <DiagnosticsPanel projectId={projectId} slug={slug} />
-
-      {/* Deploy placeholder */}
-      {(phase === "deploy" || phase === "done") && (
-        <ActionSection label="Deploy">
-          <span className="text-sm text-muted">
-            Deployment actions coming in Phase 3.
-          </span>
-        </ActionSection>
-      )}
+      </div>
     </div>
   );
 }
@@ -671,16 +779,20 @@ function ScreenshotViewer({ slug, projectId, lastReviewedRevisionId, status }: {
   // This prevents the audit from concluding "no screenshots" during the async gap.
   if (!fetchDone) {
     return (
-      <div data-testid="screenshot-viewer" data-viewer-state="loading" style={{ padding: "0.75rem 1.25rem", borderBottom: "1px solid var(--color-border)" }}>
-        <span className="text-sm text-muted">Loading screenshots...</span>
+      <div className="preview-card preview-card-empty" data-testid="screenshot-viewer" data-viewer-state="loading">
+        <span className="text-sm text-muted">Loading preview...</span>
       </div>
     );
   }
 
   if (!hasSupabase && !hasLocal) {
     return (
-      <div data-testid="screenshot-viewer" data-viewer-state="empty" style={{ padding: "0.75rem 1.25rem", borderBottom: "1px solid var(--color-border)" }}>
-        <span className="text-sm text-muted">No screenshots available.</span>
+      <div className="preview-card preview-card-empty" data-testid="screenshot-viewer" data-viewer-state="empty">
+        <div className="preview-card-empty-icon">🖼</div>
+        <p>No preview available yet.</p>
+        <p className="text-sm text-muted" style={{ marginTop: "0.25rem" }}>
+          Build the website and create a preview to see screenshots here.
+        </p>
       </div>
     );
   }
@@ -805,15 +917,12 @@ function ScreenshotViewer({ slug, projectId, lastReviewedRevisionId, status }: {
 
   return (
     <div
+      className="preview-card"
       data-testid="screenshot-viewer"
       data-viewer-state="loaded"
       data-screenshot-count={screenshotItems.length}
       data-manifest-path={manifest?.manifest_path ?? ""}
       data-verification-state={verificationState}
-      style={{
-        padding: "0.75rem 1.25rem",
-        borderBottom: "1px solid var(--color-border)",
-      }}
     >
       <span
         className="text-sm"
@@ -1131,8 +1240,8 @@ function ProcessBtn({ projectId }: { projectId: string }) {
 
   return (
     <ActionButton
-      label="Process Intake"
-      pendingLabel="Processing..."
+      label="Create Website Plan"
+      pendingLabel="Creating plan..."
       isPending={isPending}
       onClick={handleClick}
       error={error}
@@ -1155,7 +1264,7 @@ function ApproveBtn({ projectId }: { projectId: string }) {
 
   return (
     <ActionButton
-      label="Approve"
+      label="Approve Plan"
       pendingLabel="Approving..."
       isPending={isPending}
       onClick={handleClick}
@@ -1316,8 +1425,8 @@ function ExportBtn({ projectId }: { projectId: string }) {
 
   return (
     <ActionButton
-      label="Export"
-      pendingLabel="Exporting..."
+      label="Prepare Content"
+      pendingLabel="Preparing..."
       isPending={isPending}
       onClick={handleClick}
       error={error}
@@ -1355,8 +1464,8 @@ function GenerateBtn({
 
   return (
     <ActionButton
-      label="Generate Site"
-      pendingLabel="Dispatching..."
+      label="Build Website"
+      pendingLabel="Starting build..."
       isPending={isPending}
       onClick={handleClick}
       error={error}
@@ -1395,8 +1504,8 @@ function ReviewBtn({
 
   return (
     <ActionButton
-      label="Build & Review"
-      pendingLabel="Dispatching..."
+      label="Create Preview"
+      pendingLabel="Starting preview..."
       isPending={isPending}
       onClick={handleClick}
       error={error}

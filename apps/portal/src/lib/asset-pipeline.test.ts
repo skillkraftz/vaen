@@ -809,22 +809,22 @@ describe("page shows version tracking with staleness indicators", () => {
   it("page.tsx shows staleness for exported revision", () => {
     const pagePath = join(__dirname, "../app/dashboard/projects/[id]/page.tsx");
     const source = readFileSync(pagePath, "utf-8");
-    expect(source).toContain("Last Exported");
+    expect(source).toContain("Content Prepared");
     expect(source).toContain("last_exported_revision_id");
-    expect(source).toContain("Stale");
+    expect(source).toContain("Outdated");
   });
 
   it("page.tsx shows staleness for generated revision", () => {
     const pagePath = join(__dirname, "../app/dashboard/projects/[id]/page.tsx");
     const source = readFileSync(pagePath, "utf-8");
-    expect(source).toContain("Last Generated");
+    expect(source).toContain("Website Built");
     expect(source).toContain("last_generated_revision_id");
   });
 
   it("page.tsx shows staleness for reviewed revision", () => {
     const pagePath = join(__dirname, "../app/dashboard/projects/[id]/page.tsx");
     const source = readFileSync(pagePath, "utf-8");
-    expect(source).toContain("Last Reviewed");
+    expect(source).toContain("Preview Created");
     expect(source).toContain("last_reviewed_revision_id");
   });
 });

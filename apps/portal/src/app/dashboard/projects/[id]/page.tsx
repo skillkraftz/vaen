@@ -95,7 +95,6 @@ export default async function ProjectDetailPage({
 
   const assetList = (assets ?? []) as Asset[];
   const eventList = (events ?? []) as ProjectEvent[];
-  // Compute missing info live from current project + assets (not stale DB cache)
   const missingInfo = detectMissingInfo(p, assetList);
   const recommendations = p.recommendations as IntakeRecommendations | null;
 
@@ -109,7 +108,6 @@ export default async function ProjectDetailPage({
       .single();
     requestData = (rev?.request_data as Record<string, unknown>) ?? null;
   }
-  // Legacy fallback for pre-migration projects
   if (!requestData) {
     requestData = (p.draft_request ?? null) as Record<string, unknown> | null;
   }
@@ -134,227 +132,124 @@ export default async function ProjectDetailPage({
         </span>
       </div>
 
-      {/* ── Workflow Step Indicator ────────────────────────────────── */}
+      {/* ── Progress Indicator ────────────────────────────────────── */}
       <div className="section">
         <div className="card" style={{ padding: 0, overflow: "hidden" }}>
           <WorkflowStepIndicator status={p.status} />
         </div>
       </div>
 
-      {/* ── Workflow Panel (always visible) ─────────────────────────── */}
+      {/* ── Workflow Panel ────────────────────────────────────────── */}
+      {/* Contains: NextStep banner, actions, preview, advanced tools */}
       <div className="section">
         <WorkflowPanel projectId={id} slug={p.slug} status={p.status} lastReviewedRevisionId={p.last_reviewed_revision_id} />
       </div>
 
-      {/* ── Version Tracking ─────────────────────────────────────── */}
-      <div className="section" data-testid="version-tracking">
-        <h2 className="mb-1" style={{ fontSize: "1rem", fontWeight: 600 }}>
-          Version Tracking
-        </h2>
-        <div className="card" style={{ padding: "0.75rem 1rem" }}>
-          <div style={{ display: "flex", flexDirection: "column", gap: "0.35rem", fontSize: "0.85rem" }}>
-            <div>
-              <strong>Active Version:</strong>{" "}
-              {p.current_revision_id
-                ? <span className="text-mono" style={{ fontSize: "0.8rem" }}>{p.current_revision_id.slice(0, 8)}</span>
-                : <span className="text-muted">None yet</span>}
-            </div>
-            <div>
-              <strong>Last Exported:</strong>{" "}
-              {p.last_exported_revision_id
-                ? (p.last_exported_revision_id === p.current_revision_id
-                    ? <span style={{ color: "var(--color-success)" }}>Up to date</span>
-                    : <span style={{ color: "var(--color-warning, #b45309)" }}>Stale — re-export needed</span>)
-                : <span className="text-muted">Not yet exported</span>}
-            </div>
-            <div>
-              <strong>Last Generated:</strong>{" "}
-              {p.last_generated_revision_id
-                ? (p.last_generated_revision_id === p.current_revision_id
-                    ? <span style={{ color: "var(--color-success)" }}>Up to date</span>
-                    : <span style={{ color: "var(--color-warning, #b45309)" }}>Stale — re-generate needed</span>)
-                : <span className="text-muted">Not yet generated</span>}
-            </div>
-            <div>
-              <strong>Last Reviewed:</strong>{" "}
-              {p.last_reviewed_revision_id
-                ? (p.last_reviewed_revision_id === p.current_revision_id
-                    ? <span style={{ color: "var(--color-success)" }}>Up to date</span>
-                    : <span style={{ color: "var(--color-warning, #b45309)" }}>Stale — screenshots may not match</span>)
-                : <span className="text-muted">Not yet reviewed</span>}
-            </div>
-          </div>
-        </div>
-        <div style={{ marginTop: "0.75rem" }}>
-          <RevisionList projectId={id} project={p} />
-        </div>
-      </div>
+      {/* ── Website Content ───────────────────────────────────────── */}
+      {(hasDraft || recommendations || missingInfo.length > 0) && (
+        <>
+          <div className="section-label" style={{ marginTop: "0.5rem" }}>Website Content</div>
 
-      {/* ── Missing info ───────────────────────────────────────────── */}
-      {missingInfo.length > 0 && (
-        <div className="section">
-          <h2
-            className="mb-1"
-            style={{ fontSize: "1rem", fontWeight: 600 }}
-          >
-            Missing Information ({missingInfo.length})
-          </h2>
-          <div className="card">
-            <div
-              style={{
-                display: "flex",
-                flexDirection: "column",
-                gap: "0.5rem",
-              }}
-            >
-              {missingInfo.map((item, i) => (
-                <div
-                  key={i}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "0.75rem",
-                    padding: "0.5rem 0",
-                    borderBottom:
-                      i < missingInfo.length - 1
-                        ? "1px solid var(--color-border)"
-                        : "none",
-                  }}
-                >
-                  <span
-                    className={`badge ${severityBadge(item.severity)}`}
-                  >
-                    {item.severity}
-                  </span>
-                  <div>
-                    <strong style={{ fontSize: "0.875rem" }}>
-                      {item.label}
-                    </strong>
-                    {item.hint && (
-                      <p
-                        className="text-sm text-muted"
-                        style={{ marginTop: "0.15rem" }}
-                      >
-                        {item.hint}
-                      </p>
-                    )}
-                  </div>
+          {/* Missing info */}
+          {missingInfo.length > 0 && (
+            <div className="section">
+              <h2 className="mb-1" style={{ fontSize: "1rem", fontWeight: 600 }}>
+                Missing Information ({missingInfo.length})
+              </h2>
+              <div className="card">
+                <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+                  {missingInfo.map((item, i) => (
+                    <div
+                      key={i}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "0.75rem",
+                        padding: "0.5rem 0",
+                        borderBottom: i < missingInfo.length - 1 ? "1px solid var(--color-border)" : "none",
+                      }}
+                    >
+                      <span className={`badge ${severityBadge(item.severity)}`}>
+                        {item.severity}
+                      </span>
+                      <div>
+                        <strong style={{ fontSize: "0.875rem" }}>{item.label}</strong>
+                        {item.hint && (
+                          <p className="text-sm text-muted" style={{ marginTop: "0.15rem" }}>
+                            {item.hint}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  ))}
                 </div>
-              ))}
+              </div>
             </div>
-          </div>
-        </div>
+          )}
+
+          {/* Client Summary */}
+          {hasDraft && (
+            <div className="section">
+              <h2 className="mb-1" style={{ fontSize: "1rem", fontWeight: 600 }}>
+                Client Summary
+              </h2>
+              <SummaryEditor projectId={id} summary={p.client_summary ?? ""} />
+            </div>
+          )}
+
+          {/* Recommendations */}
+          {recommendations && (
+            <div className="section">
+              <h2 className="mb-1" style={{ fontSize: "1rem", fontWeight: 600 }}>
+                Recommendations
+              </h2>
+              <div className="card">
+                <table className="info-table">
+                  <tbody>
+                    <tr>
+                      <th>Template</th>
+                      <td>
+                        <span className="text-mono">{recommendations.template.id}</span>
+                        <span className="text-sm text-muted" style={{ marginLeft: "0.5rem" }}>
+                          {recommendations.template.reason}
+                        </span>
+                      </td>
+                    </tr>
+                    {recommendations.modules.map((mod, i) => (
+                      <tr key={i}>
+                        <th>{i === 0 ? "Modules" : ""}</th>
+                        <td>
+                          <span className="text-mono">{mod.id}</span>
+                          <span className="text-sm text-muted" style={{ marginLeft: "0.5rem" }}>
+                            {mod.reason}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {recommendations.notes && (
+                  <div style={{ marginTop: "0.75rem", paddingTop: "0.75rem", borderTop: "1px solid var(--color-border)" }}>
+                    <p className="text-sm text-muted">{recommendations.notes}</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </>
       )}
 
-      {/* ── Project Details ──────────────────────────────────────────── */}
+      {/* ── Project Details ─────────────────────────────────────────── */}
       <div className="section">
-        <h2
-          className="mb-1"
-          style={{ fontSize: "1rem", fontWeight: 600 }}
-        >
+        <h2 className="mb-1" style={{ fontSize: "1rem", fontWeight: 600 }}>
           Project Details
         </h2>
-        <BuildInputsEditor
-          projectId={id}
-          project={p}
-          draftRequest={requestData}
-        />
+        <BuildInputsEditor projectId={id} project={p} draftRequest={requestData} />
       </div>
 
-      {/* ── Recommendations ────────────────────────────────────────── */}
-      {recommendations && (
-        <div className="section">
-          <h2
-            className="mb-1"
-            style={{ fontSize: "1rem", fontWeight: 600 }}
-          >
-            Recommendations
-          </h2>
-          <div className="card">
-            <table className="info-table">
-              <tbody>
-                <tr>
-                  <th>Template</th>
-                  <td>
-                    <span className="text-mono">
-                      {recommendations.template.id}
-                    </span>
-                    <span
-                      className="text-sm text-muted"
-                      style={{ marginLeft: "0.5rem" }}
-                    >
-                      {recommendations.template.reason}
-                    </span>
-                  </td>
-                </tr>
-                {recommendations.modules.map((mod, i) => (
-                  <tr key={i}>
-                    <th>{i === 0 ? "Modules" : ""}</th>
-                    <td>
-                      <span className="text-mono">{mod.id}</span>
-                      <span
-                        className="text-sm text-muted"
-                        style={{ marginLeft: "0.5rem" }}
-                      >
-                        {mod.reason}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            {recommendations.notes && (
-              <div
-                style={{
-                  marginTop: "0.75rem",
-                  paddingTop: "0.75rem",
-                  borderTop: "1px solid var(--color-border)",
-                }}
-              >
-                <p className="text-sm text-muted">
-                  {recommendations.notes}
-                </p>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* ── Client Summary (editable) ──────────────────────────────── */}
-      {hasDraft && (
-        <div className="section">
-          <h2
-            className="mb-1"
-            style={{ fontSize: "1rem", fontWeight: 600 }}
-          >
-            Client Summary
-          </h2>
-          <SummaryEditor
-            projectId={id}
-            summary={p.client_summary ?? ""}
-          />
-        </div>
-      )}
-
-      {/* ── Request Data JSON (power user) ─────────────────────────── */}
-      {requestData && (
-        <div className="section">
-          <h2
-            className="mb-1"
-            style={{ fontSize: "1rem", fontWeight: 600 }}
-          >
-            Request Data (JSON)
-          </h2>
-          <DraftRequestEditor projectId={id} draftRequest={requestData} />
-        </div>
-      )}
-
-      {/* ── Files & Images ───────────────────────────────────────── */}
+      {/* ── Files & Images ──────────────────────────────────────────── */}
       <div className="section">
-        <h2
-          className="mb-1"
-          style={{ fontSize: "1rem", fontWeight: 600 }}
-        >
+        <h2 className="mb-1" style={{ fontSize: "1rem", fontWeight: 600 }}>
           Files & Images
         </h2>
         <div className="card" style={{ padding: "0.75rem 1rem", marginBottom: "0.75rem" }}>
@@ -367,30 +262,74 @@ export default async function ProjectDetailPage({
         )}
       </div>
 
-      {/* ── Images for This Version ──────────────────────────────── */}
       {uploadedAssets.some((a) => a.category === "image") && (
         <div className="section">
-          <h2
-            className="mb-1"
-            style={{ fontSize: "1rem", fontWeight: 600 }}
-          >
+          <h2 className="mb-1" style={{ fontSize: "1rem", fontWeight: 600 }}>
             Images for This Version
           </h2>
           <div className="card" style={{ padding: "0.75rem 1rem" }}>
-            <RevisionAssetManager
-              currentRevisionId={p.current_revision_id}
-              assets={uploadedAssets}
-            />
+            <RevisionAssetManager currentRevisionId={p.current_revision_id} assets={uploadedAssets} />
           </div>
         </div>
       )}
 
-      {/* ── Activity log ───────────────────────────────────────────── */}
+      {/* ── Request Data (power user) ──────────────────────────────── */}
+      {requestData && (
+        <div className="section">
+          <h2 className="mb-1" style={{ fontSize: "1rem", fontWeight: 600 }}>
+            Request Data (JSON)
+          </h2>
+          <DraftRequestEditor projectId={id} draftRequest={requestData} />
+        </div>
+      )}
+
+      {/* ── Version History ─────────────────────────────────────────── */}
+      <div className="section" data-testid="version-tracking">
+        <h2 className="mb-1" style={{ fontSize: "1rem", fontWeight: 600 }}>
+          Version History
+        </h2>
+        <div className="card" style={{ padding: "0.75rem 1rem" }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: "0.35rem", fontSize: "0.85rem" }}>
+            <div>
+              <strong>Active Version:</strong>{" "}
+              {p.current_revision_id
+                ? <span className="text-mono" style={{ fontSize: "0.8rem" }}>{p.current_revision_id.slice(0, 8)}</span>
+                : <span className="text-muted">None yet</span>}
+            </div>
+            <div>
+              <strong>Content Prepared:</strong>{" "}
+              {p.last_exported_revision_id
+                ? (p.last_exported_revision_id === p.current_revision_id
+                    ? <span style={{ color: "var(--color-success)" }}>Up to date</span>
+                    : <span style={{ color: "var(--color-warning, #b45309)" }}>Outdated</span>)
+                : <span className="text-muted">Not yet</span>}
+            </div>
+            <div>
+              <strong>Website Built:</strong>{" "}
+              {p.last_generated_revision_id
+                ? (p.last_generated_revision_id === p.current_revision_id
+                    ? <span style={{ color: "var(--color-success)" }}>Up to date</span>
+                    : <span style={{ color: "var(--color-warning, #b45309)" }}>Outdated — rebuild needed</span>)
+                : <span className="text-muted">Not yet</span>}
+            </div>
+            <div>
+              <strong>Preview Created:</strong>{" "}
+              {p.last_reviewed_revision_id
+                ? (p.last_reviewed_revision_id === p.current_revision_id
+                    ? <span style={{ color: "var(--color-success)" }}>Up to date</span>
+                    : <span style={{ color: "var(--color-warning, #b45309)" }}>Outdated — screenshots may not match</span>)
+                : <span className="text-muted">Not yet</span>}
+            </div>
+          </div>
+        </div>
+        <div style={{ marginTop: "0.75rem" }}>
+          <RevisionList projectId={id} project={p} />
+        </div>
+      </div>
+
+      {/* ── Activity ───────────────────────────────────────────────── */}
       <div className="section" data-testid="activity-log">
-        <h2
-          className="mb-1"
-          style={{ fontSize: "1rem", fontWeight: 600 }}
-        >
+        <h2 className="mb-1" style={{ fontSize: "1rem", fontWeight: 600 }}>
           Activity
         </h2>
         {eventList.length === 0 ? (
@@ -409,19 +348,14 @@ export default async function ProjectDetailPage({
                 }}
               >
                 <span>
-                  <strong>
-                    {event.event_type.replace(/_/g, " ")}
-                  </strong>
+                  <strong>{event.event_type.replace(/_/g, " ")}</strong>
                   {event.to_status && (
                     <span className="text-muted">
-                      {" "}
-                      &rarr; {formatStatusLabel(event.to_status)}
+                      {" "}&rarr; {formatStatusLabel(event.to_status)}
                     </span>
                   )}
                 </span>
-                <span className="text-muted">
-                  {fmtDate(event.created_at)}
-                </span>
+                <span className="text-muted">{fmtDate(event.created_at)}</span>
               </div>
             ))}
           </div>
