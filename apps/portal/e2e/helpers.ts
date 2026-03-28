@@ -1,4 +1,4 @@
-import { Page, expect } from "@playwright/test";
+import { Locator, Page, expect } from "@playwright/test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -115,6 +115,85 @@ export async function waitForJobCompletion(
   return getStatusText(page);
 }
 
+export async function requireVisibleSection(
+  page: Page,
+  sectionTestId: string,
+): Promise<Locator> {
+  const section = page.getByTestId(sectionTestId);
+  await expect(section).toBeVisible({ timeout: 15_000 });
+  await section.scrollIntoViewIfNeeded();
+  return section;
+}
+
+export async function noteDuplicateButtons(
+  page: Page,
+  opts: { label: string; expectedTestIds: string[] },
+): Promise<void> {
+  const buttonsByLabel = page.locator("button", { hasText: opts.label });
+  const totalByLabel = await buttonsByLabel.count();
+  if (totalByLabel > 1) {
+    addObservation(
+      `Selector ambiguity detected for "${opts.label}" — ${totalByLabel} matching buttons visible globally; audit scoped to Build & Review section.`,
+    );
+  }
+
+  const duplicateIds = await Promise.all(
+    opts.expectedTestIds.map(async (testId) => ({
+      testId,
+      count: await page.getByTestId(testId).count(),
+    })),
+  );
+
+  for (const match of duplicateIds) {
+    if (match.count > 1) {
+      addFailure(
+        opts.label,
+        "selector_ambiguity",
+        `Test id "${match.testId}" matched ${match.count} elements globally.`,
+      );
+      addObservation(
+        `Selector ambiguity recorded for "${opts.label}" — test id "${match.testId}" matched ${match.count} elements globally.`,
+      );
+    }
+  }
+}
+
+export type SectionButtonState =
+  | { kind: "ready"; button: Locator }
+  | { kind: "absent"; detail: string }
+  | { kind: "disabled"; detail: string };
+
+export async function getSectionButtonState(
+  section: Locator,
+  testId: string,
+  label: string,
+): Promise<SectionButtonState> {
+  const button = section.getByTestId(testId);
+  if ((await button.count()) === 0) {
+    return {
+      kind: "absent",
+      detail: `${label} button not present in Build & Review section`,
+    };
+  }
+
+  const visible = await button.isVisible().catch(() => false);
+  if (!visible) {
+    return {
+      kind: "absent",
+      detail: `${label} button present but not visible in Build & Review section`,
+    };
+  }
+
+  if (await button.isDisabled()) {
+    return {
+      kind: "disabled",
+      detail: `${label} button disabled in Build & Review section`,
+    };
+  }
+
+  return { kind: "ready", button };
+}
+
 // ── Notes artifact ───────────────────────────────────────────────────
 
 interface StepRecord {
@@ -126,9 +205,21 @@ interface StepRecord {
   note: string | null;
 }
 
+interface FailureRecord {
+  stage: string;
+  reason:
+    | "button_not_present"
+    | "button_disabled"
+    | "selector_ambiguity"
+    | "job_failed"
+    | "job_timed_out";
+  detail: string;
+}
+
 const stepLog: StepRecord[] = [];
 const blockers: string[] = [];
 const observations: string[] = [];
+const failures: FailureRecord[] = [];
 
 export function addBlocker(msg: string) {
   blockers.push(msg);
@@ -136,6 +227,14 @@ export function addBlocker(msg: string) {
 
 export function addObservation(msg: string) {
   if (!observations.includes(msg)) observations.push(msg);
+}
+
+export function addFailure(
+  stage: FailureRecord["stage"],
+  reason: FailureRecord["reason"],
+  detail: string,
+) {
+  failures.push({ stage, reason, detail });
 }
 
 export function writeAuditNotes(
@@ -182,6 +281,13 @@ export function writeAuditNotes(
   if (blockers.length > 0) {
     md += `\n## Blockers\n`;
     for (const b of blockers) md += `- ${b}\n`;
+  }
+
+  if (failures.length > 0) {
+    md += `\n## Failure Classification\n`;
+    for (const failure of failures) {
+      md += `- ${failure.stage}: ${failure.reason} — ${failure.detail}\n`;
+    }
   }
 
   md += `\n## UX Observations\n`;

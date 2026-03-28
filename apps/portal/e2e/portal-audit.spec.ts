@@ -6,7 +6,11 @@ import {
   getStatusText,
   waitForRevisionsLoaded,
   waitForJobCompletion,
+  requireVisibleSection,
+  noteDuplicateButtons,
+  getSectionButtonState,
   addBlocker,
+  addFailure,
   addObservation,
   writeAuditNotes,
 } from "./helpers";
@@ -280,12 +284,27 @@ test("08 — AI handoff", async ({ shared: page }) => {
 test("09 — generate site", async ({ shared: page }) => {
   await goToProject(page);
 
-  const genBtn = page.getByTestId("btn-generate-site");
-  if (!(await genBtn.isVisible().catch(() => false))) {
-    addBlocker("Generate Site button not visible — status may not allow generation");
+  const buildSection = await requireVisibleSection(page, "section-build");
+  await noteDuplicateButtons(page, {
+    label: "Generate Site",
+    expectedTestIds: ["build-generate-site", "recovery-generate-site"],
+  });
+
+  const generateState = await getSectionButtonState(
+    buildSection,
+    "build-generate-site",
+    "Generate Site",
+  );
+  if (generateState.kind !== "ready") {
+    addFailure(
+      "Generate Site",
+      generateState.kind === "disabled" ? "button_disabled" : "button_not_present",
+      generateState.detail,
+    );
+    addBlocker(generateState.detail);
     await snap(page, outputDir, "generate-BLOCKED", {
       status: await getStatusText(page),
-      note: "Generate button not available",
+      note: generateState.detail,
     });
     return;
   }
@@ -293,9 +312,10 @@ test("09 — generate site", async ({ shared: page }) => {
   await snap(page, outputDir, "before-generate", {
     status: await getStatusText(page),
     cta: "Generate Site",
+    note: "Clicking Build & Review section generate button",
   });
 
-  await genBtn.click();
+  await generateState.button.click();
 
   // Wait for job to be dispatched — running indicator or job panel appears
   await page.waitForTimeout(2000);
@@ -325,12 +345,17 @@ test("09 — generate site", async ({ shared: page }) => {
       addObservation("Generate completed successfully — workspace_generated");
     } else {
       addObservation(`Generate ended with status: ${status2}`);
+      if (finalStatus.toLowerCase().includes("failed") || status2.toLowerCase().includes("failed")) {
+        addFailure("Generate Site", "job_failed", `Generate completed with status "${status2}"`);
+        addBlocker(`Generate failed after dispatch — final status: ${status2}`);
+      }
     }
   } catch (err) {
     await snap(page, outputDir, "generate-TIMEOUT", {
       status: await getStatusText(page),
       note: "Generate job timed out",
     });
+    addFailure("Generate Site", "job_timed_out", String(err));
     addBlocker(`Generate timed out: ${err}`);
   }
 });
@@ -340,12 +365,27 @@ test("09 — generate site", async ({ shared: page }) => {
 test("10 — build and review", async ({ shared: page }) => {
   await goToProject(page);
 
-  const reviewBtn = page.getByTestId("btn-build-review");
-  if (!(await reviewBtn.isVisible().catch(() => false))) {
-    addBlocker("Build & Review button not visible — generate may not have completed");
+  const buildSection = await requireVisibleSection(page, "section-build");
+  await noteDuplicateButtons(page, {
+    label: "Build & Review",
+    expectedTestIds: ["build-review", "recovery-review"],
+  });
+
+  const reviewState = await getSectionButtonState(
+    buildSection,
+    "build-review",
+    "Build & Review",
+  );
+  if (reviewState.kind !== "ready") {
+    addFailure(
+      "Build & Review",
+      reviewState.kind === "disabled" ? "button_disabled" : "button_not_present",
+      reviewState.detail,
+    );
+    addBlocker(reviewState.detail);
     await snap(page, outputDir, "review-BLOCKED", {
       status: await getStatusText(page),
-      note: "Review button not available",
+      note: reviewState.detail,
     });
     return;
   }
@@ -353,9 +393,10 @@ test("10 — build and review", async ({ shared: page }) => {
   await snap(page, outputDir, "before-review", {
     status: await getStatusText(page),
     cta: "Build & Review",
+    note: "Clicking Build & Review section review button",
   });
 
-  await reviewBtn.click();
+  await reviewState.button.click();
   await page.waitForTimeout(2000);
   await snap(page, outputDir, "review-dispatched", {
     status: await getStatusText(page),
@@ -380,6 +421,7 @@ test("10 — build and review", async ({ shared: page }) => {
       addObservation("Review completed successfully — review_ready");
     } else if (status.includes("failed") || status.includes("Failed")) {
       addObservation(`Review ended with failure: ${status}`);
+      addFailure("Build & Review", "job_failed", `Review completed with status "${status}"`);
       addBlocker("Build & Review failed — screenshots may not be available");
     }
   } catch (err) {
@@ -387,6 +429,7 @@ test("10 — build and review", async ({ shared: page }) => {
       status: await getStatusText(page),
       note: "Review job timed out",
     });
+    addFailure("Build & Review", "job_timed_out", String(err));
     addBlocker(`Review timed out: ${err}`);
   }
 });
@@ -410,10 +453,21 @@ test("11 — screenshot viewer", async ({ shared: page }) => {
   reachedScreenshots = true;
   await viewer.scrollIntoViewIfNeeded();
 
+  const thumbnailButtons = viewer.getByTestId("screenshot-thumbnails").locator("button");
+  const thumbnailCount = await thumbnailButtons.count();
+  if (thumbnailCount === 0) {
+    addBlocker("Screenshot viewer visible but contains no screenshot thumbnails");
+    await snap(page, outputDir, "screenshots-EMPTY", {
+      status: await getStatusText(page),
+      note: "Viewer rendered without real screenshot thumbnails",
+    });
+    return;
+  }
+
   const status = await getStatusText(page);
   await snap(page, outputDir, "screenshot-viewer-thumbnails", {
     status,
-    note: "Screenshot viewer with thumbnail buttons",
+    note: `Screenshot viewer with ${thumbnailCount} real thumbnail button(s)`,
   });
 
   // Click the first thumbnail to open a preview

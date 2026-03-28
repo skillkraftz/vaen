@@ -190,10 +190,18 @@ export function WorkflowPanel({ projectId, slug, status, lastReviewedRevisionId 
         <ActionSection label="Build & Review" testId="section-build">
           {canExport && <ExportBtn projectId={projectId} />}
           {canGenerate && (
-            <GenerateBtn projectId={projectId} onDispatched={refreshJobs} />
+            <GenerateBtn
+              projectId={projectId}
+              onDispatched={refreshJobs}
+              testId="build-generate-site"
+            />
           )}
           {canReview && (
-            <ReviewBtn projectId={projectId} onDispatched={refreshJobs} />
+            <ReviewBtn
+              projectId={projectId}
+              onDispatched={refreshJobs}
+              testId="build-review"
+            />
           )}
           {!canGenerate && !canReview && !canExport && !hasActiveJob && (
             <span className="text-sm text-muted">
@@ -229,10 +237,18 @@ export function WorkflowPanel({ projectId, slug, status, lastReviewedRevisionId 
         <ReExportBtn projectId={projectId} />
         <ResetToDraftBtn projectId={projectId} />
         {canGenerate && (
-          <GenerateBtn projectId={projectId} onDispatched={refreshJobs} />
+          <GenerateBtn
+            projectId={projectId}
+            onDispatched={refreshJobs}
+            testId="recovery-generate-site"
+          />
         )}
         {canReview && (
-          <ReviewBtn projectId={projectId} onDispatched={refreshJobs} />
+          <ReviewBtn
+            projectId={projectId}
+            onDispatched={refreshJobs}
+            testId="recovery-review"
+          />
         )}
       </ActionSection>
 
@@ -1068,9 +1084,11 @@ function ExportBtn({ projectId }: { projectId: string }) {
 function GenerateBtn({
   projectId,
   onDispatched,
+  testId,
 }: {
   projectId: string;
   onDispatched: () => void;
+  testId?: string;
 }) {
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -1098,6 +1116,7 @@ function GenerateBtn({
       error={error}
       success={result}
       primary
+      testId={testId}
     />
   );
 }
@@ -1105,9 +1124,11 @@ function GenerateBtn({
 function ReviewBtn({
   projectId,
   onDispatched,
+  testId,
 }: {
   projectId: string;
   onDispatched: () => void;
+  testId?: string;
 }) {
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -1135,6 +1156,7 @@ function ReviewBtn({
       error={error}
       success={result}
       primary
+      testId={testId}
     />
   );
 }
@@ -1699,6 +1721,7 @@ function ActionButton({
   error,
   success,
   primary,
+  testId,
 }: {
   label: string;
   pendingLabel: string;
@@ -1707,15 +1730,17 @@ function ActionButton({
   error: string | null;
   success?: string | null;
   primary?: boolean;
+  testId?: string;
 }) {
-  const testId = `btn-${label.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "")}`;
+  const resolvedTestId =
+    testId ?? `btn-${label.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "")}`;
   return (
     <div>
       <button
         className={`btn btn-sm${primary ? " btn-primary" : ""}`}
         onClick={onClick}
         disabled={isPending}
-        data-testid={testId}
+        data-testid={resolvedTestId}
       >
         {isPending ? pendingLabel : label}
       </button>
