@@ -10,7 +10,8 @@
     "generate": "node packages/generator/dist/cli.js",
     "review": "bash scripts/review.sh",
     "worker:run-job": "node apps/worker/dist/run-job.js",
-    "test": "pnpm -r test"
+    "test": "pnpm -r test",
+    "portal:audit": "pnpm --filter @vaen/portal ux-audit"
   },
   "engines": {
     "node": ">=18",

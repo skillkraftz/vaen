@@ -62,7 +62,7 @@ export function RevisionList({ projectId, project }: RevisionListProps) {
   const staleness = isRevisionStale(project);
   const hasStaleness = staleness.exportStale || staleness.generateStale || staleness.reviewStale;
 
-  if (loading) return <p className="text-sm text-muted">Loading revisions...</p>;
+  if (loading) return <p className="text-sm text-muted" data-testid="revisions-loading">Loading revisions...</p>;
   if (error) return <p className="text-sm text-muted">{error}</p>;
   if (revisions.length === 0) return <p className="text-sm text-muted">No revisions yet.</p>;
 
@@ -78,7 +78,7 @@ export function RevisionList({ projectId, project }: RevisionListProps) {
   };
 
   return (
-    <div className="card" style={{ padding: 0, overflow: "hidden" }}>
+    <div className="card" data-testid="revision-list" style={{ padding: 0, overflow: "hidden" }}>
       {/* Header with staleness badges */}
       <div
         style={{

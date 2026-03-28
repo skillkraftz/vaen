@@ -122,14 +122,14 @@ export default async function ProjectDetailPage({
   return (
     <>
       {/* ── Header ─────────────────────────────────────────────────── */}
-      <div className="section-header">
+      <div className="section-header" data-testid="project-header">
         <div>
           <Link href="/dashboard" className="text-sm text-muted">
             &larr; Projects
           </Link>
-          <h1 style={{ marginTop: "0.25rem" }}>{p.name}</h1>
+          <h1 style={{ marginTop: "0.25rem" }} data-testid="project-name">{p.name}</h1>
         </div>
-        <span className={`badge ${statusBadge(p.status)}`}>
+        <span className={`badge ${statusBadge(p.status)}`} data-testid="project-status-badge">
           {formatStatusLabel(p.status)}
         </span>
       </div>
@@ -147,7 +147,7 @@ export default async function ProjectDetailPage({
       </div>
 
       {/* ── Version Tracking ─────────────────────────────────────── */}
-      <div className="section">
+      <div className="section" data-testid="version-tracking">
         <h2 className="mb-1" style={{ fontSize: "1rem", fontWeight: 600 }}>
           Version Tracking
         </h2>
@@ -386,7 +386,7 @@ export default async function ProjectDetailPage({
       )}
 
       {/* ── Activity log ───────────────────────────────────────────── */}
-      <div className="section">
+      <div className="section" data-testid="activity-log">
         <h2
           className="mb-1"
           style={{ fontSize: "1rem", fontWeight: 600 }}

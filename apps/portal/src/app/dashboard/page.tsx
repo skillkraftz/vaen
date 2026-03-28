@@ -43,9 +43,9 @@ export default async function DashboardPage() {
 
   return (
     <>
-      <div className="section-header">
+      <div className="section-header" data-testid="dashboard-header">
         <h1>Projects</h1>
-        <Link href="/dashboard/new" className="btn btn-primary">
+        <Link href="/dashboard/new" className="btn btn-primary" data-testid="new-intake-link">
           + New Intake
         </Link>
       </div>
@@ -58,12 +58,13 @@ export default async function DashboardPage() {
           </p>
         </div>
       ) : (
-        <div className="flex flex-col gap-1">
+        <div className="flex flex-col gap-1" data-testid="project-list">
           {items.map((project) => (
             <Link
               key={project.id}
               href={`/dashboard/projects/${project.id}`}
               className="card-link"
+              data-testid={`project-card-${project.slug}`}
             >
               <div
                 style={{

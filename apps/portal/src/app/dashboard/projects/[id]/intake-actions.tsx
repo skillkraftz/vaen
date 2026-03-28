@@ -142,9 +142,10 @@ export function WorkflowPanel({ projectId, slug, status, lastReviewedRevisionId 
     !hasActiveJob;
 
   return (
-    <div className="card" style={{ padding: 0, overflow: "hidden" }}>
+    <div className="card" data-testid="workflow-panel" style={{ padding: 0, overflow: "hidden" }}>
       {/* Status header */}
       <div
+        data-testid="workflow-status"
         style={{
           padding: "1rem 1.25rem",
           borderBottom: "1px solid var(--color-border)",
@@ -160,7 +161,7 @@ export function WorkflowPanel({ projectId, slug, status, lastReviewedRevisionId 
           >
             Status:
           </span>
-          <strong>{formatStatusLabel(status)}</strong>
+          <strong data-testid="workflow-status-label">{formatStatusLabel(status)}</strong>
         </div>
         <PhaseIndicator phase={phase} />
       </div>
@@ -170,7 +171,7 @@ export function WorkflowPanel({ projectId, slug, status, lastReviewedRevisionId 
 
       {/* Intake actions */}
       {phase === "intake" && (
-        <ActionSection label="Intake">
+        <ActionSection label="Intake" testId="section-intake">
           {canProcess && <ProcessBtn projectId={projectId} />}
           {canApprove && <ApproveBtn projectId={projectId} />}
           {canRevise && <RevisionBtn projectId={projectId} />}
@@ -186,7 +187,7 @@ export function WorkflowPanel({ projectId, slug, status, lastReviewedRevisionId 
 
       {/* Build/automation actions */}
       {(phase === "build" || canGenerate) && (
-        <ActionSection label="Build & Review">
+        <ActionSection label="Build & Review" testId="section-build">
           {canExport && <ExportBtn projectId={projectId} />}
           {canGenerate && (
             <GenerateBtn projectId={projectId} onDispatched={refreshJobs} />
@@ -200,7 +201,7 @@ export function WorkflowPanel({ projectId, slug, status, lastReviewedRevisionId 
             </span>
           )}
           {hasActiveJob && (
-            <span className="text-sm text-muted">
+            <span className="text-sm text-muted" data-testid="job-running-indicator">
               Job running — waiting for worker...
             </span>
           )}
@@ -209,7 +210,7 @@ export function WorkflowPanel({ projectId, slug, status, lastReviewedRevisionId 
 
       {/* AI Handoff — available once exported */}
       {(phase === "build" || status === "intake_approved" || status === "intake_parsed") && (
-        <ActionSection label="AI Handoff">
+        <ActionSection label="AI Handoff" testId="section-handoff">
           <ExportPromptBtn projectId={projectId} />
           <ImportFinalRequestPanel projectId={projectId} />
           <RequestSourceIndicator projectId={projectId} />
@@ -223,7 +224,7 @@ export function WorkflowPanel({ projectId, slug, status, lastReviewedRevisionId 
       <ScreenshotViewer slug={slug} projectId={projectId} lastReviewedRevisionId={lastReviewedRevisionId} status={status} />
 
       {/* Recovery (always visible) */}
-      <ActionSection label="Recovery">
+      <ActionSection label="Recovery" testId="section-recovery">
         <ReprocessBtn projectId={projectId} />
         <ReExportBtn projectId={projectId} />
         <ResetToDraftBtn projectId={projectId} />
@@ -260,6 +261,7 @@ function JobStatusPanel({ jobs, slug }: { jobs: JobRecord[]; slug: string }) {
 
   return (
     <div
+      data-testid="job-status-panel"
       style={{
         padding: "0.75rem 1.25rem",
         borderBottom: "1px solid var(--color-border)",
@@ -281,7 +283,7 @@ function JobStatusPanel({ jobs, slug }: { jobs: JobRecord[]; slug: string }) {
       </span>
       <div style={{ display: "flex", flexDirection: "column", gap: "0.35rem" }}>
         {visible.map((job) => (
-          <div key={job.id}>
+          <div key={job.id} data-testid={`job-row-${job.job_type}`} data-job-status={job.status}>
             <div
               style={{
                 display: "flex",
@@ -550,7 +552,7 @@ function JobDetails({ job }: { job: JobRecord }) {
 
 // ── Screenshot viewer ─────────────────────────────────────────────────
 
-function ScreenshotViewer({ slug, projectId, lastReviewedRevisionId, status }: { slug: string; projectId: string; lastReviewedRevisionId: string | null; status: string }) {
+function ScreenshotViewer({ slug, projectId, lastReviewedRevisionId, status }: { slug: string; projectId: string; lastReviewedRevisionId: string | null; status: string; }) {
   const [artifacts, setArtifacts] = useState<ArtifactStatus | null>(null);
   const [supabaseScreenshots, setSupabaseScreenshots] = useState<
     Array<{ id: string; file_name: string; storage_path: string; source_job_id: string | null; request_revision_id: string | null; created_at: string }>
@@ -573,7 +575,7 @@ function ScreenshotViewer({ slug, projectId, lastReviewedRevisionId, status }: {
   const hasSupabase = supabaseScreenshots.length > 0;
   const hasLocal = artifacts?.hasScreenshots;
 
-  if (!hasSupabase && !hasLocal) return null;
+  if (!hasSupabase && !hasLocal) return null; // nothing to show
 
   // Prefer Supabase screenshots; fall back to local
   const screenshotItems = hasSupabase
@@ -621,6 +623,7 @@ function ScreenshotViewer({ slug, projectId, lastReviewedRevisionId, status }: {
 
   return (
     <div
+      data-testid="screenshot-viewer"
       style={{
         padding: "0.75rem 1.25rem",
         borderBottom: "1px solid var(--color-border)",
@@ -647,11 +650,12 @@ function ScreenshotViewer({ slug, projectId, lastReviewedRevisionId, status }: {
       </span>
 
       {/* Thumbnail buttons */}
-      <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
+      <div data-testid="screenshot-thumbnails" style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
         {screenshotItems.map((item) => (
           <button
             key={item.key}
             className="btn btn-sm"
+            data-testid={`screenshot-thumb-${item.label}`}
             style={{
               fontSize: "0.7rem",
               padding: "0.2rem 0.5rem",
@@ -672,7 +676,7 @@ function ScreenshotViewer({ slug, projectId, lastReviewedRevisionId, status }: {
 
       {/* Selected image */}
       {selectedImage && imageData[selectedImage] && (
-        <div style={{ marginTop: "0.75rem" }}>
+        <div data-testid="screenshot-preview" style={{ marginTop: "0.75rem" }}>
           <div
             style={{
               display: "flex",
@@ -742,12 +746,15 @@ function PhaseIndicator({
 function ActionSection({
   label,
   children,
+  testId,
 }: {
   label: string;
   children: React.ReactNode;
+  testId?: string;
 }) {
   return (
     <div
+      data-testid={testId}
       style={{
         padding: "1rem 1.25rem",
         borderBottom: "1px solid var(--color-border)",
@@ -805,6 +812,7 @@ function ArtifactStatusRow({ slug, status }: { slug: string; status: string }) {
 
   return (
     <div
+      data-testid="artifact-status"
       style={{
         padding: "0.75rem 1.25rem",
         borderBottom: "1px solid var(--color-border)",
@@ -1163,6 +1171,7 @@ function ExportPromptBtn({ projectId }: { projectId: string }) {
           className="btn btn-sm btn-primary"
           onClick={handleClick}
           disabled={isPending}
+          data-testid="btn-export-prompt"
         >
           {isPending ? "Generating..." : "Export prompt.txt"}
         </button>
@@ -1234,7 +1243,7 @@ function ImportFinalRequestPanel({ projectId }: { projectId: string }) {
   if (!showForm) {
     return (
       <div>
-        <button className="btn btn-sm" onClick={() => setShowForm(true)}>
+        <button className="btn btn-sm" onClick={() => setShowForm(true)} data-testid="btn-import-final-request">
           Import Final Request
         </button>
         {success && (
@@ -1475,8 +1484,9 @@ function DiagnosticsPanel({ projectId, slug }: { projectId: string; slug: string
   }
 
   return (
-    <div style={{ borderBottom: "1px solid var(--color-border)" }}>
+    <div data-testid="diagnostics-panel" style={{ borderBottom: "1px solid var(--color-border)" }}>
       <div
+        data-testid="diagnostics-toggle"
         style={{
           padding: "0.75rem 1.25rem",
           cursor: "pointer",
@@ -1698,12 +1708,14 @@ function ActionButton({
   success?: string | null;
   primary?: boolean;
 }) {
+  const testId = `btn-${label.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "")}`;
   return (
     <div>
       <button
         className={`btn btn-sm${primary ? " btn-primary" : ""}`}
         onClick={onClick}
         disabled={isPending}
+        data-testid={testId}
       >
         {isPending ? pendingLabel : label}
       </button>

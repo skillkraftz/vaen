@@ -1,0 +1,564 @@
+import { test as base, expect, BrowserContext, Page } from "@playwright/test";
+import {
+  createOutputDir,
+  resetStepIndex,
+  snap,
+  getStatusText,
+  waitForRevisionsLoaded,
+  waitForJobCompletion,
+  addBlocker,
+  addObservation,
+  writeAuditNotes,
+} from "./helpers";
+
+/**
+ * Portal UX Audit Flow — Full Workflow
+ *
+ * Captures every major workflow milestone from login through
+ * post-review screenshot inspection. Used as the basis for
+ * portal UX redesign.
+ *
+ * Run with:  pnpm portal:audit
+ *
+ * Prerequisites:
+ *   - Portal running at PORTAL_URL (default http://localhost:3100)
+ *   - PORTAL_EMAIL and PORTAL_PASSWORD env vars set
+ *   - Worker packages built (pnpm build)
+ */
+
+const EMAIL = process.env.PORTAL_EMAIL ?? "";
+const PASSWORD = process.env.PORTAL_PASSWORD ?? "";
+const PORTAL_URL = process.env.PORTAL_URL ?? "http://localhost:3100";
+
+const SLUG = `audit-${Date.now().toString(36)}`;
+const PROJECT_NAME = `Audit Run ${SLUG}`;
+
+// Track workflow progress for notes artifact
+let reachedGenerate = false;
+let reachedReview = false;
+let reachedScreenshots = false;
+
+// Shared browser context so auth persists
+let ctx: BrowserContext;
+let pg: Page;
+let outputDir: string;
+const startTime = new Date();
+
+const test = base.extend<{ shared: Page }>({
+  shared: async ({ browser }, use) => {
+    if (!ctx) {
+      ctx = await browser.newContext({
+        viewport: { width: 1440, height: 900 },
+      });
+      pg = await ctx.newPage();
+    }
+    await use(pg);
+  },
+});
+
+test.describe.configure({ mode: "serial" });
+
+test.beforeAll(() => {
+  if (!EMAIL || !PASSWORD) {
+    throw new Error(
+      "Set PORTAL_EMAIL and PORTAL_PASSWORD env vars before running the audit.",
+    );
+  }
+  outputDir = createOutputDir();
+  resetStepIndex();
+  console.log(`\n  Audit output → ${outputDir}\n`);
+});
+
+test.afterAll(async () => {
+  writeAuditNotes(outputDir, {
+    portalUrl: PORTAL_URL,
+    projectName: PROJECT_NAME,
+    slug: SLUG,
+    startTime,
+    reachedGenerate,
+    reachedReview,
+    reachedScreenshots,
+  });
+  console.log(`\n  Audit complete → ${outputDir}\n`);
+  await ctx?.close();
+});
+
+// ── 1. Login ──────────────────────────────────────────────────────────
+
+test("01 — login", async ({ shared: page }) => {
+  await page.goto("/login");
+  await expect(page.getByTestId("login-page")).toBeVisible();
+  await snap(page, outputDir, "login-form", { note: "Clean login page" });
+
+  await page.fill("#email", EMAIL);
+  await page.fill("#password", PASSWORD);
+  await page.getByTestId("login-submit").click();
+
+  try {
+    await Promise.race([
+      page.waitForURL("**/dashboard**", { timeout: 20_000 }),
+      page.locator(".alert-error").waitFor({ timeout: 20_000 }).then(async () => {
+        const msg = await page.locator(".alert-error").textContent();
+        throw new Error(`Login failed: ${msg} — check PORTAL_EMAIL and PORTAL_PASSWORD`);
+      }),
+    ]);
+  } catch (err) {
+    await snap(page, outputDir, "login-FAILED", { note: "Auth failure" });
+    throw err;
+  }
+
+  await expect(page.getByTestId("dashboard-header")).toBeVisible();
+  await snap(page, outputDir, "dashboard-after-login", {
+    note: "Dashboard with project list",
+    cta: "+ New Intake",
+  });
+});
+
+// ── 2. Dashboard ──────────────────────────────────────────────────────
+
+test("02 — dashboard", async ({ shared: page }) => {
+  await page.goto("/dashboard");
+  await expect(page.getByTestId("dashboard-header")).toBeVisible();
+  await snap(page, outputDir, "dashboard-project-list", {
+    cta: "+ New Intake",
+    note: "Full project list view",
+  });
+});
+
+// ── 3. Create project ─────────────────────────────────────────────────
+
+test("03 — create project", async ({ shared: page }) => {
+  await page.goto("/dashboard/new");
+  await expect(page.getByTestId("new-intake-form")).toBeVisible();
+  await snap(page, outputDir, "new-intake-empty", { cta: "Create Intake" });
+
+  await page.fill("#name", PROJECT_NAME);
+  await page.fill("#slug", SLUG);
+  await page.fill("#businessType", "Painting contractor");
+  await page.fill("#contactName", "Audit Runner");
+  await page.fill("#contactEmail", "audit@example.com");
+  await page.fill("#contactPhone", "(555) 000-0000");
+  await page.fill(
+    "#notes",
+    "Automated UX audit run. Full-service interior and exterior painting for residential and commercial properties. We specialize in cabinet refinishing, deck staining, and color consultations.",
+  );
+
+  await snap(page, outputDir, "new-intake-filled", { cta: "Create Intake" });
+  await page.getByTestId("create-intake-submit").click();
+
+  await page.waitForURL("**/dashboard/projects/**", { timeout: 15_000 });
+  await expect(page.getByTestId("project-header")).toBeVisible();
+
+  const status = await getStatusText(page);
+  await snap(page, outputDir, "project-created", {
+    status,
+    note: "Redirected to project detail after creation",
+  });
+});
+
+// ── 4. Initial project state ──────────────────────────────────────────
+
+test("04 — initial project state", async ({ shared: page }) => {
+  await goToProject(page);
+
+  const status = await getStatusText(page);
+  await snap(page, outputDir, "project-initial-full", {
+    status,
+    cta: "Process Intake",
+    note: "Full page at intake_received",
+  });
+
+  // Wait for revisions to load before capturing version tracking
+  await waitForRevisionsLoaded(page);
+  await page.getByTestId("version-tracking").scrollIntoViewIfNeeded();
+  await snap(page, outputDir, "version-tracking-initial", {
+    status,
+    note: "Version tracking with revisions loaded",
+  });
+});
+
+// ── 5. Process intake ─────────────────────────────────────────────────
+
+test("05 — process intake", async ({ shared: page }) => {
+  await goToProject(page);
+
+  const processBtn = page.getByTestId("btn-process-intake");
+  await expect(processBtn).toBeVisible();
+  await snap(page, outputDir, "before-process", {
+    status: await getStatusText(page),
+    cta: "Process Intake",
+  });
+
+  await processBtn.click();
+
+  // intake_draft_ready → "Step 3: Review Draft"
+  await expect(page.getByTestId("workflow-status-label")).toContainText(
+    "Review Draft",
+    { timeout: 30_000 },
+  );
+
+  const status = await getStatusText(page);
+  await snap(page, outputDir, "after-process", {
+    status,
+    cta: "Approve",
+    note: "Draft generated, recommendations visible",
+  });
+});
+
+// ── 6. Approve ────────────────────────────────────────────────────────
+
+test("06 — approve", async ({ shared: page }) => {
+  await goToProject(page);
+
+  const approveBtn = page.getByTestId("btn-approve");
+  await expect(approveBtn).toBeVisible({ timeout: 10_000 });
+  await approveBtn.click();
+
+  // intake_approved → "Step 4: Export Prompt"
+  await expect(page.getByTestId("workflow-status-label")).toContainText(
+    "Export Prompt",
+    { timeout: 15_000 },
+  );
+
+  const status = await getStatusText(page);
+  await snap(page, outputDir, "after-approve", {
+    status,
+    cta: "Export",
+  });
+});
+
+// ── 7. Export ─────────────────────────────────────────────────────────
+
+test("07 — export", async ({ shared: page }) => {
+  await goToProject(page);
+
+  const exportBtn = page.getByTestId("btn-export");
+  await expect(exportBtn).toBeVisible({ timeout: 10_000 });
+  await exportBtn.click();
+
+  // intake_parsed → "Step 5: Import Final"
+  await expect(page.getByTestId("workflow-status-label")).toContainText(
+    "Import Final",
+    { timeout: 15_000 },
+  );
+
+  const status = await getStatusText(page);
+  await snap(page, outputDir, "after-export", {
+    status,
+    cta: "Generate Site / Export prompt.txt",
+    note: "Build section now visible with Generate + AI Handoff",
+  });
+});
+
+// ── 8. AI handoff ─────────────────────────────────────────────────────
+
+test("08 — AI handoff", async ({ shared: page }) => {
+  await goToProject(page);
+
+  const section = page.getByTestId("section-handoff");
+  await expect(section).toBeVisible({ timeout: 10_000 });
+  await section.scrollIntoViewIfNeeded();
+
+  const status = await getStatusText(page);
+  await snap(page, outputDir, "handoff-section", {
+    status,
+    cta: "Export prompt.txt / Import Final Request",
+    note: "AI handoff section with export + import options",
+  });
+
+  // Export the prompt
+  await page.getByTestId("btn-export-prompt").click();
+  await expect(section.locator("pre")).toBeVisible({ timeout: 15_000 });
+  await snap(page, outputDir, "handoff-prompt-expanded", {
+    status,
+    note: "Prompt content visible — long scrollable pre block",
+  });
+});
+
+// ── 9. Generate site ──────────────────────────────────────────────────
+
+test("09 — generate site", async ({ shared: page }) => {
+  await goToProject(page);
+
+  const genBtn = page.getByTestId("btn-generate-site");
+  if (!(await genBtn.isVisible().catch(() => false))) {
+    addBlocker("Generate Site button not visible — status may not allow generation");
+    await snap(page, outputDir, "generate-BLOCKED", {
+      status: await getStatusText(page),
+      note: "Generate button not available",
+    });
+    return;
+  }
+
+  await snap(page, outputDir, "before-generate", {
+    status: await getStatusText(page),
+    cta: "Generate Site",
+  });
+
+  await genBtn.click();
+
+  // Wait for job to be dispatched — running indicator or job panel appears
+  await page.waitForTimeout(2000);
+  const status1 = await getStatusText(page);
+  await snap(page, outputDir, "generate-dispatched", {
+    status: status1,
+    note: "Job dispatched to worker — polling active",
+  });
+
+  reachedGenerate = true;
+
+  // Wait for generate job to complete (timeout: 120s)
+  try {
+    const finalStatus = await waitForJobCompletion(page, 120_000);
+
+    // Reload to ensure fresh server-rendered state
+    await goToProject(page);
+    const status2 = await getStatusText(page);
+    await snap(page, outputDir, "generate-complete", {
+      status: status2,
+      cta: "Build & Review",
+      note: `Generate finished. Status: ${status2}`,
+    });
+
+    // Check if it actually succeeded
+    if (status2.includes("Generate") || status2.includes("Step 7")) {
+      addObservation("Generate completed successfully — workspace_generated");
+    } else {
+      addObservation(`Generate ended with status: ${status2}`);
+    }
+  } catch (err) {
+    await snap(page, outputDir, "generate-TIMEOUT", {
+      status: await getStatusText(page),
+      note: "Generate job timed out",
+    });
+    addBlocker(`Generate timed out: ${err}`);
+  }
+});
+
+// ── 10. Build & Review ────────────────────────────────────────────────
+
+test("10 — build and review", async ({ shared: page }) => {
+  await goToProject(page);
+
+  const reviewBtn = page.getByTestId("btn-build-review");
+  if (!(await reviewBtn.isVisible().catch(() => false))) {
+    addBlocker("Build & Review button not visible — generate may not have completed");
+    await snap(page, outputDir, "review-BLOCKED", {
+      status: await getStatusText(page),
+      note: "Review button not available",
+    });
+    return;
+  }
+
+  await snap(page, outputDir, "before-review", {
+    status: await getStatusText(page),
+    cta: "Build & Review",
+  });
+
+  await reviewBtn.click();
+  await page.waitForTimeout(2000);
+  await snap(page, outputDir, "review-dispatched", {
+    status: await getStatusText(page),
+    note: "Review job dispatched — build + screenshot capture running",
+  });
+
+  reachedReview = true;
+
+  // Wait for review to complete (timeout: 180s — build + screenshots)
+  try {
+    await waitForJobCompletion(page, 180_000);
+
+    // Reload to get fresh state
+    await goToProject(page);
+    const status = await getStatusText(page);
+    await snap(page, outputDir, "review-complete", {
+      status,
+      note: `Review finished. Status: ${status}`,
+    });
+
+    if (status.includes("Review") || status.includes("Step 9")) {
+      addObservation("Review completed successfully — review_ready");
+    } else if (status.includes("failed") || status.includes("Failed")) {
+      addObservation(`Review ended with failure: ${status}`);
+      addBlocker("Build & Review failed — screenshots may not be available");
+    }
+  } catch (err) {
+    await snap(page, outputDir, "review-TIMEOUT", {
+      status: await getStatusText(page),
+      note: "Review job timed out",
+    });
+    addBlocker(`Review timed out: ${err}`);
+  }
+});
+
+// ── 11. Screenshot viewer ─────────────────────────────────────────────
+
+test("11 — screenshot viewer", async ({ shared: page }) => {
+  await goToProject(page);
+
+  const viewer = page.getByTestId("screenshot-viewer");
+  if (!(await viewer.isVisible({ timeout: 5_000 }).catch(() => false))) {
+    addBlocker("Screenshot viewer not visible — review may not have produced screenshots");
+    const status = await getStatusText(page);
+    await snap(page, outputDir, "screenshots-NOT-AVAILABLE", {
+      status,
+      note: "No screenshots to display",
+    });
+    return;
+  }
+
+  reachedScreenshots = true;
+  await viewer.scrollIntoViewIfNeeded();
+
+  const status = await getStatusText(page);
+  await snap(page, outputDir, "screenshot-viewer-thumbnails", {
+    status,
+    note: "Screenshot viewer with thumbnail buttons",
+  });
+
+  // Click the first thumbnail to open a preview
+  const thumbnails = page.getByTestId("screenshot-thumbnails");
+  const firstThumb = thumbnails.locator("button").first();
+  if (await firstThumb.isVisible().catch(() => false)) {
+    await firstThumb.click();
+
+    // Wait for the preview image to load
+    const preview = page.getByTestId("screenshot-preview");
+    await expect(preview).toBeVisible({ timeout: 15_000 });
+    await viewer.scrollIntoViewIfNeeded();
+    await snap(page, outputDir, "screenshot-viewer-preview", {
+      status,
+      note: "Screenshot preview image loaded",
+    });
+  }
+});
+
+// ── 12. Post-review version tracking ──────────────────────────────────
+
+test("12 — post-review version tracking", async ({ shared: page }) => {
+  await goToProject(page);
+  await waitForRevisionsLoaded(page);
+
+  const vt = page.getByTestId("version-tracking");
+  await vt.scrollIntoViewIfNeeded();
+
+  const status = await getStatusText(page);
+  await snap(page, outputDir, "version-tracking-final", {
+    status,
+    note: "Version tracking after full workflow",
+  });
+});
+
+// ── 13. Diagnostics ───────────────────────────────────────────────────
+
+test("13 — diagnostics", async ({ shared: page }) => {
+  await goToProject(page);
+
+  const toggle = page.getByTestId("diagnostics-toggle");
+  await toggle.scrollIntoViewIfNeeded();
+  await toggle.click();
+
+  const panel = page.getByTestId("diagnostics-panel");
+  await expect(panel.locator("text=Request Source")).toBeVisible({
+    timeout: 10_000,
+  });
+
+  const status = await getStatusText(page);
+  await snap(page, outputDir, "diagnostics-open", {
+    status,
+    note: "Full diagnostics panel expanded",
+  });
+});
+
+// ── 14. Recovery section ──────────────────────────────────────────────
+
+test("14 — recovery", async ({ shared: page }) => {
+  await goToProject(page);
+
+  const section = page.getByTestId("section-recovery");
+  await section.scrollIntoViewIfNeeded();
+
+  const status = await getStatusText(page);
+  await snap(page, outputDir, "recovery-section", {
+    status,
+    note: "Recovery actions: Re-process, Re-export, Reset to Draft",
+  });
+
+  // Check for duplicate action buttons
+  const buildSection = page.getByTestId("section-build");
+  if (await buildSection.isVisible().catch(() => false)) {
+    const buildBtns = await buildSection.locator("button").allTextContents();
+    const recoveryBtns = await section.locator("button").allTextContents();
+    const duplicates = buildBtns.filter((b) => recoveryBtns.includes(b));
+    if (duplicates.length > 0) {
+      addObservation(
+        `Duplicate action buttons in Build and Recovery sections: ${duplicates.join(", ")}`,
+      );
+    }
+  }
+});
+
+// ── 15. Activity log ──────────────────────────────────────────────────
+
+test("15 — activity log", async ({ shared: page }) => {
+  await goToProject(page);
+
+  const log = page.getByTestId("activity-log");
+  await log.scrollIntoViewIfNeeded();
+
+  const status = await getStatusText(page);
+  await snap(page, outputDir, "activity-log", {
+    status,
+    note: "Full activity history",
+  });
+});
+
+// ── 16. Final full-page state ─────────────────────────────────────────
+
+test("16 — final state", async ({ shared: page }) => {
+  await goToProject(page);
+  await waitForRevisionsLoaded(page);
+
+  // Small settle for all async sections
+  await page.waitForTimeout(1500);
+
+  const status = await getStatusText(page);
+  await snap(page, outputDir, "final-full-page", {
+    status,
+    note: "Complete project page at final workflow state",
+  });
+
+  // Observe page structure
+  const sections = [
+    { id: "workflow-panel", name: "Workflow Panel" },
+    { id: "version-tracking", name: "Version Tracking" },
+    { id: "activity-log", name: "Activity Log" },
+    { id: "section-recovery", name: "Recovery" },
+    { id: "diagnostics-panel", name: "Diagnostics" },
+    { id: "screenshot-viewer", name: "Screenshot Viewer" },
+    { id: "artifact-status", name: "Artifact Status" },
+  ];
+
+  const visible: string[] = [];
+  for (const s of sections) {
+    if (await page.getByTestId(s.id).isVisible().catch(() => false)) {
+      visible.push(s.name);
+    }
+  }
+  addObservation(`Sections visible on final page: ${visible.join(", ")}`);
+});
+
+// ── Helpers ───────────────────────────────────────────────────────────
+
+async function goToProject(page: Page) {
+  await page.goto("/dashboard");
+  const card = page.getByTestId(`project-card-${SLUG}`);
+  if (!(await card.isVisible({ timeout: 10_000 }).catch(() => false))) {
+    await snap(page, outputDir, "DEBUG-no-card");
+    throw new Error(`Project card project-card-${SLUG} not found`);
+  }
+  await card.click();
+  await expect(page.getByTestId("project-header")).toBeVisible({
+    timeout: 10_000,
+  });
+}

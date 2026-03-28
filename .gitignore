@@ -13,5 +13,8 @@ generated/
 coverage/
 .playwright/
 screenshots/
+artifacts/
+test-results/
+playwright-report/
 run_diagnostics.sh
 *.txt

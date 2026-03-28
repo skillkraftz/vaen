@@ -74,7 +74,7 @@ export default function NewIntakePage() {
       <div className="card">
         {state?.error && <div className="alert alert-error">{state.error}</div>}
 
-        <form action={formAction}>
+        <form action={formAction} data-testid="new-intake-form">
           <div className="form-group">
             <label className="form-label" htmlFor="name">
               Project / Business Name *
@@ -225,6 +225,7 @@ export default function NewIntakePage() {
             className="btn btn-primary"
             disabled={pending}
             style={{ width: "100%", justifyContent: "center", marginTop: "0.5rem" }}
+            data-testid="create-intake-submit"
           >
             {pending ? "Creating intake..." : "Create Intake"}
           </button>
