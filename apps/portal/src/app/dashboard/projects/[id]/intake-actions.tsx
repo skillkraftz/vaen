@@ -82,6 +82,11 @@ interface ReviewManifest {
     observed_home_h1: string | null;
     mismatches: string[];
   };
+  review_identity_status?: "matched" | "mismatched" | "unknown";
+  mismatch_stage?: "generated_source" | "review_probe" | "unknown" | null;
+  site_config_snapshot_path?: string | null;
+  site_source_summary_path?: string | null;
+  site_identity_scan_path?: string | null;
   upload_summary?: {
     compared_at: string;
     matched: boolean;
@@ -835,6 +840,9 @@ function ScreenshotViewer({ slug, projectId, lastReviewedRevisionId, status }: {
         <p className="text-mono" data-testid="screenshot-manifest-path" style={{ fontSize: "0.6rem", color: "var(--color-text-muted)", marginBottom: "0.5rem" }}>
           manifest {manifest.manifest_path}
           {manifest.review_probe_path ? ` · probe ${manifest.review_probe_path}` : ""}
+          {manifest.site_config_snapshot_path ? ` · config ${manifest.site_config_snapshot_path}` : ""}
+          {manifest.site_source_summary_path ? ` · source ${manifest.site_source_summary_path}` : ""}
+          {manifest.site_identity_scan_path ? ` · scan ${manifest.site_identity_scan_path}` : ""}
           {manifest.served_title ? ` · title ${manifest.served_title}` : ""}
           {manifest.served_url ? ` · ${manifest.served_url}` : ""}
         </p>
@@ -855,6 +863,9 @@ function ScreenshotViewer({ slug, projectId, lastReviewedRevisionId, status }: {
           style={{ fontSize: "0.6rem", color: manifest.content_verification.status === "matched" ? "var(--color-success)" : "var(--color-text-muted)", marginBottom: "0.5rem", whiteSpace: "pre-wrap" }}
         >
           content {manifest.content_verification.status}
+          {manifest.review_identity_status
+            ? ` · identity ${manifest.review_identity_status}${manifest.mismatch_stage ? `:${manifest.mismatch_stage}` : ""}`
+            : ""}
           {manifest.content_verification.expected_business_name
             ? ` · expected ${manifest.content_verification.expected_business_name}`
             : ""}

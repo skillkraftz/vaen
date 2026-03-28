@@ -103,6 +103,11 @@ interface ScreenshotManifest {
     observed_home_h1: string | null;
     mismatches: string[];
   };
+  review_identity_status?: "matched" | "mismatched" | "unknown";
+  mismatch_stage?: "generated_source" | "review_probe" | "unknown" | null;
+  site_config_snapshot_path?: string | null;
+  site_source_summary_path?: string | null;
+  site_identity_scan_path?: string | null;
   upload_summary?: {
     compared_at: string;
     matched: boolean;
@@ -146,6 +151,78 @@ interface ReviewProbeArtifact {
     body_text_hash: string;
     html_hash: string;
   }>;
+}
+
+interface SiteConfigSnapshot {
+  slug: string;
+  project_id: string;
+  revision_id: string | null;
+  job_id: string;
+  site_dir: string;
+  cwd_for_review_build: string;
+  cwd_for_review_start: string;
+  config_exists: boolean;
+  config_path: string;
+  config_sha256: string | null;
+  business_name: string | null;
+  seo_title: string | null;
+  hero_headline: string | null;
+  contact_email: string | null;
+  contact_phone: string | null;
+  raw_config: Record<string, unknown> | null;
+}
+
+interface SiteIdentityOccurrence {
+  file: string;
+  line: number;
+  marker: string;
+  excerpt: string;
+}
+
+interface SiteIdentityScan {
+  slug: string;
+  project_id: string;
+  revision_id: string | null;
+  job_id: string;
+  site_dir: string;
+  markers: string[];
+  source_occurrences: SiteIdentityOccurrence[];
+  built_occurrences: SiteIdentityOccurrence[];
+  source_contains_stale_identity: boolean;
+  built_contains_stale_identity: boolean;
+}
+
+interface SiteSourceSummary {
+  slug: string;
+  project_id: string;
+  revision_id: string | null;
+  job_id: string;
+  site_dir: string;
+  files: {
+    config_json: {
+      path: string;
+      exists: boolean;
+      sha256: string | null;
+    };
+    app_layout: {
+      path: string;
+      exists: boolean;
+      sha256: string | null;
+      contains_brightspark: boolean;
+    };
+    app_homepage: {
+      path: string;
+      exists: boolean;
+      sha256: string | null;
+      contains_brightspark: boolean;
+    };
+    app_contact: {
+      path: string;
+      exists: boolean;
+      sha256: string | null;
+      contains_brightspark: boolean;
+    };
+  };
 }
 
 // ── Main ──────────────────────────────────────────────────────────────
@@ -375,6 +452,218 @@ async function readReviewProbe(
   } catch {
     return null;
   }
+}
+
+async function safeReadJson(path: string): Promise<Record<string, unknown> | null> {
+  try {
+    const raw = await readFile(path, "utf-8");
+    return JSON.parse(raw) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
+async function safeFileHash(path: string): Promise<string | null> {
+  try {
+    const raw = await readFile(path);
+    return sha256(raw);
+  } catch {
+    return null;
+  }
+}
+
+async function scanFileForMarkers(
+  path: string,
+  repoRoot: string,
+  markers: string[],
+): Promise<SiteIdentityOccurrence[]> {
+  try {
+    const raw = await readFile(path, "utf-8");
+    const lines = raw.split("\n");
+    const hits: SiteIdentityOccurrence[] = [];
+    lines.forEach((line, idx) => {
+      for (const marker of markers) {
+        if (line.toLowerCase().includes(marker.toLowerCase())) {
+          hits.push({
+            file: relative(repoRoot, path),
+            line: idx + 1,
+            marker,
+            excerpt: line.trim().slice(0, 240),
+          });
+        }
+      }
+    });
+    return hits;
+  } catch {
+    return [];
+  }
+}
+
+async function scanTreeForMarkers(
+  dir: string,
+  repoRoot: string,
+  markers: string[],
+): Promise<SiteIdentityOccurrence[]> {
+  const files = listSiteFiles(dir).filter((file) =>
+    /\.(tsx?|jsx?|json|html|js|mjs|cjs|txt|md)$/i.test(file),
+  );
+  const results = await Promise.all(files.map((file) => scanFileForMarkers(file, repoRoot, markers)));
+  return results.flat();
+}
+
+async function snapshotSiteInputs(
+  repoRoot: string,
+  project: ProjectRow,
+  job: JobRow,
+  siteDir: string,
+  reviewRevisionId: string | null,
+): Promise<{
+  siteConfigSnapshot: SiteConfigSnapshot;
+  siteSourceSummary: SiteSourceSummary;
+  siteIdentityScan: SiteIdentityScan;
+  paths: {
+    configSnapshotPath: string;
+    sourceSummaryPath: string;
+    identityScanPath: string;
+  };
+}> {
+  const artifactsDir = join(repoRoot, "generated", project.slug, "artifacts");
+  const configPath = join(siteDir, "config.json");
+  const layoutPath = join(siteDir, "app", "layout.tsx");
+  const homePath = join(siteDir, "app", "page.tsx");
+  const contactPath = join(siteDir, "app", "contact", "page.tsx");
+  const configJson = await safeReadJson(configPath);
+  const brightsparkMarkers = [
+    "BrightSpark",
+    "Rochester Electrical",
+    "mike@brightsparkelectric.com",
+    "BrightSpark Electric 3",
+    "BrightSpark Electric 2",
+  ];
+
+  const siteConfigSnapshot: SiteConfigSnapshot = {
+    slug: project.slug,
+    project_id: project.id,
+    revision_id: reviewRevisionId,
+    job_id: job.id,
+    site_dir: siteDir,
+    cwd_for_review_build: siteDir,
+    cwd_for_review_start: siteDir,
+    config_exists: existsSync(configPath),
+    config_path: relative(repoRoot, configPath),
+    config_sha256: await safeFileHash(configPath),
+    business_name: (configJson?.business as Record<string, unknown> | undefined)?.name as string | null ?? null,
+    seo_title: (configJson?.seo as Record<string, unknown> | undefined)?.title as string | null ?? null,
+    hero_headline: (configJson?.hero as Record<string, unknown> | undefined)?.headline as string | null ?? null,
+    contact_email: (configJson?.contact as Record<string, unknown> | undefined)?.email as string | null ?? null,
+    contact_phone: (configJson?.contact as Record<string, unknown> | undefined)?.phone as string | null ?? null,
+    raw_config: configJson,
+  };
+
+  const sourceSummary: SiteSourceSummary = {
+    slug: project.slug,
+    project_id: project.id,
+    revision_id: reviewRevisionId,
+    job_id: job.id,
+    site_dir: relative(repoRoot, siteDir),
+    files: {
+      config_json: {
+        path: relative(repoRoot, configPath),
+        exists: existsSync(configPath),
+        sha256: await safeFileHash(configPath),
+      },
+      app_layout: {
+        path: relative(repoRoot, layoutPath),
+        exists: existsSync(layoutPath),
+        sha256: await safeFileHash(layoutPath),
+        contains_brightspark: (await scanFileForMarkers(layoutPath, repoRoot, ["BrightSpark"])).length > 0,
+      },
+      app_homepage: {
+        path: relative(repoRoot, homePath),
+        exists: existsSync(homePath),
+        sha256: await safeFileHash(homePath),
+        contains_brightspark: (await scanFileForMarkers(homePath, repoRoot, ["BrightSpark"])).length > 0,
+      },
+      app_contact: {
+        path: relative(repoRoot, contactPath),
+        exists: existsSync(contactPath),
+        sha256: await safeFileHash(contactPath),
+        contains_brightspark: (await scanFileForMarkers(contactPath, repoRoot, ["BrightSpark"])).length > 0,
+      },
+    },
+  };
+
+  const sourceOccurrences = await scanTreeForMarkers(siteDir, repoRoot, brightsparkMarkers);
+  const builtDir = join(siteDir, ".next");
+  const builtOccurrences = existsSync(builtDir)
+    ? await scanTreeForMarkers(builtDir, repoRoot, brightsparkMarkers)
+    : [];
+
+  const siteIdentityScan: SiteIdentityScan = {
+    slug: project.slug,
+    project_id: project.id,
+    revision_id: reviewRevisionId,
+    job_id: job.id,
+    site_dir: relative(repoRoot, siteDir),
+    markers: brightsparkMarkers,
+    source_occurrences: sourceOccurrences,
+    built_occurrences: builtOccurrences,
+    source_contains_stale_identity: sourceOccurrences.length > 0,
+    built_contains_stale_identity: builtOccurrences.length > 0,
+  };
+
+  const configSnapshotPath = join(artifactsDir, "site-config.snapshot.json");
+  const sourceSummaryPath = join(artifactsDir, "site-source-summary.json");
+  const identityScanPath = join(artifactsDir, "site-identity-scan.json");
+  await mkdir(artifactsDir, { recursive: true });
+  await writeFile(configSnapshotPath, JSON.stringify(siteConfigSnapshot, null, 2) + "\n", "utf-8");
+  await writeFile(sourceSummaryPath, JSON.stringify(sourceSummary, null, 2) + "\n", "utf-8");
+  await writeFile(identityScanPath, JSON.stringify(siteIdentityScan, null, 2) + "\n", "utf-8");
+
+  return {
+    siteConfigSnapshot,
+    siteSourceSummary: sourceSummary,
+    siteIdentityScan,
+    paths: {
+      configSnapshotPath: relative(repoRoot, configSnapshotPath),
+      sourceSummaryPath: relative(repoRoot, sourceSummaryPath),
+      identityScanPath: relative(repoRoot, identityScanPath),
+    },
+  };
+}
+
+function deriveIdentityVerdict(
+  sourceScan: SiteIdentityScan,
+  reviewProbe: ReviewProbeArtifact | null,
+): {
+  review_identity_status: "matched" | "mismatched" | "unknown";
+  mismatch_stage: "generated_source" | "review_probe" | "unknown" | null;
+} {
+  if (sourceScan.source_contains_stale_identity || sourceScan.built_contains_stale_identity) {
+    return {
+      review_identity_status: "mismatched",
+      mismatch_stage: "generated_source",
+    };
+  }
+
+  if (reviewProbe?.contentVerification.status === "mismatched") {
+    return {
+      review_identity_status: "mismatched",
+      mismatch_stage: "review_probe",
+    };
+  }
+
+  if (reviewProbe?.contentVerification.status === "matched") {
+    return {
+      review_identity_status: "matched",
+      mismatch_stage: null,
+    };
+  }
+
+  return {
+    review_identity_status: "unknown",
+    mismatch_stage: "unknown",
+  };
 }
 
 // ── Site Validation ──────────────────────────────────────────────────
@@ -721,6 +1010,13 @@ async function executeReview(
   const manifestPath = join(screenshotsDir, "manifest.json");
   const reviewRevisionId = (job.payload?.revision_id as string) ?? null;
   const reviewStartedAt = new Date().toISOString();
+  const siteArtifacts = await snapshotSiteInputs(
+    repoRoot,
+    project,
+    job,
+    siteDir,
+    reviewRevisionId,
+  );
 
   // ── Site freshness check ──────────────────────────────────────────
   let siteAge = "unknown";
@@ -761,6 +1057,9 @@ async function executeReview(
           target_slug: slug,
           site_path: relative(repoRoot, siteDir),
           screenshots_path: relative(repoRoot, screenshotsDir),
+          site_config_snapshot_path: siteArtifacts.paths.configSnapshotPath,
+          site_source_summary_path: siteArtifacts.paths.sourceSummaryPath,
+          site_identity_scan_path: siteArtifacts.paths.identityScanPath,
           site_age: siteAge,
           generation_job_id: generationJobId,
           review_started_at: reviewStartedAt,
@@ -842,6 +1141,7 @@ async function executeReview(
   const runtime = extractReviewRuntime(stdout);
   const screenshotFiles = await collectScreenshotManifest(screenshotsDir, repoRoot);
   const reviewProbe = await readReviewProbe(screenshotsDir, repoRoot);
+  const identityVerdict = deriveIdentityVerdict(siteArtifacts.siteIdentityScan, reviewProbe);
   const manifestBase: ScreenshotManifest = {
     schema_version: 1,
     status: exitCode === 0 ? "completed" : "failed",
@@ -860,6 +1160,11 @@ async function executeReview(
     screenshot_files: screenshotFiles,
     review_probe_path: reviewProbe?.probePath ?? null,
     content_verification: reviewProbe?.contentVerification,
+    review_identity_status: identityVerdict.review_identity_status,
+    mismatch_stage: identityVerdict.mismatch_stage,
+    site_config_snapshot_path: siteArtifacts.paths.configSnapshotPath,
+    site_source_summary_path: siteArtifacts.paths.sourceSummaryPath,
+    site_identity_scan_path: siteArtifacts.paths.identityScanPath,
   };
   await writeScreenshotManifest(manifestPath, manifestBase);
 
@@ -903,6 +1208,11 @@ async function executeReview(
           site_age: siteAge,
           review_manifest: manifestBase,
           review_probe: reviewProbe,
+          site_config_snapshot: siteArtifacts.siteConfigSnapshot,
+          site_source_summary: siteArtifacts.siteSourceSummary,
+          site_identity_scan: siteArtifacts.siteIdentityScan,
+          review_identity_status: identityVerdict.review_identity_status,
+          mismatch_stage: identityVerdict.mismatch_stage,
           ...(diagMessage ? { diagnostic: diagMessage } : {}),
         },
         stdout: stdout.slice(0, 50_000),
@@ -926,6 +1236,11 @@ async function executeReview(
         review_served_title: runtime.servedTitle,
         review_served_url: runtime.servedUrl,
         content_verification: reviewProbe?.contentVerification,
+        site_config_snapshot_path: siteArtifacts.paths.configSnapshotPath,
+        site_source_summary_path: siteArtifacts.paths.sourceSummaryPath,
+        site_identity_scan_path: siteArtifacts.paths.identityScanPath,
+        review_identity_status: identityVerdict.review_identity_status,
+        mismatch_stage: identityVerdict.mismatch_stage,
         ...(diagMessage ? { diagnostic: diagMessage } : {}),
       },
     });
@@ -1063,7 +1378,11 @@ async function executeReview(
       status: "completed",
       result: {
         success: true,
-        message: `Review complete — ${screenshotCount} screenshots captured`,
+        message:
+          `Review complete — ${screenshotCount} screenshots captured` +
+          (identityVerdict.review_identity_status === "mismatched"
+            ? ` WARNING: identity mismatch (${identityVerdict.mismatch_stage})`
+            : ""),
         artifacts: [screenshotsDir, manifestPath],
         command: fullCommand,
         exit_code: exitCode,
@@ -1072,6 +1391,11 @@ async function executeReview(
         screenshot_count: screenshotCount,
         review_manifest: manifestBase,
         review_probe: reviewProbe,
+        site_config_snapshot: siteArtifacts.siteConfigSnapshot,
+        site_source_summary: siteArtifacts.siteSourceSummary,
+        site_identity_scan: siteArtifacts.siteIdentityScan,
+        review_identity_status: identityVerdict.review_identity_status,
+        mismatch_stage: identityVerdict.mismatch_stage,
         uploaded_screenshots: uploadedScreenshots,
         upload_summary: uploadSummary,
       },
@@ -1098,6 +1422,11 @@ async function executeReview(
       review_served_title: runtime.servedTitle,
       review_served_url: runtime.servedUrl,
       content_verification: reviewProbe?.contentVerification,
+      site_config_snapshot_path: siteArtifacts.paths.configSnapshotPath,
+      site_source_summary_path: siteArtifacts.paths.sourceSummaryPath,
+      site_identity_scan_path: siteArtifacts.paths.identityScanPath,
+      review_identity_status: identityVerdict.review_identity_status,
+      mismatch_stage: identityVerdict.mismatch_stage,
       upload_summary: uploadSummary,
     },
   });
@@ -1105,7 +1434,7 @@ async function executeReview(
   await notifyDiscordTransition(db, project, "review_completed");
 
   console.log(
-    `[worker] Review complete for ${slug} (${screenshotCount} screenshots, site ${siteAge}, upload match: ${uploadSummary.matched ? "yes" : "no"})`,
+    `[worker] Review complete for ${slug} (${screenshotCount} screenshots, site ${siteAge}, upload match: ${uploadSummary.matched ? "yes" : "no"}, identity: ${identityVerdict.review_identity_status}/${identityVerdict.mismatch_stage ?? "none"})`,
   );
 }
 

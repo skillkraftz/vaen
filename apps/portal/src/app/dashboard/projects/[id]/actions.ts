@@ -55,6 +55,11 @@ interface ReviewManifest {
     observed_home_h1: string | null;
     mismatches: string[];
   };
+  review_identity_status?: "matched" | "mismatched" | "unknown";
+  mismatch_stage?: "generated_source" | "review_probe" | "unknown" | null;
+  site_config_snapshot_path?: string | null;
+  site_source_summary_path?: string | null;
+  site_identity_scan_path?: string | null;
   upload_summary?: {
     compared_at: string;
     matched: boolean;
