@@ -1,3 +1,5 @@
+import { getOutreachConfigReadiness, getOutreachFromEmail } from "./outreach-config";
+
 export interface ResendSendEmailInput {
   to: string;
   subject: string;
@@ -9,15 +11,17 @@ export async function sendEmailViaResend(input: ResendSendEmailInput): Promise<{
   messageId?: string;
   error?: string;
 }> {
-  const apiKey = process.env.RESEND_API_KEY;
-  const from = process.env.OUTREACH_FROM_EMAIL ?? process.env.RESEND_FROM_EMAIL;
+  const readiness = getOutreachConfigReadiness();
+  const apiKey = process.env.RESEND_API_KEY?.trim();
+  const from = getOutreachFromEmail();
 
-  if (!apiKey) {
-    return { ok: false, error: "RESEND_API_KEY is not configured." };
-  }
-
-  if (!from) {
-    return { ok: false, error: "OUTREACH_FROM_EMAIL is not configured." };
+  if (!readiness.ready || !apiKey || !from) {
+    return {
+      ok: false,
+      error: readiness.issues.length > 0
+        ? readiness.issues.join(" ")
+        : "Outreach configuration is incomplete.",
+    };
   }
 
   try {

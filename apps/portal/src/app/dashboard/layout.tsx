@@ -36,6 +36,9 @@ export default async function DashboardLayout({
           <Link href="/dashboard/settings/pricing" className="text-sm text-muted">
             Pricing
           </Link>
+          <Link href="/dashboard/settings/outreach" className="text-sm text-muted">
+            Outreach
+          </Link>
           <span className="header-email">{user.email}</span>
           <form action={signOut}>
             <button type="submit" className="btn btn-sm">

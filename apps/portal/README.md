@@ -49,6 +49,11 @@ Authenticated operations portal for the vaen website factory. Serves as the inta
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Yes | Supabase anonymous key |
 | `DISCORD_WEBHOOK_URL` | No | Discord webhook for notifications |
 | `NEXT_PUBLIC_PORTAL_URL` | No | Portal URL for links in notifications |
+| `RESEND_API_KEY` | No | Required for outbound outreach execution via Resend |
+| `OUTREACH_FROM_EMAIL` | No | Preferred From address for outreach sends |
+| `RESEND_FROM_EMAIL` | No | Fallback From address if `OUTREACH_FROM_EMAIL` is unset |
+
+Outbound outreach readiness is visible in the portal at `/dashboard/settings/outreach`. Missing config blocks send attempts before they reach Resend.
 
 ## Database
 

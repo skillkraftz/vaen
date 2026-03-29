@@ -3,12 +3,14 @@ import type {
   Prospect,
   ProspectOutreachPackage,
 } from "./types";
+import type { OutreachConfigReadiness } from "./outreach-config";
 
 const DUPLICATE_SEND_WINDOW_MS = 10 * 60 * 1000;
 
 export function getProspectSendReadiness(params: {
   prospect: Pick<Prospect, "contact_email" | "converted_project_id" | "outreach_status">;
   outreachPackage: Pick<ProspectOutreachPackage, "id" | "email_subject" | "email_body" | "status"> | null;
+  configReadiness?: OutreachConfigReadiness;
 }) {
   const issues: string[] = [];
   if (!params.prospect.contact_email) {
@@ -25,6 +27,9 @@ export function getProspectSendReadiness(params: {
   }
   if (!params.prospect.converted_project_id) {
     issues.push("Prospect has not been linked to a project yet.");
+  }
+  if (params.configReadiness && !params.configReadiness.ready) {
+    issues.push(...params.configReadiness.issues);
   }
 
   return {

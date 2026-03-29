@@ -14,6 +14,7 @@ import type {
 } from "@/lib/types";
 import { ProspectDetailActions } from "../prospect-detail-actions";
 import { getProspectSendReadiness } from "@/lib/outreach-execution";
+import { getOutreachConfigReadiness } from "@/lib/outreach-config";
 
 function formatProspectStatus(status: Prospect["status"]) {
   return status.replaceAll("_", " ");
@@ -102,9 +103,11 @@ export default async function ProspectDetailPage({
     quoteReady: !!latestQuote,
     outreachPackageReady: !!latestPackage,
   };
+  const configReadiness = getOutreachConfigReadiness();
   const sendReadiness = getProspectSendReadiness({
     prospect: p,
     outreachPackage: latestPackage,
+    configReadiness,
   });
 
   return (
@@ -140,6 +143,7 @@ export default async function ProspectDetailPage({
             <div><strong>Campaign:</strong> {p.campaign ?? "None"}</div>
             <div><strong>Outreach Summary:</strong> {p.outreach_summary ?? "Not generated yet"}</div>
             <div><strong>Outreach Status:</strong> {p.outreach_status ?? "draft"}</div>
+            <div><strong>Outreach Config:</strong> {configReadiness.ready ? "ready" : "blocked"}</div>
             <div><strong>Notes:</strong> {p.notes ?? "None"}</div>
             <div><strong>Automation Level:</strong> {automationLevel}</div>
             <div><strong>Last Sent:</strong> {p.last_outreach_sent_at ? new Date(p.last_outreach_sent_at).toLocaleString("en-US") : "Never"}</div>
@@ -208,6 +212,7 @@ export default async function ProspectDetailPage({
             <div><strong>Screenshots:</strong> {readiness.screenshotsReady ? "ready" : "pending"}</div>
             <div><strong>Quote:</strong> {readiness.quoteReady ? "ready" : "pending"}</div>
             <div><strong>Outreach Package:</strong> {readiness.outreachPackageReady ? "ready" : "pending"}</div>
+            <div><strong>Outreach Config:</strong> {configReadiness.ready ? "ready" : "blocked"}</div>
             <div><strong>Send Readiness:</strong> {sendReadiness.ready ? "ready" : "blocked"}</div>
           </div>
           {!sendReadiness.ready && (
@@ -217,6 +222,10 @@ export default async function ProspectDetailPage({
                   {issue}
                 </p>
               ))}
+              <p className="text-sm text-muted" style={{ marginTop: "0.5rem" }}>
+                Review environment readiness in{" "}
+                <Link href="/dashboard/settings/outreach">Outreach settings</Link>.
+              </p>
             </div>
           )}
         </div>
@@ -252,6 +261,11 @@ export default async function ProspectDetailPage({
                 <p className="text-sm text-muted">
                   {sendReadiness.ready ? "Subject, body, project, and recipient are ready." : sendReadiness.issues.join(" ")}
                 </p>
+                {!configReadiness.ready && (
+                  <p className="text-sm text-muted">
+                    Sending is blocked until outreach configuration is complete.
+                  </p>
+                )}
               </div>
             </div>
           ) : (

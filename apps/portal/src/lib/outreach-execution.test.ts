@@ -7,6 +7,7 @@ import {
   getProspectSendReadiness,
   isDuplicateSendBlocked,
 } from "./outreach-execution";
+import { getOutreachConfigReadiness, normalizePortalBaseUrl } from "./outreach-config";
 
 const REPO_ROOT = resolve(__dirname, "../../../..");
 
@@ -26,6 +27,32 @@ describe("outreach send schema", () => {
 });
 
 describe("outreach execution helpers", () => {
+  it("reports structured outreach config readiness", () => {
+    const readiness = getOutreachConfigReadiness({
+      RESEND_API_KEY: "test-key",
+      OUTREACH_FROM_EMAIL: "sales@vaen.space",
+      NEXT_PUBLIC_PORTAL_URL: "https://portal.vaen.space/",
+    });
+
+    expect(readiness.ready).toBe(true);
+    expect(readiness.values.fromEmail).toBe("sales@vaen.space");
+    expect(readiness.values.portalUrl).toBe("https://portal.vaen.space");
+    expect(readiness.checks.portalUrl.ok).toBe(true);
+  });
+
+  it("flags missing outreach env configuration clearly", () => {
+    const readiness = getOutreachConfigReadiness({
+      RESEND_API_KEY: "",
+      OUTREACH_FROM_EMAIL: "",
+      NEXT_PUBLIC_PORTAL_URL: "portal-without-scheme",
+    });
+
+    expect(readiness.ready).toBe(false);
+    expect(readiness.issues).toContain("RESEND_API_KEY is missing.");
+    expect(readiness.issues).toContain("OUTREACH_FROM_EMAIL or RESEND_FROM_EMAIL is missing.");
+    expect(readiness.issues).toContain("NEXT_PUBLIC_PORTAL_URL is missing or not a valid absolute URL.");
+  });
+
   it("blocks send readiness when recipient or package data is missing", () => {
     const readiness = getProspectSendReadiness({
       prospect: {
@@ -39,6 +66,31 @@ describe("outreach execution helpers", () => {
     expect(readiness.ready).toBe(false);
     expect(readiness.issues).toContain("Prospect contact email is missing.");
     expect(readiness.issues).toContain("Outreach package has not been generated.");
+  });
+
+  it("blocks send readiness when outreach config is incomplete", () => {
+    const readiness = getProspectSendReadiness({
+      prospect: {
+        contact_email: "alex@example.com",
+        converted_project_id: "proj-1",
+        outreach_status: "ready",
+      },
+      outreachPackage: {
+        id: "pkg-1",
+        email_subject: "Acme Painting",
+        email_body: "Hello",
+        status: "ready",
+      },
+      configReadiness: getOutreachConfigReadiness({
+        RESEND_API_KEY: "",
+        OUTREACH_FROM_EMAIL: "sales@vaen.space",
+        NEXT_PUBLIC_PORTAL_URL: "",
+      }),
+    });
+
+    expect(readiness.ready).toBe(false);
+    expect(readiness.issues).toContain("RESEND_API_KEY is missing.");
+    expect(readiness.issues).toContain("NEXT_PUBLIC_PORTAL_URL is missing or not a valid absolute URL.");
   });
 
   it("detects rapid duplicate sends for the same recipient and subject", () => {
@@ -75,5 +127,10 @@ describe("outreach execution helpers", () => {
     const sentAt = new Date("2026-03-29T10:00:00Z");
     expect(computeNextFollowUpDate(sentAt, 0)).toContain("2026-04-01");
     expect(computeNextFollowUpDate(sentAt, 1)).toContain("2026-04-05");
+  });
+
+  it("normalizes portal urls for outbound links", () => {
+    expect(normalizePortalBaseUrl("https://portal.vaen.space/")).toBe("https://portal.vaen.space");
+    expect(normalizePortalBaseUrl("not-a-url")).toBe(null);
   });
 });

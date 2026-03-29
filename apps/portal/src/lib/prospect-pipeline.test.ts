@@ -219,6 +219,7 @@ describe("prospect actions and ui", () => {
     expect(sendFn).toContain('from("prospect_outreach_packages")');
     expect(sendFn).toContain('from("outreach_sends")');
     expect(sendFn).toContain("getProspectSendReadiness");
+    expect(sendFn).toContain("getOutreachConfigReadiness");
     expect(sendFn).toContain("isDuplicateSendBlocked");
     expect(sendFn).toContain('status: "blocked"');
     expect(sendFn).toContain('status: "sent"');
@@ -229,13 +230,18 @@ describe("prospect actions and ui", () => {
   it("adds a dedicated prospects area in the dashboard", () => {
     const dashboardPath = join(__dirname, "../app/dashboard/page.tsx");
     const layoutPath = join(__dirname, "../app/dashboard/layout.tsx");
+    const outreachSettingsPath = join(__dirname, "../app/dashboard/settings/outreach/page.tsx");
     const prospectsPath = join(__dirname, "../app/dashboard/prospects/page.tsx");
     const newProspectPath = join(__dirname, "../app/dashboard/prospects/new/page.tsx");
     const source = readFileSync(dashboardPath, "utf-8");
     const layoutSource = readFileSync(layoutPath, "utf-8");
+    const outreachSettingsSource = readFileSync(outreachSettingsPath, "utf-8");
     const prospectsSource = readFileSync(prospectsPath, "utf-8");
     const newProspectSource = readFileSync(newProspectPath, "utf-8");
     expect(layoutSource).toContain("/dashboard/prospects");
+    expect(layoutSource).toContain("/dashboard/settings/outreach");
+    expect(outreachSettingsSource).toContain('data-testid="outreach-settings-page"');
+    expect(outreachSettingsSource).toContain('data-testid="outreach-readiness-badge"');
     expect(source).toContain("dashboard-prospect-section");
     expect(prospectsSource).toContain('data-testid="prospect-list-page"');
     expect(prospectsSource).toContain('data-testid="new-prospect-link"');
@@ -254,6 +260,7 @@ describe("prospect actions and ui", () => {
     expect(detailSource).toContain('data-testid="prospect-send-history"');
     expect(detailSource).toContain('data-testid="prospect-email-subject"');
     expect(detailSource).toContain('data-testid="prospect-email-body"');
+    expect(detailSource).toContain("/dashboard/settings/outreach");
     expect(actionsSource).toContain('data-testid="prospect-actions"');
     expect(actionsSource).toContain('data-testid="prospect-analyze-button"');
     expect(actionsSource).toContain('data-testid="prospect-convert-button"');

@@ -21,6 +21,7 @@ import {
   isDuplicateSendBlocked,
 } from "@/lib/outreach-execution";
 import { sendEmailViaResend } from "@/lib/resend";
+import { getOutreachConfigReadiness } from "@/lib/outreach-config";
 import type {
   OutreachSend,
   Prospect,
@@ -695,12 +696,35 @@ export async function sendProspectOutreachAction(
   if (!prospect) return { error: "Prospect not found." };
   const p = prospect as Prospect;
   const latestPackage = ((packages ?? [])[0] ?? null) as ProspectOutreachPackage | null;
+  const configReadiness = getOutreachConfigReadiness();
 
   const readiness = getProspectSendReadiness({
     prospect: p,
     outreachPackage: latestPackage,
+    configReadiness,
   });
   if (!readiness.ready) {
+    if (latestPackage?.email_subject && latestPackage?.email_body && p.contact_email) {
+      const { data: blockedRow } = await supabase
+        .from("outreach_sends")
+        .insert({
+          prospect_id: p.id,
+          outreach_package_id: latestPackage.id,
+          client_id: p.converted_client_id,
+          project_id: p.converted_project_id,
+          recipient_email: p.contact_email,
+          subject: latestPackage.email_subject,
+          body: latestPackage.email_body,
+          attachment_links: [],
+          status: "blocked",
+          provider: "resend",
+          error_message: readiness.issues.join(" "),
+        })
+        .select("id")
+        .single();
+
+      return { error: readiness.issues.join(" "), sendId: blockedRow?.id };
+    }
     return { error: readiness.issues.join(" ") };
   }
 
@@ -741,8 +765,8 @@ export async function sendProspectOutreachAction(
     return { error: "A matching outreach email was already sent recently.", sendId: blockedRow?.id };
   }
 
-  const projectUrl = p.converted_project_id
-    ? `${(process.env.NEXT_PUBLIC_PORTAL_URL ?? "http://localhost:3100").replace(/\/+$/, "")}/dashboard/projects/${p.converted_project_id}`
+  const projectUrl = p.converted_project_id && configReadiness.values.portalUrl
+    ? `${configReadiness.values.portalUrl}/dashboard/projects/${p.converted_project_id}`
     : null;
 
   const attachmentPaths = await prepareProspectEmailDraftAction(prospectId);

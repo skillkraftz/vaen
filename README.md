@@ -96,6 +96,9 @@ pnpm build
 | `SUPABASE_SERVICE_ROLE_KEY` | Yes | Supabase service role key (passed to spawned worker) |
 | `DISCORD_WEBHOOK_URL` | No | Discord webhook for lifecycle notifications |
 | `NEXT_PUBLIC_PORTAL_URL` | No | Portal URL for notification links (default: http://localhost:3100) |
+| `RESEND_API_KEY` | No | Required for outbound prospect outreach via Resend |
+| `OUTREACH_FROM_EMAIL` | No | Preferred From address for outreach emails |
+| `RESEND_FROM_EMAIL` | No | Fallback From address if `OUTREACH_FROM_EMAIL` is unset |
 
 **Worker** (`apps/worker/.env`) — loaded automatically by `run-job.ts` via dotenv:
 
@@ -107,6 +110,18 @@ pnpm build
 | `NEXT_PUBLIC_PORTAL_URL` | No | Portal URL for notification links |
 
 When launched from the portal, the worker inherits env vars from the portal process. When run manually (`node apps/worker/dist/run-job.js <id>`), it loads `apps/worker/.env`.
+
+### Outreach Readiness
+
+Outbound outreach stays operator-controlled, but it now validates configuration before any send attempt reaches Resend.
+
+Required portal env vars for outreach:
+
+- `RESEND_API_KEY`
+- `OUTREACH_FROM_EMAIL` or `RESEND_FROM_EMAIL`
+- `NEXT_PUBLIC_PORTAL_URL`
+
+Operators can review current readiness in the portal at `/dashboard/settings/outreach`.
 
 ### Discord Notifications (Optional)
 
