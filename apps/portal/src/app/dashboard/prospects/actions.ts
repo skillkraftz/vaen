@@ -27,6 +27,7 @@ import type {
 import { readProspectSequenceState } from "@/lib/campaign-sequences";
 import { buildCampaignSequenceState, buildPausedSequenceState } from "@/lib/sequence-execution";
 import { createContinuationRequest, resolveContinuationRequest, listContinuationRequests, isContinuationEligible } from "@/lib/continuation-helpers";
+import { buildProspectReplyUpdate } from "@/lib/reply-workflow";
 import { asNullableString, buildInitialRequestSnapshot } from "../new/client-intake-helpers";
 import { createRevisionAndSetCurrent } from "../projects/[id]/project-revision-helpers";
 import {
@@ -691,6 +692,135 @@ export async function resumeProspectSequenceAction(
   revalidatePath("/dashboard/campaigns");
   if (p.campaign_id) revalidatePath(`/dashboard/campaigns/${p.campaign_id}`);
   return {};
+}
+
+export async function markProspectRepliedAction(
+  prospectId: string,
+  params?: {
+    replyNote?: string | null;
+    replySummary?: string | null;
+    outreachSendId?: string | null;
+  },
+): Promise<{ error?: string; replyEventId?: string }> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated" };
+
+  const { data: prospect } = await supabase
+    .from("prospects")
+    .select("*")
+    .eq("id", prospectId)
+    .single();
+  if (!prospect) return { error: "Prospect not found." };
+
+  const p = prospect as Prospect;
+  const trimmedNote = params?.replyNote?.trim() || null;
+  const trimmedSummary = params?.replySummary?.trim() || null;
+
+  let linkedSendId = params?.outreachSendId ?? null;
+  if (linkedSendId) {
+    const { data: send } = await supabase
+      .from("outreach_sends")
+      .select("id")
+      .eq("id", linkedSendId)
+      .eq("prospect_id", prospectId)
+      .maybeSingle();
+    if (!send) {
+      return { error: "Selected outreach send does not belong to this prospect." };
+    }
+  } else {
+    const { data: latestSend } = await supabase
+      .from("outreach_sends")
+      .select("id")
+      .eq("prospect_id", prospectId)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    linkedSendId = latestSend?.id ?? null;
+  }
+
+  const { data: steps } = p.campaign_id
+    ? await supabase
+        .from("campaign_sequence_steps")
+        .select("*")
+        .eq("campaign_id", p.campaign_id)
+        .order("step_number", { ascending: true })
+    : { data: [] };
+
+  const prospectPatch = buildProspectReplyUpdate({
+    prospect: p,
+    sequenceSteps: (steps ?? []) as CampaignSequenceStep[],
+    replySummary: trimmedSummary,
+    outreachSendId: linkedSendId,
+  });
+
+  const { data: replyEvent, error: replyEventError } = await supabase
+    .from("prospect_reply_events")
+    .insert({
+      prospect_id: prospectId,
+      outreach_send_id: linkedSendId,
+      user_id: user.id,
+      reply_note: trimmedNote,
+      reply_summary: trimmedSummary,
+      metadata: {
+        previous_outreach_status: p.outreach_status ?? "draft",
+        sequence_paused: true,
+      },
+    })
+    .select("id")
+    .single();
+
+  if (replyEventError || !replyEvent) {
+    return { error: replyEventError?.message ?? "Failed to record reply event." };
+  }
+
+  const { error: prospectUpdateError } = await supabase
+    .from("prospects")
+    .update({
+      ...prospectPatch,
+      metadata: {
+        ...prospectPatch.metadata,
+        latest_reply_event_id: replyEvent.id,
+      },
+    })
+    .eq("id", prospectId);
+
+  if (prospectUpdateError) {
+    return { error: prospectUpdateError.message };
+  }
+
+  if (linkedSendId) {
+    const { data: sendRow } = await supabase
+      .from("outreach_sends")
+      .select("provider_metadata")
+      .eq("id", linkedSendId)
+      .maybeSingle();
+
+    await supabase
+      .from("outreach_sends")
+      .update({
+        provider_metadata: {
+          ...((sendRow?.provider_metadata as Record<string, unknown> | null) ?? {}),
+          reply: {
+            reply_event_id: replyEvent.id,
+            recorded_at: new Date().toISOString(),
+            recorded_by: user.id,
+            summary: trimmedSummary,
+          },
+        },
+      })
+      .eq("id", linkedSendId);
+  }
+
+  revalidatePath("/dashboard");
+  revalidatePath("/dashboard/prospects");
+  revalidatePath(`/dashboard/prospects/${prospectId}`);
+  if (p.campaign_id) {
+    revalidatePath("/dashboard/campaigns");
+    revalidatePath(`/dashboard/campaigns/${p.campaign_id}`);
+  }
+
+  return { replyEventId: replyEvent.id };
 }
 
 export async function generateOutreachPackageAction(

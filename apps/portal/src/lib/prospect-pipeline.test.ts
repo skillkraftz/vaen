@@ -182,6 +182,7 @@ describe("prospect actions and ui", () => {
     expect(source).toContain("export async function generateOutreachPackageAction");
     expect(source).toContain("export async function prepareProspectEmailDraftAction");
     expect(source).toContain("export async function sendProspectOutreachAction");
+    expect(source).toContain("export async function markProspectRepliedAction");
     expect(source).toContain("export async function pauseProspectSequenceAction");
     expect(source).toContain("export async function resumeProspectSequenceAction");
     expect(source).toContain("analyzeProspectWebsite");
@@ -325,6 +326,7 @@ describe("prospect actions and ui", () => {
     expect(detailSource).toContain('data-testid="prospect-analysis-panel"');
     expect(detailSource).toContain('data-testid="prospect-readiness-panel"');
     expect(detailSource).toContain('data-testid="prospect-outreach-package"');
+    expect(detailSource).toContain('data-testid="prospect-reply-history"');
     expect(detailSource).toContain('data-testid="prospect-send-history"');
     expect(detailSource).toContain('data-testid="prospect-sequence-state"');
     expect(detailSource).toContain('data-testid="prospect-email-subject"');
@@ -339,6 +341,8 @@ describe("prospect actions and ui", () => {
     expect(actionsSource).toContain('data-testid="prospect-preview-email-button"');
     expect(actionsSource).toContain('data-testid="prospect-send-confirm"');
     expect(actionsSource).toContain('data-testid="prospect-send-button"');
+    expect(actionsSource).toContain('data-testid="prospect-reply-controls"');
+    expect(actionsSource).toContain('data-testid="prospect-mark-replied-button"');
     expect(actionsSource).toContain('data-testid="prospect-sequence-toggle"');
     expect(listUiSource).toContain('data-testid="prospect-bulk-campaign-select"');
     expect(listUiSource).toContain('data-testid="prospect-bulk-assign-button"');

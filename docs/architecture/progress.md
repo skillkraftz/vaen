@@ -130,6 +130,7 @@
 - [x] Analytics dashboard at `/dashboard/analytics`
 - [x] Team settings scaffold at `/dashboard/settings/team`
 - [x] Campaign-detail analytics card row
+- [x] Manual reply workflow foundation with reply history and sequence-safe pause behavior
 
 ## Developer Commands
 

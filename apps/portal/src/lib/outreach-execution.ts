@@ -28,6 +28,12 @@ export function getProspectSendReadiness(params: {
   if (!params.prospect.converted_project_id) {
     issues.push("Prospect has not been linked to a project yet.");
   }
+  if (params.prospect.outreach_status === "replied") {
+    issues.push("Prospect is marked replied.");
+  }
+  if (params.prospect.outreach_status === "do_not_contact") {
+    issues.push("Prospect is marked do_not_contact.");
+  }
   if (params.configReadiness && !params.configReadiness.ready) {
     issues.push(...params.configReadiness.issues);
   }

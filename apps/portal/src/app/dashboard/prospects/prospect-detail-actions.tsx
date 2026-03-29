@@ -7,6 +7,7 @@ import {
   continueProspectAutomationAction,
   convertProspectAction,
   generateOutreachPackageAction,
+  markProspectRepliedAction,
   pauseProspectSequenceAction,
   prepareProspectEmailDraftAction,
   resumeProspectSequenceAction,
@@ -30,6 +31,8 @@ export function ProspectDetailActions({
   })();
   const [automationLevel, setAutomationLevel] = useState<ProspectAutomationLevel>(initialLevel);
   const [confirmSend, setConfirmSend] = useState(false);
+  const [replySummary, setReplySummary] = useState("");
+  const [replyNote, setReplyNote] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
   const sequenceState = readProspectSequenceState(prospect.metadata);
@@ -118,6 +121,23 @@ export function ProspectDetailActions({
         setError(result.error);
         return;
       }
+      router.refresh();
+    });
+  }
+
+  function markReplied() {
+    setError(null);
+    startTransition(async () => {
+      const result = await markProspectRepliedAction(prospect.id, {
+        replySummary,
+        replyNote,
+      });
+      if (result.error) {
+        setError(result.error);
+        return;
+      }
+      setReplySummary("");
+      setReplyNote("");
       router.refresh();
     });
   }
@@ -221,6 +241,38 @@ export function ProspectDetailActions({
             {isPending ? "Updating..." : sequencePaused ? "Resume Sequence" : "Pause Sequence"}
           </button>
         )}
+      </div>
+      <div style={{ marginTop: "1rem", display: "grid", gap: "0.5rem" }} data-testid="prospect-reply-controls">
+        <label className="form-label" htmlFor="prospectReplySummary">Reply Summary</label>
+        <input
+          id="prospectReplySummary"
+          className="form-input"
+          value={replySummary}
+          onChange={(e) => setReplySummary(e.target.value)}
+          placeholder="Interested, asked for timing, requested callback..."
+          data-testid="prospect-reply-summary"
+        />
+        <label className="form-label" htmlFor="prospectReplyNote">Internal Reply Note</label>
+        <textarea
+          id="prospectReplyNote"
+          className="form-input"
+          value={replyNote}
+          onChange={(e) => setReplyNote(e.target.value)}
+          rows={3}
+          placeholder="Capture what they said or what happens next."
+          data-testid="prospect-reply-note"
+        />
+        <div>
+          <button
+            type="button"
+            className="btn btn-sm"
+            onClick={markReplied}
+            disabled={isPending}
+            data-testid="prospect-mark-replied-button"
+          >
+            {isPending ? "Recording..." : "Mark Replied"}
+          </button>
+        </div>
       </div>
       {error && (
         <p className="text-sm" style={{ color: "var(--color-error)", marginTop: "0.75rem" }}>{error}</p>

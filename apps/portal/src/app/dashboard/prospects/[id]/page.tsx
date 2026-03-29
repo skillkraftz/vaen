@@ -12,6 +12,7 @@ import type {
   ProspectOutreachPackage,
   JobRecord,
   CampaignSequenceStep,
+  ProspectReplyEvent,
 } from "@/lib/types";
 import { ProspectDetailActions } from "../prospect-detail-actions";
 import { getProspectSendReadiness } from "@/lib/outreach-execution";
@@ -45,7 +46,7 @@ export default async function ProspectDetailPage({
   const analysisList = (analyses ?? []) as ProspectSiteAnalysis[];
   const latestAnalysis = analysisList[0] ?? null;
 
-  const [{ data: client }, { data: project }, { data: outreachPackages }, { data: sends }] = await Promise.all([
+  const [{ data: client }, { data: project }, { data: outreachPackages }, { data: sends }, { data: replies }] = await Promise.all([
     p.converted_client_id
       ? supabase.from("clients").select("id, name").eq("id", p.converted_client_id).single()
       : Promise.resolve({ data: null }),
@@ -68,6 +69,12 @@ export default async function ProspectDetailPage({
       .eq("prospect_id", id)
       .order("created_at", { ascending: false })
       .limit(10),
+    supabase
+      .from("prospect_reply_events")
+      .select("*")
+      .eq("prospect_id", id)
+      .order("created_at", { ascending: false })
+      .limit(10),
   ]);
 
   const linkedClient = client as Pick<Client, "id" | "name"> | null;
@@ -77,7 +84,9 @@ export default async function ProspectDetailPage({
     : null;
   const latestPackage = ((outreachPackages ?? [])[0] ?? null) as ProspectOutreachPackage | null;
   const sendHistory = (sends ?? []) as OutreachSend[];
+  const replyHistory = (replies ?? []) as ProspectReplyEvent[];
   const latestSend = sendHistory[0] ?? null;
+  const latestReply = replyHistory[0] ?? null;
   const sequenceState = readProspectSequenceState(p.metadata);
 
   const [{ data: jobs }, { data: quotes }, { data: screenshots }, { data: sequenceSteps }] = await Promise.all([
@@ -186,6 +195,7 @@ export default async function ProspectDetailPage({
             </div>
             <div><strong>Outreach Summary:</strong> {p.outreach_summary ?? "Not generated yet"}</div>
             <div><strong>Outreach Status:</strong> {p.outreach_status ?? "draft"}</div>
+            <div><strong>Latest Reply:</strong> {latestReply ? new Date(latestReply.created_at).toLocaleString("en-US") : "None recorded"}</div>
             <div><strong>Outreach Config:</strong> {configReadiness.ready ? "ready" : "blocked"}</div>
             <div><strong>Notes:</strong> {p.notes ?? "None"}</div>
             <div><strong>Automation Level:</strong> {automationLevel}</div>
@@ -344,6 +354,32 @@ export default async function ProspectDetailPage({
             </div>
           ) : (
             <p className="text-sm text-muted">Generate an outreach package to prepare the offer summary and email draft.</p>
+          )}
+        </div>
+      </div>
+
+      <div className="section">
+        <div className="card" data-testid="prospect-reply-history">
+          <h2 style={{ fontSize: "1rem", fontWeight: 600, marginBottom: "0.75rem" }}>Reply History</h2>
+          {replyHistory.length === 0 ? (
+            <p className="text-sm text-muted">No replies have been recorded yet.</p>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+              {replyHistory.map((reply) => (
+                <div key={reply.id} style={{ borderBottom: "1px solid var(--color-border)", paddingBottom: "0.75rem" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", gap: "0.75rem", flexWrap: "wrap" }}>
+                    <strong>{reply.reply_summary ?? "Manual reply recorded"}</strong>
+                    <span className="text-sm text-muted">{new Date(reply.created_at).toLocaleString("en-US")}</span>
+                  </div>
+                  {reply.reply_note && (
+                    <p className="text-sm text-muted" style={{ marginTop: "0.35rem" }}>{reply.reply_note}</p>
+                  )}
+                  {reply.outreach_send_id && (
+                    <p className="text-sm text-muted" style={{ marginTop: "0.35rem" }}>Linked send: {reply.outreach_send_id}</p>
+                  )}
+                </div>
+              ))}
+            </div>
           )}
         </div>
       </div>
