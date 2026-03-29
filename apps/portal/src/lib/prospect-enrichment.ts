@@ -8,6 +8,16 @@ import type {
 } from "./types";
 import { inferRecommendedPackage, summarizeQuote } from "./prospect-outreach";
 
+export type ProspectEnrichmentSource = ProspectEnrichment["source"];
+export type ProspectEnrichmentStatus = ProspectEnrichment["status"];
+
+interface ProspectEnrichmentBuildContext {
+  prospect: Prospect;
+  analysis: ProspectSiteAnalysis | null;
+  project: Project | null;
+  quote: (Quote & { lines?: QuoteLine[] }) | null;
+}
+
 function unique(values: Array<string | null | undefined>) {
   return [...new Set(values.map((value) => value?.trim()).filter((value): value is string => !!value))];
 }
@@ -33,12 +43,9 @@ export function inferMissingPieces(params: {
   ]);
 }
 
-export function buildProspectEnrichmentRecord(params: {
-  prospect: Prospect;
-  analysis: ProspectSiteAnalysis | null;
-  project: Project | null;
-  quote: (Quote & { lines?: QuoteLine[] }) | null;
-}): Omit<ProspectEnrichment, "id" | "created_at" | "updated_at"> {
+export function buildHeuristicProspectEnrichmentRecord(
+  params: ProspectEnrichmentBuildContext,
+): Omit<ProspectEnrichment, "id" | "created_at" | "updated_at"> {
   const recommendedPackage = inferRecommendedPackage({
     project: params.project,
     latestQuote: params.quote,
@@ -86,17 +93,68 @@ export function buildProspectEnrichmentRecord(params: {
   return {
     prospect_id: params.prospect.id,
     source: "heuristic_v1",
+    status: "completed",
+    source_job_id: null,
     business_summary: businessSummary || null,
     recommended_package: recommendedPackage,
     opportunity_summary: opportunitySummary || null,
     missing_pieces: missingPieces,
     offer_positioning: offerPositioning || null,
     precreated_copy: precreatedCopy,
+    error_message: null,
     metadata: {
       analysis_id: params.analysis?.id ?? null,
       quote_id: params.quote?.id ?? null,
       project_id: params.project?.id ?? null,
       pricing_summary: pricingSummary,
+      generation_status: "completed",
+      generator_version: "heuristic_v1",
+      requested_source: "heuristic_v1",
     },
   };
+}
+
+export function buildPendingProspectEnrichmentRecord(params: {
+  prospectId: string;
+  source: Extract<ProspectEnrichmentSource, "worker_job" | "manual">;
+  analysisId?: string | null;
+  projectId?: string | null;
+  quoteId?: string | null;
+  sourceJobId?: string | null;
+  note?: string | null;
+}): Omit<ProspectEnrichment, "id" | "created_at" | "updated_at"> {
+  return {
+    prospect_id: params.prospectId,
+    source: params.source,
+    status: "pending",
+    source_job_id: params.sourceJobId ?? null,
+    business_summary: null,
+    recommended_package: null,
+    opportunity_summary: null,
+    missing_pieces: [],
+    offer_positioning: null,
+    precreated_copy: {},
+    error_message: null,
+    metadata: {
+      analysis_id: params.analysisId ?? null,
+      quote_id: params.quoteId ?? null,
+      project_id: params.projectId ?? null,
+      generation_status: "pending",
+      requested_source: params.source,
+      note: params.note ?? null,
+    },
+  };
+}
+
+export function buildProspectEnrichmentRecord(
+  params: ProspectEnrichmentBuildContext,
+): Omit<ProspectEnrichment, "id" | "created_at" | "updated_at"> {
+  return buildHeuristicProspectEnrichmentRecord(params);
+}
+
+export function selectPreferredProspectEnrichment(
+  enrichments: ProspectEnrichment[],
+): ProspectEnrichment | null {
+  if (enrichments.length === 0) return null;
+  return enrichments.find((enrichment) => enrichment.status === "completed") ?? enrichments[0] ?? null;
 }

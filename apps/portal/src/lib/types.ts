@@ -256,12 +256,15 @@ export interface ProspectEnrichment {
   id: string;
   prospect_id: string;
   source: "heuristic_v1" | "worker_job" | "manual";
+  status: "pending" | "completed" | "failed";
+  source_job_id: string | null;
   business_summary: string | null;
   recommended_package: string | null;
   opportunity_summary: string | null;
   missing_pieces: string[];
   offer_positioning: string | null;
   precreated_copy: Record<string, unknown>;
+  error_message: string | null;
   metadata: Record<string, unknown>;
   created_at: string;
   updated_at: string;

@@ -23,6 +23,7 @@ import { getCurrentCampaignStep, getSequencePauseReason } from "@/lib/sequence-e
 import { listContinuationRequests, isContinuationEligible, getContinuationBlockedReason } from "@/lib/continuation-helpers";
 import type { ContinuationRequest } from "@/lib/types";
 import { ProspectContinuationPanel } from "../prospect-continuation-panel";
+import { selectPreferredProspectEnrichment } from "@/lib/prospect-enrichment";
 
 function formatProspectStatus(status: Prospect["status"]) {
   return status.replaceAll("_", " ");
@@ -92,7 +93,9 @@ export default async function ProspectDetailPage({
   const latestPackage = ((outreachPackages ?? [])[0] ?? null) as ProspectOutreachPackage | null;
   const sendHistory = (sends ?? []) as OutreachSend[];
   const replyHistory = (replies ?? []) as ProspectReplyEvent[];
-  const latestEnrichment = ((enrichments ?? [])[0] ?? null) as ProspectEnrichment | null;
+  const enrichmentItems = (enrichments ?? []) as ProspectEnrichment[];
+  const latestEnrichment = selectPreferredProspectEnrichment(enrichmentItems);
+  const latestEnrichmentAttempt = enrichmentItems[0] ?? null;
   const latestSend = sendHistory[0] ?? null;
   const latestReply = replyHistory[0] ?? null;
   const sequenceState = readProspectSequenceState(p.metadata);
@@ -251,6 +254,14 @@ export default async function ProspectDetailPage({
       <div className="section">
         <div className="card" data-testid="prospect-enrichment-panel">
           <h2 style={{ fontSize: "1rem", fontWeight: 600, marginBottom: "0.75rem" }}>Sales Enrichment</h2>
+          {latestEnrichmentAttempt && (
+            <p className="text-sm text-muted" style={{ marginBottom: "0.75rem" }}>
+              Latest enrichment attempt: {latestEnrichmentAttempt.source} · {latestEnrichmentAttempt.status}
+              {latestEnrichmentAttempt.status !== "completed" && latestEnrichment && latestEnrichment.id !== latestEnrichmentAttempt.id
+                ? " · showing the latest completed enrichment below"
+                : ""}
+            </p>
+          )}
           {latestEnrichment ? (
             <div style={{ display: "grid", gap: "0.75rem" }}>
               <div>

@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { buildProspectEnrichmentRecord, inferMissingPieces } from "./prospect-enrichment";
+import {
+  buildPendingProspectEnrichmentRecord,
+  buildProspectEnrichmentRecord,
+  inferMissingPieces,
+  selectPreferredProspectEnrichment,
+} from "./prospect-enrichment";
 
 const REPO_ROOT = resolve(__dirname, "../../../..");
 
@@ -17,6 +22,15 @@ describe("prospect enrichment schema", () => {
     expect(source).toContain("missing_pieces jsonb");
     expect(source).toContain("offer_positioning text");
     expect(source).toContain("precreated_copy jsonb");
+  });
+
+  it("adds generation status fields for async-capable enrichment sources", () => {
+    const migrationPath = join(REPO_ROOT, "supabase/migrations/20260329000022_add_prospect_enrichment_generation_fields.sql");
+    expect(existsSync(migrationPath)).toBe(true);
+    const source = readFileSync(migrationPath, "utf-8");
+    expect(source).toContain("add column if not exists status text");
+    expect(source).toContain("add column if not exists source_job_id uuid");
+    expect(source).toContain("add column if not exists error_message text");
   });
 
   it("adds ProspectEnrichment type", () => {
@@ -95,6 +109,78 @@ describe("prospect enrichment helpers", () => {
     expect(enrichment.precreated_copy).toMatchObject({
       recommended_package: "service-core",
     });
+    expect(enrichment.status).toBe("completed");
+    expect(enrichment.source_job_id).toBeNull();
+    expect(enrichment.metadata).toMatchObject({
+      generation_status: "completed",
+      generator_version: "heuristic_v1",
+      requested_source: "heuristic_v1",
+    });
+  });
+
+  it("builds pending worker-ready enrichment records without polluting completed outputs", () => {
+    const enrichment = buildPendingProspectEnrichmentRecord({
+      prospectId: "pros-1",
+      source: "worker_job",
+      analysisId: "analysis-1",
+      projectId: "proj-1",
+      quoteId: "quote-1",
+      sourceJobId: "job-1",
+      note: "Queued for worker execution",
+    });
+
+    expect(enrichment.source).toBe("worker_job");
+    expect(enrichment.status).toBe("pending");
+    expect(enrichment.source_job_id).toBe("job-1");
+    expect(enrichment.business_summary).toBeNull();
+    expect(enrichment.metadata).toMatchObject({
+      analysis_id: "analysis-1",
+      project_id: "proj-1",
+      quote_id: "quote-1",
+      generation_status: "pending",
+      requested_source: "worker_job",
+    });
+  });
+
+  it("prefers the latest completed enrichment over newer pending attempts", () => {
+    const preferred = selectPreferredProspectEnrichment([
+      {
+        id: "pending-1",
+        prospect_id: "pros-1",
+        source: "worker_job",
+        status: "pending",
+        source_job_id: "job-1",
+        business_summary: null,
+        recommended_package: null,
+        opportunity_summary: null,
+        missing_pieces: [],
+        offer_positioning: null,
+        precreated_copy: {},
+        error_message: null,
+        metadata: {},
+        created_at: "2026-03-29T10:00:00Z",
+        updated_at: "2026-03-29T10:00:00Z",
+      },
+      {
+        id: "completed-1",
+        prospect_id: "pros-1",
+        source: "heuristic_v1",
+        status: "completed",
+        source_job_id: null,
+        business_summary: "Completed summary",
+        recommended_package: "service-core",
+        opportunity_summary: "Completed opportunity",
+        missing_pieces: [],
+        offer_positioning: "Completed positioning",
+        precreated_copy: {},
+        error_message: null,
+        metadata: {},
+        created_at: "2026-03-29T09:00:00Z",
+        updated_at: "2026-03-29T09:00:00Z",
+      },
+    ]);
+
+    expect(preferred?.id).toBe("completed-1");
   });
 });
 
@@ -108,6 +194,10 @@ describe("prospect enrichment integration", () => {
     expect(actionsSource).toContain("export async function generateProspectEnrichmentAction");
     expect(actionsSource).toContain('from("prospect_enrichments")');
     expect(actionsSource).toContain("buildProspectEnrichmentRecord");
+    expect(actionsSource).toContain("buildPendingProspectEnrichmentRecord");
+    expect(actionsSource).toContain('source: ProspectEnrichmentSource = "heuristic_v1"');
+    expect(actionsSource).toContain('source === "heuristic_v1"');
+    expect(actionsSource).toContain("selectPreferredProspectEnrichment");
     expect(actionsSource).toContain("loadLatestProspectEnrichment");
     expect(outreachSource).toContain("enrichment?: ProspectEnrichment | null");
     expect(outreachSource).toContain("params.enrichment?.business_summary");

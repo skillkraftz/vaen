@@ -53,6 +53,9 @@ describe("prospect schema", () => {
     expect(source).toContain("export interface Prospect");
     expect(source).toContain("export interface ProspectSiteAnalysis");
     expect(source).toContain("export interface ProspectEnrichment");
+    expect(source).toContain('status: "pending" | "completed" | "failed"');
+    expect(source).toContain("source_job_id: string | null");
+    expect(source).toContain("error_message: string | null");
     expect(source).toContain("export type ProspectAutomationLevel");
     expect(source).toContain("export interface ProspectOutreachPackage");
     expect(source).toContain("export interface OutreachSend");

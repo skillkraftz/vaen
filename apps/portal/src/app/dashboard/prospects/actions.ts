@@ -10,7 +10,12 @@ import {
 } from "../projects/[id]/project-quote-helpers";
 import { getAuthoritativeSelectedModules } from "@/lib/module-selection";
 import { analyzeProspectWebsite, normalizeWebsiteUrl } from "@/lib/prospect-analysis";
-import { buildProspectEnrichmentRecord } from "@/lib/prospect-enrichment";
+import {
+  buildPendingProspectEnrichmentRecord,
+  buildProspectEnrichmentRecord,
+  selectPreferredProspectEnrichment,
+  type ProspectEnrichmentSource,
+} from "@/lib/prospect-enrichment";
 import {
   buildOutreachPackageRecord,
 } from "@/lib/prospect-outreach";
@@ -244,9 +249,9 @@ async function loadLatestProspectEnrichment(
     .select("*")
     .eq("prospect_id", prospectId)
     .order("created_at", { ascending: false })
-    .limit(1);
+    .limit(10);
 
-  return ((data ?? [])[0] ?? null) as ProspectEnrichment | null;
+  return selectPreferredProspectEnrichment((data ?? []) as ProspectEnrichment[]);
 }
 
 export async function createProspectAction(
@@ -841,7 +846,8 @@ export async function markProspectRepliedAction(
 
 export async function generateProspectEnrichmentAction(
   prospectId: string,
-): Promise<{ error?: string; enrichmentId?: string }> {
+  source: ProspectEnrichmentSource = "heuristic_v1",
+): Promise<{ error?: string; enrichmentId?: string; status?: ProspectEnrichment["status"] }> {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: "Not authenticated" };
@@ -895,12 +901,23 @@ export async function generateProspectEnrichmentAction(
     }
   }
 
-  const enrichment = buildProspectEnrichmentRecord({
-    prospect: p,
-    analysis,
-    project,
-    quote: quoteForEnrichment,
-  });
+  const enrichment = source === "heuristic_v1"
+    ? buildProspectEnrichmentRecord({
+        prospect: p,
+        analysis,
+        project,
+        quote: quoteForEnrichment,
+      })
+    : buildPendingProspectEnrichmentRecord({
+        prospectId,
+        source,
+        analysisId: analysis?.id ?? null,
+        projectId: project?.id ?? null,
+        quoteId: quoteForEnrichment?.id ?? null,
+        note: source === "worker_job"
+          ? "Worker/OpenClaw enrichment has not been wired yet. This pending record preserves the request boundary for future async execution."
+          : "Manual enrichment editing has not been wired yet. This record reserves the enrichment slot without changing authoritative project/request data.",
+      });
 
   const { data: createdEnrichment, error } = await supabase
     .from("prospect_enrichments")
@@ -918,6 +935,7 @@ export async function generateProspectEnrichmentAction(
       metadata: {
         ...(p.metadata ?? {}),
         latest_enrichment_id: createdEnrichment.id,
+        latest_enrichment_source: source,
       },
     })
     .eq("id", prospectId);
@@ -925,7 +943,7 @@ export async function generateProspectEnrichmentAction(
   revalidatePath("/dashboard");
   revalidatePath("/dashboard/prospects");
   revalidatePath(`/dashboard/prospects/${prospectId}`);
-  return { enrichmentId: createdEnrichment.id };
+  return { enrichmentId: createdEnrichment.id, status: enrichment.status };
 }
 
 export async function generateOutreachPackageAction(
