@@ -126,7 +126,12 @@ export default async function ProjectDetailPage({
           <Link href="/dashboard" className="text-sm text-muted">
             &larr; Projects
           </Link>
-          <h1 style={{ marginTop: "0.25rem" }} data-testid="project-name">{p.name}</h1>
+          <h1 style={{ marginTop: "0.25rem", marginBottom: "0.15rem" }} data-testid="project-name">{p.name}</h1>
+          {(p.business_type || p.contact_name) && (
+            <p className="text-sm text-muted" style={{ fontSize: "0.8rem" }}>
+              {[p.business_type, p.contact_name].filter(Boolean).join(" \u00b7 ")}
+            </p>
+          )}
         </div>
         <span className={`badge ${statusBadge(p.status)}`} data-testid="project-status-badge">
           {formatStatusLabel(p.status)}
@@ -134,10 +139,8 @@ export default async function ProjectDetailPage({
       </div>
 
       {/* ── Progress Indicator ────────────────────────────────────── */}
-      <div className="section">
-        <div className="card" style={{ padding: 0, overflow: "hidden" }}>
-          <WorkflowStepIndicator status={p.status} />
-        </div>
+      <div style={{ marginBottom: "1.5rem" }}>
+        <WorkflowStepIndicator status={p.status} />
       </div>
 
       {/* ── Workflow Panel ────────────────────────────────────────── */}

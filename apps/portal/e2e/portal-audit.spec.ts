@@ -571,7 +571,10 @@ test("11 — screenshot viewer", async ({ shared: page }) => {
     await page.waitForTimeout(500);
 
     const previewMeta = page.getByTestId("screenshot-preview-meta");
-    const previewMetaText = await previewMeta.textContent();
+    const previewMetaFilename = await previewMeta.getAttribute("data-meta-filename");
+    const previewMetaSha = await previewMeta.getAttribute("data-meta-sha");
+    const previewMetaPath = await previewMeta.getAttribute("data-meta-path");
+    const previewMetaText = [previewMetaFilename, previewMetaSha ? `sha ${previewMetaSha.slice(0, 12)}` : null, previewMetaPath].filter(Boolean).join(" · ");
     const previewSrc = await previewImage.getAttribute("src");
 
     await snap(page, outputDir, "screenshot-viewer-preview", {

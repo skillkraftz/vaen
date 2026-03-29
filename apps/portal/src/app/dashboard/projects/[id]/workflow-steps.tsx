@@ -10,7 +10,7 @@ export function WorkflowStepIndicator({ status }: WorkflowStepIndicatorProps) {
   const currentStep = getWorkflowStep(status) ?? 1;
 
   return (
-    <div style={{ padding: "1rem 1.25rem", borderBottom: "1px solid var(--color-border)" }}>
+    <div data-testid="workflow-progress" style={{ padding: "0.5rem 0" }}>
       <div style={{ display: "flex", alignItems: "center", gap: "0.25rem", overflowX: "auto" }}>
         {WORKFLOW_STEPS.map((ws) => {
           const isDone = ws.step < currentStep;

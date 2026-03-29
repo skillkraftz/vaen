@@ -337,6 +337,14 @@ export function WorkflowPanel({ projectId, slug, status, lastReviewedRevisionId 
   // Determine next step info for the banner
   const nextStep = getNextStep(effectiveStatus, hasActiveJob);
 
+  // Does the card have content below the status line? (used for border styling)
+  const hasWorkflowCardContent =
+    jobs.length > 0 ||
+    (phase === "intake" && !nextStep) ||
+    ((phase === "build" || canGenerate) && !nextStep) ||
+    phase === "deploy" ||
+    phase === "done";
+
   return (
     <div data-testid="workflow-panel">
       {/* ── Next Step Banner ─────────────────────────────────────── */}
@@ -349,29 +357,47 @@ export function WorkflowPanel({ projectId, slug, status, lastReviewedRevisionId 
         </div>
       )}
 
-      {/* ── Workflow Card ────────────────────────────────────────── */}
+      {/* ── Preview (promoted above workflow details) ────────────── */}
+      <div className="section" data-testid="preview-section">
+        <div className="section-label">Preview</div>
+        <ScreenshotViewer
+          slug={slug}
+          projectId={projectId}
+          lastReviewedRevisionId={liveLastReviewedRevisionId}
+          status={effectiveStatus}
+          refreshToken={viewerRefreshToken}
+        />
+      </div>
+
+      {/* ── Workflow Details (status + jobs + fallback actions) ──── */}
       <div className="card" style={{ padding: 0, overflow: "hidden", marginBottom: "1.5rem" }}>
-        {/* Status header */}
+        {/* Status line — compact when banner is showing, full when it's not */}
         <div
           data-testid="workflow-status"
           style={{
-            padding: "1rem 1.25rem",
-            borderBottom: "1px solid var(--color-border)",
+            padding: nextStep ? "0.5rem 1.25rem" : "1rem 1.25rem",
+            borderBottom: hasWorkflowCardContent ? "1px solid var(--color-border)" : "none",
             display: "flex",
             alignItems: "center",
             justifyContent: "space-between",
           }}
         >
-          <div>
-            <span
-              className="text-sm"
-              style={{ color: "var(--color-text-muted)", marginRight: "0.5rem" }}
-            >
-              Status:
+          {nextStep ? (
+            <span className="text-sm text-muted" style={{ fontSize: "0.75rem" }}>
+              Status: <strong data-testid="workflow-status-label" style={{ color: "var(--color-text)" }}>{formatStatusLabel(effectiveStatus)}</strong>
             </span>
-            <strong data-testid="workflow-status-label">{formatStatusLabel(effectiveStatus)}</strong>
-          </div>
-          <PhaseIndicator phase={phase} />
+          ) : (
+            <div>
+              <span
+                className="text-sm"
+                style={{ color: "var(--color-text-muted)", marginRight: "0.5rem" }}
+              >
+                Status:
+              </span>
+              <strong data-testid="workflow-status-label">{formatStatusLabel(effectiveStatus)}</strong>
+            </div>
+          )}
+          {!nextStep && <PhaseIndicator phase={phase} />}
         </div>
 
         {/* Active jobs */}
@@ -422,18 +448,6 @@ export function WorkflowPanel({ projectId, slug, status, lastReviewedRevisionId 
             </span>
           </ActionSection>
         )}
-      </div>
-
-      {/* ── Website Preview ──────────────────────────────────────── */}
-      <div className="section" data-testid="preview-section">
-        <div className="section-label">Website Preview</div>
-        <ScreenshotViewer
-          slug={slug}
-          projectId={projectId}
-          lastReviewedRevisionId={liveLastReviewedRevisionId}
-          status={effectiveStatus}
-          refreshToken={viewerRefreshToken}
-        />
       </div>
 
       {/* ── Advanced Tools (collapsible) ─────────────────────────── */}
@@ -1090,10 +1104,10 @@ function ScreenshotViewer({
               display: "flex",
               justifyContent: "space-between",
               alignItems: "center",
-              marginBottom: "0.35rem",
+              marginBottom: "0.5rem",
             }}
           >
-            <span className="text-sm text-mono" style={{ fontSize: "0.7rem" }}>
+            <span className="text-sm" style={{ fontWeight: 500, fontSize: "0.8rem" }}>
               {selectedItem?.label ?? selectedImage}
             </span>
             <button
@@ -1104,14 +1118,17 @@ function ScreenshotViewer({
               Close
             </button>
           </div>
-          <p className="text-mono" data-testid="screenshot-preview-meta" style={{ fontSize: "0.6rem", color: "var(--color-text-muted)", marginBottom: "0.35rem", wordBreak: "break-all" }}>
-            {selectedItem?.fileName ?? selectedImage}
-            {selectedItem?.checksumSha256 ? ` · sha ${selectedItem.checksumSha256.slice(0, 12)}` : ""}
-            {selectedItem?.storagePath ? ` · ${selectedItem.storagePath}` : ""}
-          </p>
+          {/* Technical metadata hidden — available via data attributes for audit */}
+          <span
+            data-testid="screenshot-preview-meta"
+            data-meta-filename={selectedItem?.fileName ?? selectedImage}
+            data-meta-sha={selectedItem?.checksumSha256 ?? ""}
+            data-meta-path={selectedItem?.storagePath ?? ""}
+            style={{ display: "none" }}
+          />
           <img
             src={imageData[selectedImage]}
-            alt={selectedImage}
+            alt={selectedItem?.label ?? selectedImage}
             data-testid="screenshot-preview-image"
             data-preview-filename={selectedItem?.fileName ?? selectedImage}
             data-preview-source={selectedItem?.source ?? ""}
