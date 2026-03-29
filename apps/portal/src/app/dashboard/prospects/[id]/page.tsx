@@ -11,10 +11,13 @@ import type {
   QuoteLine,
   ProspectOutreachPackage,
   JobRecord,
+  CampaignSequenceStep,
 } from "@/lib/types";
 import { ProspectDetailActions } from "../prospect-detail-actions";
 import { getProspectSendReadiness } from "@/lib/outreach-execution";
 import { getOutreachConfigReadiness } from "@/lib/outreach-config";
+import { readProspectSequenceState } from "@/lib/campaign-sequences";
+import { getCurrentCampaignStep, getSequencePauseReason } from "@/lib/sequence-execution";
 
 function formatProspectStatus(status: Prospect["status"]) {
   return status.replaceAll("_", " ");
@@ -72,8 +75,9 @@ export default async function ProspectDetailPage({
   const latestPackage = ((outreachPackages ?? [])[0] ?? null) as ProspectOutreachPackage | null;
   const sendHistory = (sends ?? []) as OutreachSend[];
   const latestSend = sendHistory[0] ?? null;
+  const sequenceState = readProspectSequenceState(p.metadata);
 
-  const [{ data: jobs }, { data: quotes }, { data: screenshots }] = await Promise.all([
+  const [{ data: jobs }, { data: quotes }, { data: screenshots }, { data: sequenceSteps }] = await Promise.all([
     linkedProject
       ? supabase.from("jobs").select("*").eq("project_id", linkedProject.id).order("created_at", { ascending: false }).limit(5)
       : Promise.resolve({ data: [] }),
@@ -88,11 +92,19 @@ export default async function ProspectDetailPage({
           .eq("asset_type", "review_screenshot")
           .order("created_at", { ascending: false })
       : Promise.resolve({ data: [] }),
+    p.campaign_id
+      ? supabase
+          .from("campaign_sequence_steps")
+          .select("*")
+          .eq("campaign_id", p.campaign_id)
+          .order("step_number", { ascending: true })
+      : Promise.resolve({ data: [] }),
   ]);
 
   const latestJob = ((jobs ?? [])[0] ?? null) as JobRecord | null;
   const latestQuote = ((quotes ?? [])[0] ?? null) as (Quote & { lines: QuoteLine[] }) | null;
   const screenshotItems = (screenshots ?? []) as Array<{ id: string; file_name: string; storage_path: string; created_at: string }>;
+  const campaignSequenceSteps = (sequenceSteps ?? []) as CampaignSequenceStep[];
   const automationLevel = typeof p.metadata?.automation_level === "string"
     ? p.metadata.automation_level
     : "convert_only";
@@ -111,6 +123,11 @@ export default async function ProspectDetailPage({
     prospect: p,
     outreachPackage: latestPackage,
     configReadiness,
+  });
+  const sequencePauseReason = getSequencePauseReason(p);
+  const currentSequenceStep = getCurrentCampaignStep({
+    sequenceSteps: campaignSequenceSteps,
+    sequenceState,
   });
 
   return (
@@ -159,6 +176,37 @@ export default async function ProspectDetailPage({
               <div><strong>Automation Note:</strong> {automationBlockedReason}</div>
             )}
           </div>
+        </div>
+      </div>
+
+      <div className="section">
+        <div className="card" data-testid="prospect-sequence-state">
+          <h2 style={{ fontSize: "1rem", fontWeight: 600, marginBottom: "0.75rem" }}>Sequence State</h2>
+          {p.campaign_id && campaignSequenceSteps.length > 0 ? (
+            <div style={{ display: "grid", gap: "0.5rem" }}>
+              <div><strong>Current Step:</strong> {currentSequenceStep.step ? `${currentSequenceStep.step.step_number} · ${currentSequenceStep.step.label}` : "Complete"}</div>
+              <div><strong>Due Status:</strong> {sequencePauseReason ? "paused" : currentSequenceStep.due ? "due now" : "scheduled"}</div>
+              <div><strong>Paused:</strong> {sequencePauseReason ? `yes (${sequencePauseReason})` : "no"}</div>
+              <div><strong>Steps Sent:</strong> {sequenceState?.steps.filter((step) => !!step.sent_at).length ?? 0}</div>
+              {sequenceState?.steps.length ? (
+                <div style={{ marginTop: "0.5rem" }}>
+                  {sequenceState.steps.map((step) => (
+                    <p key={step.step_number} className="text-sm text-muted">
+                      Step {step.step_number}: {step.sent_at
+                        ? `sent ${new Date(step.sent_at).toLocaleString("en-US")}`
+                        : step.due_at
+                          ? `due ${new Date(step.due_at).toLocaleString("en-US")}`
+                          : "pending"}
+                    </p>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm text-muted">Sequence has not started yet for this prospect.</p>
+              )}
+            </div>
+          ) : (
+            <p className="text-sm text-muted">Assign the prospect to a campaign with sequence steps to start follow-up tracking.</p>
+          )}
         </div>
       </div>
 

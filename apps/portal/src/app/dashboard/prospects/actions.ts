@@ -14,16 +14,8 @@ import {
   buildOutreachPackageRecord,
 } from "@/lib/prospect-outreach";
 import { calculateQuoteTotals } from "@/lib/quote-helpers";
-import {
-  buildOutreachSendBody,
-  computeNextFollowUpDate,
-  getProspectSendReadiness,
-  isDuplicateSendBlocked,
-} from "@/lib/outreach-execution";
-import { sendEmailViaResend } from "@/lib/resend";
-import { getOutreachConfigReadiness } from "@/lib/outreach-config";
 import type {
-  OutreachSend,
+  CampaignSequenceStep,
   Prospect,
   ProspectAutomationLevel,
   ProspectOutreachPackage,
@@ -32,6 +24,8 @@ import type {
   Quote,
   QuoteLine,
 } from "@/lib/types";
+import { readProspectSequenceState } from "@/lib/campaign-sequences";
+import { buildCampaignSequenceState, buildPausedSequenceState } from "@/lib/sequence-execution";
 import { asNullableString, buildInitialRequestSnapshot } from "../new/client-intake-helpers";
 import { createRevisionAndSetCurrent } from "../projects/[id]/project-revision-helpers";
 import {
@@ -43,6 +37,11 @@ import {
   runReviewAction,
 } from "../projects/[id]/actions";
 import { loadCurrentDraft } from "../projects/[id]/project-revision-helpers";
+import {
+  executeProspectOutreachSend,
+  loadLatestProspectOutreachPackage,
+  readResendReadyAttachmentPaths,
+} from "./prospect-send-helpers";
 
 function slugify(value: string) {
   return value
@@ -508,6 +507,99 @@ export async function continueProspectAutomationAction(
   return { latestJobId: automation.latestJobId };
 }
 
+export async function pauseProspectSequenceAction(
+  prospectId: string,
+): Promise<{ error?: string }> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated" };
+
+  const { data: prospect } = await supabase
+    .from("prospects")
+    .select("*")
+    .eq("id", prospectId)
+    .single();
+  if (!prospect) return { error: "Prospect not found." };
+
+  const p = prospect as Prospect;
+  if (!p.campaign_id) return { error: "Prospect is not assigned to a campaign sequence." };
+
+  const { data: steps } = await supabase
+    .from("campaign_sequence_steps")
+    .select("*")
+    .eq("campaign_id", p.campaign_id)
+    .order("step_number", { ascending: true });
+
+  const sequenceState = buildPausedSequenceState({
+    sequenceSteps: (steps ?? []) as CampaignSequenceStep[],
+    existingState: readProspectSequenceState(p.metadata),
+    pausedReason: "manual",
+  });
+
+  await supabase
+    .from("prospects")
+    .update({
+      metadata: {
+        ...(p.metadata ?? {}),
+        sequence_state: sequenceState,
+      },
+    })
+    .eq("id", prospectId);
+
+  revalidatePath(`/dashboard/prospects/${prospectId}`);
+  revalidatePath("/dashboard/campaigns");
+  if (p.campaign_id) revalidatePath(`/dashboard/campaigns/${p.campaign_id}`);
+  return {};
+}
+
+export async function resumeProspectSequenceAction(
+  prospectId: string,
+): Promise<{ error?: string }> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated" };
+
+  const { data: prospect } = await supabase
+    .from("prospects")
+    .select("*")
+    .eq("id", prospectId)
+    .single();
+  if (!prospect) return { error: "Prospect not found." };
+
+  const p = prospect as Prospect;
+  if (!p.campaign_id) return { error: "Prospect is not assigned to a campaign sequence." };
+
+  const { data: steps } = await supabase
+    .from("campaign_sequence_steps")
+    .select("*")
+    .eq("campaign_id", p.campaign_id)
+    .order("step_number", { ascending: true });
+
+  const sequenceState = buildCampaignSequenceState({
+    sequenceSteps: (steps ?? []) as CampaignSequenceStep[],
+    existingState: readProspectSequenceState(p.metadata),
+  });
+
+  await supabase
+    .from("prospects")
+    .update({
+      metadata: {
+        ...(p.metadata ?? {}),
+        sequence_state: {
+          ...sequenceState,
+          paused: false,
+          paused_reason: null,
+        },
+      },
+    })
+    .eq("id", prospectId);
+
+  revalidatePath(`/dashboard/prospects/${prospectId}`);
+  revalidatePath("/dashboard/campaigns");
+  if (p.campaign_id) revalidatePath(`/dashboard/campaigns/${p.campaign_id}`);
+  return {};
+}
+
 export async function generateOutreachPackageAction(
   prospectId: string,
 ): Promise<{ error?: string; packageId?: string }> {
@@ -643,34 +735,21 @@ export async function prepareProspectEmailDraftAction(
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: "Not authenticated" };
 
-  let { data: packages } = await supabase
-    .from("prospect_outreach_packages")
-    .select("*")
-    .eq("prospect_id", prospectId)
-    .order("created_at", { ascending: false })
-    .limit(1);
+  let latestPackage = await loadLatestProspectOutreachPackage(supabase, prospectId);
 
-  if (!packages || packages.length === 0) {
+  if (!latestPackage) {
     const generated = await generateOutreachPackageAction(prospectId);
     if (generated.error) return { error: generated.error };
-    ({ data: packages } = await supabase
-      .from("prospect_outreach_packages")
-      .select("*")
-      .eq("prospect_id", prospectId)
-      .order("created_at", { ascending: false })
-      .limit(1));
+    latestPackage = await loadLatestProspectOutreachPackage(supabase, prospectId);
   }
 
-  const latestPackage = ((packages ?? [])[0] ?? null) as ProspectOutreachPackage | null;
   if (!latestPackage) return { error: "No outreach package available yet." };
 
   const resendReady = (latestPackage.package_data?.resend_ready as Record<string, unknown> | undefined) ?? {};
   return {
     subject: latestPackage.email_subject ?? (typeof resendReady.subject === "string" ? resendReady.subject : undefined),
     body: latestPackage.email_body ?? (typeof resendReady.body === "string" ? resendReady.body : undefined),
-    attachmentPaths: Array.isArray(resendReady.attachment_paths)
-      ? resendReady.attachment_paths.filter((item): item is string => typeof item === "string")
-      : [],
+    attachmentPaths: readResendReadyAttachmentPaths(latestPackage),
   };
 }
 
@@ -683,177 +762,21 @@ export async function sendProspectOutreachAction(
   if (!user) return { error: "Not authenticated" };
   if (!options?.confirm) return { error: "Send confirmation is required." };
 
-  const [{ data: prospect }, { data: packages }] = await Promise.all([
+  const [{ data: prospect }, latestPackage] = await Promise.all([
     supabase.from("prospects").select("*").eq("id", prospectId).single(),
-    supabase
-      .from("prospect_outreach_packages")
-      .select("*")
-      .eq("prospect_id", prospectId)
-      .order("created_at", { ascending: false })
-      .limit(1),
+    loadLatestProspectOutreachPackage(supabase, prospectId),
   ]);
 
   if (!prospect) return { error: "Prospect not found." };
   const p = prospect as Prospect;
-  const latestPackage = ((packages ?? [])[0] ?? null) as ProspectOutreachPackage | null;
-  const configReadiness = getOutreachConfigReadiness();
-
-  const readiness = getProspectSendReadiness({
+  const result = await executeProspectOutreachSend({
+    supabase,
     prospect: p,
     outreachPackage: latestPackage,
-    configReadiness,
+    confirm: options?.confirm === true,
   });
-  if (!readiness.ready) {
-    if (latestPackage?.email_subject && latestPackage?.email_body && p.contact_email) {
-      const { data: blockedRow } = await supabase
-        .from("outreach_sends")
-        .insert({
-          prospect_id: p.id,
-          outreach_package_id: latestPackage.id,
-          client_id: p.converted_client_id,
-          project_id: p.converted_project_id,
-          campaign_id: p.campaign_id ?? null,
-          recipient_email: p.contact_email,
-          subject: latestPackage.email_subject,
-          body: latestPackage.email_body,
-          attachment_links: [],
-          status: "blocked",
-          provider: "resend",
-          error_message: readiness.issues.join(" "),
-        })
-        .select("id")
-        .single();
-
-      return { error: readiness.issues.join(" "), sendId: blockedRow?.id };
-    }
-    return { error: readiness.issues.join(" ") };
-  }
-
-  const priorSends = (
-    await supabase
-      .from("outreach_sends")
-      .select("*")
-      .eq("prospect_id", prospectId)
-      .order("created_at", { ascending: false })
-      .limit(10)
-  ).data ?? [];
-
-  const blocked = isDuplicateSendBlocked({
-    sends: priorSends as OutreachSend[],
-    recipientEmail: p.contact_email!,
-    subject: latestPackage!.email_subject!,
-  });
-
-  if (blocked) {
-    const { data: blockedRow } = await supabase
-      .from("outreach_sends")
-      .insert({
-        prospect_id: p.id,
-        outreach_package_id: latestPackage!.id,
-        client_id: p.converted_client_id,
-        project_id: p.converted_project_id,
-        campaign_id: p.campaign_id ?? null,
-        recipient_email: p.contact_email!,
-        subject: latestPackage!.email_subject!,
-        body: latestPackage!.email_body!,
-        attachment_links: [],
-        status: "blocked",
-        provider: "resend",
-        error_message: "Blocked duplicate send within the safety window.",
-      })
-      .select("id")
-      .single();
-
-    return { error: "A matching outreach email was already sent recently.", sendId: blockedRow?.id };
-  }
-
-  const projectUrl = p.converted_project_id && configReadiness.values.portalUrl
-    ? `${configReadiness.values.portalUrl}/dashboard/projects/${p.converted_project_id}`
-    : null;
-
-  const attachmentPaths = await prepareProspectEmailDraftAction(prospectId);
-  if (attachmentPaths.error) return { error: attachmentPaths.error };
-
-  const screenshotLinks: string[] = [];
-  for (const storagePath of attachmentPaths.attachmentPaths ?? []) {
-    const { data } = await supabase.storage
-      .from("review-screenshots")
-      .createSignedUrl(storagePath, 7 * 24 * 60 * 60);
-    if (data?.signedUrl) screenshotLinks.push(data.signedUrl);
-  }
-
-  const sendBody = buildOutreachSendBody({
-    body: latestPackage!.email_body!,
-    projectUrl,
-    screenshotLinks,
-  });
-
-  const { data: sendRow, error: sendInsertError } = await supabase
-    .from("outreach_sends")
-    .insert({
-      prospect_id: p.id,
-      outreach_package_id: latestPackage!.id,
-      client_id: p.converted_client_id,
-      project_id: p.converted_project_id,
-      campaign_id: p.campaign_id ?? null,
-      recipient_email: p.contact_email!,
-      subject: latestPackage!.email_subject!,
-      body: sendBody,
-      attachment_links: screenshotLinks,
-      status: "pending",
-      provider: "resend",
-    })
-    .select("id")
-    .single();
-
-  if (sendInsertError || !sendRow) {
-    return { error: sendInsertError?.message ?? "Failed to create outreach send record." };
-  }
-
-  const resendResult = await sendEmailViaResend({
-    to: p.contact_email!,
-    subject: latestPackage!.email_subject!,
-    text: sendBody,
-  });
-
-  const sentAt = new Date();
-  if (!resendResult.ok) {
-    await supabase
-      .from("outreach_sends")
-      .update({
-        status: "failed",
-        error_message: resendResult.error ?? "Unknown Resend error.",
-      })
-      .eq("id", sendRow.id);
-
-    return { error: resendResult.error ?? "Failed to send outreach email.", sendId: sendRow.id };
-  }
-
-  await supabase
-    .from("outreach_sends")
-    .update({
-      status: "sent",
-      provider_message_id: resendResult.messageId ?? null,
-      sent_at: sentAt.toISOString(),
-    })
-    .eq("id", sendRow.id);
-
-  await supabase
-    .from("prospects")
-    .update({
-      outreach_status: "sent",
-      last_outreach_sent_at: sentAt.toISOString(),
-      next_follow_up_due_at: computeNextFollowUpDate(sentAt, p.follow_up_count ?? 0),
-      follow_up_count: (p.follow_up_count ?? 0) + 1,
-      metadata: {
-        ...(p.metadata ?? {}),
-        latest_outreach_send_id: sendRow.id,
-      },
-    })
-    .eq("id", p.id);
-
-  revalidatePath("/dashboard");
-  revalidatePath("/dashboard/prospects");
-  revalidatePath(`/dashboard/prospects/${prospectId}`);
-  return { sendId: sendRow.id };
+  return {
+    error: result.error,
+    sendId: result.sendId,
+  };
 }

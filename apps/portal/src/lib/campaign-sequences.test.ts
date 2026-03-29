@@ -116,9 +116,13 @@ describe("campaign sequence actions and ui", () => {
     expect(source).toContain("export async function listCampaignSequenceStepsAction");
     expect(source).toContain("export async function saveCampaignSequenceAction");
     expect(source).toContain("export async function deleteCampaignSequenceStepAction");
+    expect(source).toContain("export async function advanceDueFollowUpsAction");
     expect(source).toContain("getSequenceLockCounts");
     expect(source).toContain("locked and cannot be edited");
     expect(source).toContain("locked and cannot be removed");
+    expect(source).toContain("executeProspectOutreachSend");
+    expect(source).toContain("Step");
+    expect(source).toContain("Sequence paused because the prospect is marked replied");
   });
 
   it("renders a sequence builder on the campaign detail page", () => {
@@ -131,7 +135,10 @@ describe("campaign sequence actions and ui", () => {
     expect(uiSource).toContain('data-testid="campaign-sequence-builder"');
     expect(uiSource).toContain('data-testid="campaign-sequence-add-step"');
     expect(uiSource).toContain('data-testid="campaign-sequence-save"');
+    expect(uiSource).toContain('data-testid="campaign-sequence-progress"');
+    expect(uiSource).toContain('data-testid="campaign-sequence-advance-button"');
     expect(uiSource).toContain("Steps with existing sends are locked");
     expect(uiSource).toContain("{{company_name}}");
+    expect(uiSource).toContain("Manual sends do not move prospects through the sequence");
   });
 });

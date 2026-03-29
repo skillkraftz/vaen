@@ -182,12 +182,14 @@ describe("prospect actions and ui", () => {
     expect(source).toContain("export async function generateOutreachPackageAction");
     expect(source).toContain("export async function prepareProspectEmailDraftAction");
     expect(source).toContain("export async function sendProspectOutreachAction");
+    expect(source).toContain("export async function pauseProspectSequenceAction");
+    expect(source).toContain("export async function resumeProspectSequenceAction");
     expect(source).toContain("analyzeProspectWebsite");
     expect(source).toContain("createRevisionAndSetCurrent");
     expect(source).toContain("processIntakeAction");
     expect(source).toContain("generateSiteAction");
     expect(source).toContain("runReviewAction");
-    expect(source).toContain("sendEmailViaResend");
+    expect(source).toContain("executeProspectOutreachSend");
     expect(campaignSource).toContain("export async function createCampaignAction");
     expect(campaignSource).toContain("export async function assignProspectsToCampaignAction");
     expect(campaignSource).toContain("export async function importProspectsAction");
@@ -196,6 +198,7 @@ describe("prospect actions and ui", () => {
     expect(campaignSource).toContain("export async function batchRunCampaignAutomationAction");
     expect(campaignSource).toContain("export async function batchGenerateCampaignPackagesAction");
     expect(campaignSource).toContain("export async function batchSendCampaignOutreachAction");
+    expect(campaignSource).toContain("export async function advanceDueFollowUpsAction");
   });
 
   it("conversion reuses client/project models and records source_prospect_id", () => {
@@ -225,24 +228,26 @@ describe("prospect actions and ui", () => {
   it("uses the outreach package as the send source of truth and records send history", () => {
     const actionsPath = join(__dirname, "../app/dashboard/prospects/actions.ts");
     const campaignActionsPath = join(__dirname, "../app/dashboard/campaigns/actions.ts");
+    const helperPath = join(__dirname, "../app/dashboard/prospects/prospect-send-helpers.ts");
     const source = readFileSync(actionsPath, "utf-8");
     const campaignSource = readFileSync(campaignActionsPath, "utf-8");
+    const helperSource = readFileSync(helperPath, "utf-8");
     const sendFn = source.slice(
       source.indexOf("export async function sendProspectOutreachAction"),
     );
     const batchSendFn = campaignSource.slice(
       campaignSource.indexOf("export async function batchSendCampaignOutreachAction"),
     );
-    expect(sendFn).toContain('from("prospect_outreach_packages")');
-    expect(sendFn).toContain('from("outreach_sends")');
-    expect(sendFn).toContain("campaign_id: p.campaign_id ?? null");
-    expect(sendFn).toContain("getProspectSendReadiness");
-    expect(sendFn).toContain("getOutreachConfigReadiness");
-    expect(sendFn).toContain("isDuplicateSendBlocked");
-    expect(sendFn).toContain('status: "blocked"');
-    expect(sendFn).toContain('status: "sent"');
-    expect(sendFn).toContain('outreach_status: "sent"');
-    expect(sendFn).toContain("computeNextFollowUpDate");
+    expect(sendFn).toContain("executeProspectOutreachSend");
+    expect(helperSource).toContain('from("outreach_sends")');
+    expect(helperSource).toContain("campaign_id: params.campaignId ?? params.prospect.campaign_id ?? null");
+    expect(helperSource).toContain("getProspectSendReadiness");
+    expect(helperSource).toContain("getOutreachConfigReadiness");
+    expect(helperSource).toContain("isDuplicateSendBlocked");
+    expect(helperSource).toContain('status: "blocked"');
+    expect(helperSource).toContain('status: "sent"');
+    expect(helperSource).toContain('outreach_status: "sent"');
+    expect(helperSource).toContain("computeNextFollowUpDate");
     expect(batchSendFn).toContain('requireRole("sales")');
     expect(batchSendFn).toContain("approval_required");
     expect(batchSendFn).toContain("createApprovalRequestRecord");
@@ -305,6 +310,7 @@ describe("prospect actions and ui", () => {
     expect(detailSource).toContain('data-testid="prospect-readiness-panel"');
     expect(detailSource).toContain('data-testid="prospect-outreach-package"');
     expect(detailSource).toContain('data-testid="prospect-send-history"');
+    expect(detailSource).toContain('data-testid="prospect-sequence-state"');
     expect(detailSource).toContain('data-testid="prospect-email-subject"');
     expect(detailSource).toContain('data-testid="prospect-email-body"');
     expect(detailSource).toContain("/dashboard/settings/outreach");
@@ -317,6 +323,7 @@ describe("prospect actions and ui", () => {
     expect(actionsSource).toContain('data-testid="prospect-preview-email-button"');
     expect(actionsSource).toContain('data-testid="prospect-send-confirm"');
     expect(actionsSource).toContain('data-testid="prospect-send-button"');
+    expect(actionsSource).toContain('data-testid="prospect-sequence-toggle"');
     expect(listUiSource).toContain('data-testid="prospect-bulk-campaign-select"');
     expect(listUiSource).toContain('data-testid="prospect-bulk-assign-button"');
     expect(listUiSource).toContain('data-testid="prospect-import-link"');
@@ -331,5 +338,7 @@ describe("prospect actions and ui", () => {
     expect(campaignDetailUiSource).toContain('data-testid="campaign-batch-send-button"');
     expect(campaignDetailUiSource).toContain('data-testid="campaign-batch-send-phrase"');
     expect(campaignDetailUiSource).toContain('data-testid="campaign-prospect-list"');
+    expect(campaignDetailUiSource).toContain('data-testid="campaign-sequence-advance-button"');
+    expect(campaignDetailUiSource).toContain("Manual sends do not move prospects through the sequence");
   });
 });

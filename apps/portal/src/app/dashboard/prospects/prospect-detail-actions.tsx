@@ -7,10 +7,13 @@ import {
   continueProspectAutomationAction,
   convertProspectAction,
   generateOutreachPackageAction,
+  pauseProspectSequenceAction,
   prepareProspectEmailDraftAction,
+  resumeProspectSequenceAction,
   sendProspectOutreachAction,
 } from "./actions";
 import { PROSPECT_AUTOMATION_LEVELS } from "@/lib/prospect-outreach";
+import { readProspectSequenceState } from "@/lib/campaign-sequences";
 import type { Prospect, ProspectAutomationLevel } from "@/lib/types";
 
 export function ProspectDetailActions({
@@ -29,6 +32,8 @@ export function ProspectDetailActions({
   const [confirmSend, setConfirmSend] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
+  const sequenceState = readProspectSequenceState(prospect.metadata);
+  const sequencePaused = sequenceState?.paused === true;
 
   function analyze() {
     setError(null);
@@ -99,6 +104,20 @@ export function ProspectDetailActions({
         return;
       }
       setConfirmSend(false);
+      router.refresh();
+    });
+  }
+
+  function toggleSequencePause() {
+    setError(null);
+    startTransition(async () => {
+      const result = sequencePaused
+        ? await resumeProspectSequenceAction(prospect.id)
+        : await pauseProspectSequenceAction(prospect.id);
+      if (result.error) {
+        setError(result.error);
+        return;
+      }
       router.refresh();
     });
   }
@@ -190,6 +209,18 @@ export function ProspectDetailActions({
         >
           {isPending ? "Sending..." : "Send Outreach Email"}
         </button>
+        {prospect.campaign_id && (
+          <button
+            type="button"
+            className="btn btn-sm"
+            onClick={toggleSequencePause}
+            disabled={isPending}
+            style={{ marginLeft: "0.5rem" }}
+            data-testid="prospect-sequence-toggle"
+          >
+            {isPending ? "Updating..." : sequencePaused ? "Resume Sequence" : "Pause Sequence"}
+          </button>
+        )}
       </div>
       {error && (
         <p className="text-sm" style={{ color: "var(--color-error)", marginTop: "0.75rem" }}>{error}</p>

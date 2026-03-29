@@ -6,12 +6,21 @@ import { useRouter } from "next/navigation";
 import {
   getAvailableStepNumbers,
   isCampaignStepLocked,
+  readProspectSequenceState,
   sortCampaignSequenceSteps,
   type CampaignSequenceStepInput,
 } from "@/lib/campaign-sequences";
 import { getProspectSendReadiness } from "@/lib/outreach-execution";
-import type { ApprovalRequest, Campaign, CampaignSequenceStep, Prospect, ProspectOutreachPackage } from "@/lib/types";
+import { getCampaignSequenceProgress, getSequencePauseReason } from "@/lib/sequence-execution";
+import type {
+  ApprovalRequest,
+  Campaign,
+  CampaignSequenceStep,
+  Prospect,
+  ProspectOutreachPackage,
+} from "@/lib/types";
 import {
+  advanceDueFollowUpsAction,
   batchAnalyzeCampaignProspectsAction,
   batchConvertCampaignProspectsAction,
   batchGenerateCampaignPackagesAction,
@@ -83,8 +92,15 @@ export function CampaignDetailManager({
     }),
     [rows, statusFilter, readinessFilter],
   );
+  const sequenceProgress = useMemo(
+    () => getCampaignSequenceProgress({
+      sequenceSteps,
+      prospects: rows.map((row) => row.prospect),
+    }),
+    [rows, sequenceSteps],
+  );
+  const dueFollowUpCount = sequenceProgress.reduce((sum, step) => sum + step.dueCount, 0);
   const availableStepNumbers = getAvailableStepNumbers(sequenceDraft);
-
   const confirmationPhrase = `SEND ${selectedIds.length} EMAIL${selectedIds.length === 1 ? "" : "S"}`;
 
   function toggleProspect(prospectId: string) {
@@ -197,6 +213,20 @@ export function CampaignDetailManager({
         prospectIds: selectedIds,
         level: automationLevel,
       });
+      if (result.error) {
+        setError(result.error);
+        return;
+      }
+      setBatchResult(result);
+      router.refresh();
+    });
+  }
+
+  function advanceDueFollowUps() {
+    setError(null);
+    setNotice(null);
+    startTransition(async () => {
+      const result = await advanceDueFollowUpsAction(campaign.id);
       if (result.error) {
         setError(result.error);
         return;
@@ -327,9 +357,10 @@ export function CampaignDetailManager({
         ) : (
           <div style={{ display: "grid", gap: "0.75rem" }}>
             {sequenceDraft.map((step) => {
-              const locked = isCampaignStepLocked(step.step_number, new Map(
-                Object.entries(lockedStepCounts).map(([key, value]) => [Number(key), value]),
-              ));
+              const locked = isCampaignStepLocked(
+                step.step_number,
+                new Map(Object.entries(lockedStepCounts).map(([key, value]) => [Number(key), value])),
+              );
               const lockCount = lockedStepCounts[step.step_number] ?? 0;
               return (
                 <div
@@ -444,6 +475,47 @@ export function CampaignDetailManager({
         </div>
       </div>
 
+      <div className="card" style={{ marginBottom: "1rem" }} data-testid="campaign-sequence-progress">
+        <div className="section-header" style={{ marginBottom: "0.75rem" }}>
+          <div>
+            <h2 style={{ fontSize: "1rem", fontWeight: 600 }}>Sequence Progress</h2>
+            <p className="text-sm text-muted">
+              Follow-ups only advance when you trigger them here. Manual sends do not move prospects through the sequence.
+            </p>
+          </div>
+          <button
+            type="button"
+            className="btn btn-sm btn-primary"
+            onClick={advanceDueFollowUps}
+            disabled={isPending || sequenceSteps.length === 0 || dueFollowUpCount === 0}
+            data-testid="campaign-sequence-advance-button"
+          >
+            {isPending ? "Advancing..." : `Advance Due Follow-ups${dueFollowUpCount > 0 ? ` (${dueFollowUpCount})` : ""}`}
+          </button>
+        </div>
+        {sequenceProgress.length === 0 ? (
+          <p className="text-sm text-muted">Add sequence steps before advancing follow-ups.</p>
+        ) : (
+          <div style={{ display: "grid", gap: "0.5rem" }}>
+            {sequenceProgress.map((step) => (
+              <div
+                key={step.step_number}
+                className="card"
+                style={{ padding: "0.75rem", background: "var(--color-surface-subtle)" }}
+                data-testid={`campaign-sequence-progress-step-${step.step_number}`}
+              >
+                <div style={{ display: "flex", justifyContent: "space-between", gap: "0.75rem", flexWrap: "wrap" }}>
+                  <strong>{`Step ${step.step_number}: ${step.label}`}</strong>
+                  <span className="text-sm text-muted">
+                    sent {step.sentCount} · due {step.dueCount} · paused {step.pausedCount}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
       <div className="card" style={{ marginBottom: "1rem" }} data-testid="campaign-batch-actions">
         <p className="text-sm text-muted" style={{ marginBottom: "0.75rem" }}>
           Selected prospects: {selectedIds.length}. Batch actions stay explicit: analysis, conversion, and early pipeline automation run one prospect at a time and report per-prospect outcomes. Sending still requires a typed confirmation phrase.
@@ -528,6 +600,23 @@ export function CampaignDetailManager({
         )}
       </div>
 
+      {(notice || approvalRequest) && (
+        <div
+          className="card"
+          style={{ marginBottom: "1rem", padding: "0.75rem", background: "var(--color-surface-subtle)" }}
+          data-testid="campaign-approval-banner"
+        >
+          <p className="text-sm" style={{ color: "var(--color-warning)" }}>
+            {notice ?? `Batch outreach approval is ${approvalRequest?.status}.`}
+          </p>
+          {approvalRequest?.resolution_note && (
+            <p className="text-sm text-muted" style={{ marginTop: "0.35rem" }}>
+              {approvalRequest.resolution_note}
+            </p>
+          )}
+        </div>
+      )}
+
       {batchResult?.summary && (
         <div className="card" style={{ marginBottom: "1rem" }} data-testid="campaign-batch-result">
           <p className="text-sm text-muted">
@@ -556,6 +645,9 @@ export function CampaignDetailManager({
           <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
             {filteredRows.map((row) => {
               const readiness = computedReadiness(row);
+              const sequenceState = readProspectSequenceState(row.prospect.metadata);
+              const pauseReason = getSequencePauseReason(row.prospect);
+
               return (
                 <div key={row.prospect.id} style={{ borderBottom: "1px solid var(--color-border)", paddingBottom: "0.75rem" }}>
                   <div style={{ display: "flex", gap: "0.75rem", alignItems: "flex-start" }}>
@@ -575,27 +667,18 @@ export function CampaignDetailManager({
                           <p className="text-sm text-muted" style={{ marginTop: "0.25rem" }}>
                             Prospect: {row.prospect.status} · Outreach: {row.prospect.outreach_status ?? "draft"} · Send: {readiness}
                           </p>
+                          {(sequenceState || pauseReason) && (
+                            <p className="text-sm text-muted">
+                              Sequence: {pauseReason
+                                ? `paused (${pauseReason})`
+                                : `step ${sequenceState?.current_step ?? 1}`}
+                            </p>
+                          )}
                         </div>
                         <div style={{ textAlign: "right" }}>
                           <span className="badge">{readiness}</span>
-        </div>
-        {(notice || approvalRequest) && (
-          <div
-            className="card"
-            style={{ marginTop: "0.75rem", padding: "0.75rem", background: "var(--color-surface-subtle)" }}
-            data-testid="campaign-approval-banner"
-          >
-            <p className="text-sm" style={{ color: "var(--color-warning)" }}>
-              {notice ?? `Batch outreach approval is ${approvalRequest?.status}.`}
-            </p>
-            {approvalRequest?.resolution_note && (
-              <p className="text-sm text-muted" style={{ marginTop: "0.35rem" }}>
-                {approvalRequest.resolution_note}
-              </p>
-            )}
-          </div>
-        )}
-      </div>
+                        </div>
+                      </div>
                     </div>
                   </div>
                 </div>

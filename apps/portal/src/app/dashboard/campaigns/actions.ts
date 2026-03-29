@@ -9,11 +9,21 @@ import {
   canRemoveCampaignStep,
   getLockedCampaignStepCounts,
   normalizeCampaignSequenceStepInput,
+  readProspectSequenceState,
   sortCampaignSequenceSteps,
   validateCampaignSequenceSteps,
   type CampaignSequenceStepInput,
 } from "@/lib/campaign-sequences";
-import type { Campaign, CampaignSequenceStep, OutreachSend, Prospect } from "@/lib/types";
+import {
+  advanceCampaignSequenceStateAfterSend,
+  buildCampaignSequenceState,
+  buildPausedSequenceState,
+  buildSequenceTemplateValues,
+  getCurrentCampaignStep,
+  getSequencePauseReason,
+  renderSequenceTemplate,
+} from "@/lib/sequence-execution";
+import type { Campaign, CampaignSequenceStep, Prospect, ProspectOutreachPackage } from "@/lib/types";
 import {
   analyzeProspectAction,
   continueProspectAutomationAction,
@@ -22,6 +32,7 @@ import {
   sendProspectOutreachAction,
 } from "../prospects/actions";
 import type { ProspectAutomationLevel } from "@/lib/types";
+import { executeProspectOutreachSend } from "../prospects/prospect-send-helpers";
 
 async function requireCampaignOwner(
   supabase: Awaited<ReturnType<typeof createClient>>,
@@ -301,6 +312,243 @@ export async function deleteCampaignSequenceStepAction(
   revalidatePath(`/dashboard/campaigns/${campaignId}`);
   revalidatePath("/dashboard/campaigns");
   return {};
+}
+
+export async function advanceDueFollowUpsAction(
+  campaignId: string,
+): Promise<{
+  error?: string;
+  summary?: { sent: number; skipped: number; blocked: number; failed: number };
+  results?: Array<{
+    prospectId: string;
+    status: "sent" | "skipped" | "blocked" | "failed";
+    message: string;
+    sendId?: string;
+    currentStepNumber?: number | null;
+    nextStepNumber?: number | null;
+  }>;
+}> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated" };
+
+  const roleCheck = await requireRole("sales");
+  if (!roleCheck.ok) return { error: roleCheck.error };
+
+  const campaign = await requireCampaignOwner(supabase, campaignId, user.id);
+  if (!campaign) return { error: "Campaign not found." };
+
+  const [{ data: steps, error: stepsError }, { data: prospects, error: prospectsError }] = await Promise.all([
+    supabase
+      .from("campaign_sequence_steps")
+      .select("*")
+      .eq("campaign_id", campaignId)
+      .order("step_number", { ascending: true }),
+    supabase
+      .from("prospects")
+      .select("*")
+      .eq("campaign_id", campaignId)
+      .eq("user_id", user.id)
+      .order("created_at", { ascending: false }),
+  ]);
+
+  if (stepsError) return { error: stepsError.message };
+  if (prospectsError) return { error: prospectsError.message };
+
+  const sequenceSteps = (steps ?? []) as CampaignSequenceStep[];
+  if (sequenceSteps.length === 0) {
+    return { error: "Add at least one campaign sequence step before advancing follow-ups." };
+  }
+
+  const prospectItems = (prospects ?? []) as Prospect[];
+  const prospectIds = prospectItems.map((prospect) => prospect.id);
+  const { data: packages } = prospectIds.length > 0
+    ? await supabase
+        .from("prospect_outreach_packages")
+        .select("*")
+        .in("prospect_id", prospectIds)
+        .order("created_at", { ascending: false })
+    : { data: [] };
+
+  const latestPackageByProspect = new Map<string, ProspectOutreachPackage>();
+  for (const item of ((packages ?? []) as ProspectOutreachPackage[])) {
+    if (!latestPackageByProspect.has(item.prospect_id)) {
+      latestPackageByProspect.set(item.prospect_id, item);
+    }
+  }
+
+  const results: Array<{
+    prospectId: string;
+    status: "sent" | "skipped" | "blocked" | "failed";
+    message: string;
+    sendId?: string;
+    currentStepNumber?: number | null;
+    nextStepNumber?: number | null;
+  }> = [];
+
+  for (const prospect of prospectItems) {
+    const existingState = readProspectSequenceState(prospect.metadata);
+    const pauseReason = getSequencePauseReason(prospect);
+
+    if (pauseReason) {
+      const pausedState = buildPausedSequenceState({
+        sequenceSteps,
+        existingState,
+        pausedReason: pauseReason,
+      });
+      await supabase
+        .from("prospects")
+        .update({
+          metadata: {
+            ...(prospect.metadata ?? {}),
+            sequence_state: pausedState,
+          },
+        })
+        .eq("id", prospect.id);
+
+      results.push({
+        prospectId: prospect.id,
+        status: "skipped",
+        message: pauseReason === "replied"
+          ? "Sequence paused because the prospect is marked replied."
+          : pauseReason === "do_not_contact"
+            ? "Sequence paused because the prospect is marked do_not_contact."
+            : "Sequence is paused manually.",
+        currentStepNumber: pausedState.current_step || null,
+      });
+      continue;
+    }
+
+    const current = getCurrentCampaignStep({
+      sequenceSteps,
+      sequenceState: existingState,
+    });
+
+    if (!current.step || current.completed) {
+      results.push({
+        prospectId: prospect.id,
+        status: "skipped",
+        message: "Sequence is already complete for this prospect.",
+      });
+      continue;
+    }
+
+    if (current.state?.sent_at) {
+      results.push({
+        prospectId: prospect.id,
+        status: "skipped",
+        message: `Step ${current.step.step_number} has already been sent.`,
+        currentStepNumber: current.step.step_number,
+      });
+      continue;
+    }
+
+    if (!current.due) {
+      results.push({
+        prospectId: prospect.id,
+        status: "skipped",
+        message: `Step ${current.step.step_number} is not due yet.`,
+        currentStepNumber: current.step.step_number,
+      });
+      continue;
+    }
+
+    const latestPackage = latestPackageByProspect.get(prospect.id) ?? null;
+    const templateValues = buildSequenceTemplateValues({
+      prospect,
+      outreachPackage: latestPackage,
+    });
+    const subject = renderSequenceTemplate(current.step.subject_template, templateValues)
+      || latestPackage?.email_subject
+      || null;
+    const body = renderSequenceTemplate(current.step.body_template, templateValues)
+      || latestPackage?.email_body
+      || null;
+
+    const sendResult = await executeProspectOutreachSend({
+      supabase,
+      prospect,
+      outreachPackage: latestPackage,
+      confirm: true,
+      subjectOverride: subject,
+      bodyOverride: body,
+      campaignId,
+    });
+
+    if (sendResult.status !== "sent" || !sendResult.sendId || !sendResult.sentAt) {
+      results.push({
+        prospectId: prospect.id,
+        status: sendResult.status ?? "failed",
+        message: sendResult.error ?? "Failed to advance follow-up.",
+        sendId: sendResult.sendId,
+        currentStepNumber: current.step.step_number,
+      });
+      continue;
+    }
+
+    const nextState = advanceCampaignSequenceStateAfterSend({
+      sequenceSteps,
+      existingState: existingState
+        ? buildCampaignSequenceState({ sequenceSteps, existingState })
+        : null,
+      sentStepNumber: current.step.step_number,
+      sendId: sendResult.sendId,
+      sentAt: new Date(sendResult.sentAt),
+    });
+
+    const nextStepState = nextState.nextStepNumber
+      ? nextState.sequenceState.steps.find((step) => step.step_number === nextState.nextStepNumber) ?? null
+      : null;
+
+    await supabase
+      .from("prospects")
+      .update({
+        outreach_status: nextStepState ? "followup_due" : "sent",
+        next_follow_up_due_at: nextStepState?.due_at ?? null,
+        metadata: {
+          ...(prospect.metadata ?? {}),
+          sequence_state: nextState.sequenceState,
+          latest_sequence_send_id: sendResult.sendId,
+          latest_sequence_step_number: current.step.step_number,
+        },
+      })
+      .eq("id", prospect.id);
+
+    results.push({
+      prospectId: prospect.id,
+      status: "sent",
+      message: nextStepState
+        ? `Sent step ${current.step.step_number}. Step ${nextState.nextStepNumber} is now scheduled.`
+        : `Sent final sequence step ${current.step.step_number}.`,
+      sendId: sendResult.sendId,
+      currentStepNumber: current.step.step_number,
+      nextStepNumber: nextState.nextStepNumber,
+    });
+  }
+
+  await touchCampaign(supabase, campaignId, {
+    last_sequence_advance_at: new Date().toISOString(),
+    last_sequence_advance_summary: {
+      sent: results.filter((item) => item.status === "sent").length,
+      skipped: results.filter((item) => item.status === "skipped").length,
+      blocked: results.filter((item) => item.status === "blocked").length,
+      failed: results.filter((item) => item.status === "failed").length,
+    },
+  });
+
+  revalidatePath("/dashboard/campaigns");
+  revalidatePath(`/dashboard/campaigns/${campaignId}`);
+  revalidatePath("/dashboard/prospects");
+
+  return {
+    summary: {
+      sent: results.filter((item) => item.status === "sent").length,
+      skipped: results.filter((item) => item.status === "skipped").length,
+      blocked: results.filter((item) => item.status === "blocked").length,
+      failed: results.filter((item) => item.status === "failed").length,
+    },
+    results,
+  };
 }
 
 export async function assignProspectsToCampaignAction(params: {
