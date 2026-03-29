@@ -75,7 +75,9 @@ describe("deployment readiness ui integration", () => {
     expect(pageSource).toContain('data-testid="deployment-readiness-badge"');
     expect(pageSource).toContain('data-testid="deployment-blockers"');
     expect(pageSource).toContain('data-testid="deployment-warnings"');
+    expect(pageSource).toContain('testId="deployment-worker-health"');
     expect(pageSource).toContain("active revision request payload");
+    expect(pageSource).toContain("Worker heartbeat");
     expect(layoutSource).toContain("/dashboard/settings/deployment");
     expect(layoutSource).toContain("Deployment");
     expect(readmeSource).toContain("/dashboard/settings/deployment");

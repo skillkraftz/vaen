@@ -2,9 +2,11 @@ import { describe, expect, it } from "vitest";
 import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import {
+  getWorkerCurrentJobSummary,
   getWorkerHealthStatus,
   interpretJobLifecycleStatus,
   isWorkerHeartbeatFresh,
+  summarizeWorkerHealth,
 } from "./worker-health";
 
 const REPO_ROOT = resolve(__dirname, "../../../..");
@@ -28,6 +30,50 @@ describe("worker health helpers", () => {
     expect(interpretJobLifecycleStatus("completed")).toBe("completed");
     expect(interpretJobLifecycleStatus("failed")).toBe("failed");
     expect(interpretJobLifecycleStatus(null)).toBe("unknown");
+  });
+
+  it("summarizes missing and stale worker states with operator guidance", () => {
+    const now = new Date("2026-03-29T12:00:00.000Z");
+
+    const missing = summarizeWorkerHealth(null, null, now);
+    expect(missing.status).toBe("missing");
+    expect(missing.heading).toContain("No worker heartbeat");
+    expect(missing.nextStep).toContain("Start the worker poller");
+
+    const stale = summarizeWorkerHealth(
+      {
+        last_seen_at: "2026-03-29T11:57:00.000Z",
+        current_job_id: "job-123",
+        metadata: { job_type: "generate", project_id: "proj-123" },
+      },
+      null,
+      now,
+    );
+    expect(stale.status).toBe("stale");
+    expect(stale.detail).toContain("may still have been running");
+    expect(stale.currentJob?.jobType).toBe("generate");
+  });
+
+  it("prefers joined current job data over heartbeat metadata when available", () => {
+    const result = getWorkerCurrentJobSummary(
+      {
+        current_job_id: "job-meta",
+        metadata: { job_type: "review", project_id: "proj-meta" },
+      },
+      {
+        id: "job-real",
+        job_type: "deploy_prepare",
+        project_id: "proj-real",
+        status: "running",
+      },
+    );
+
+    expect(result).toEqual({
+      id: "job-real",
+      jobType: "deploy_prepare",
+      projectId: "proj-real",
+      status: "running",
+    });
   });
 });
 
@@ -78,5 +124,25 @@ describe("supabase-polled worker architecture", () => {
     expect(reviewFn).toContain("shouldUseLocalWorkerSpawn()");
     expect(generateFn).not.toContain("spawnWorker(job.id);\n\n  revalidatePath");
     expect(reviewFn).not.toContain("spawnWorker(job.id);\n\n  revalidatePath");
+  });
+
+  it("adds a server helper and operator-facing UI for worker heartbeat visibility", () => {
+    const helperPath = join(REPO_ROOT, "apps/portal/src/lib/worker-heartbeats-server.ts");
+    const workerHealthHelperPath = join(REPO_ROOT, "apps/portal/src/lib/worker-health.ts");
+    const deploymentPagePath = join(REPO_ROOT, "apps/portal/src/app/dashboard/settings/deployment/page.tsx");
+    const viewerPath = join(REPO_ROOT, "apps/portal/src/app/dashboard/projects/[id]/project-job-artifact-viewer.tsx");
+    const cardPath = join(REPO_ROOT, "apps/portal/src/app/dashboard/worker-health-card.tsx");
+    const helperSource = readFileSync(helperPath, "utf-8");
+    const workerHealthSource = readFileSync(workerHealthHelperPath, "utf-8");
+    const deploymentPageSource = readFileSync(deploymentPagePath, "utf-8");
+    const viewerSource = readFileSync(viewerPath, "utf-8");
+    const cardSource = readFileSync(cardPath, "utf-8");
+
+    expect(helperSource).toContain('from("worker_heartbeats")');
+    expect(helperSource).toContain("loadLatestWorkerHeartbeat");
+    expect(deploymentPageSource).toContain("deployment-worker-health");
+    expect(viewerSource).toContain("project-worker-health");
+    expect(workerHealthSource).toContain("No worker heartbeat detected");
+    expect(cardSource).toContain("What to do next");
   });
 });

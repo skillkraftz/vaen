@@ -98,11 +98,14 @@ describe("project job artifact viewer integration", () => {
 
     expect(pageSource).toContain("ProjectJobArtifactViewer");
     expect(pageSource).toContain('from("jobs")');
+    expect(pageSource).toContain("loadLatestWorkerHeartbeat");
     expect(viewerSource).toContain('data-testid="project-job-artifact-viewer"');
+    expect(viewerSource).toContain('testId="project-worker-health"');
     expect(viewerSource).toContain('data-testid="job-artifact-latest-jobs"');
     expect(viewerSource).toContain('data-testid="job-artifact-artifacts"');
     expect(viewerSource).toContain('data-testid={`artifact-view-item-${item.key}`}' );
     expect(viewerSource).toContain("This view explains what was attempted");
+    expect(viewerSource).toContain("Worker status");
   });
 
   it("extends artifact status to include normalized operator-facing files", () => {

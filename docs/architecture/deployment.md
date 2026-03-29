@@ -138,6 +138,7 @@ OPENAI_API_KEY=sk-...  # for generator AI calls
 - `apps/worker/src/poll.ts` claims pending jobs from Supabase
 - Portal inserts jobs; worker polls and executes
 - `worker_heartbeats` is the worker health source
+- Portal now surfaces worker heartbeat state on deployment settings and project job/artifact views
 - `deployment_runs` track deploy-prepare history from authoritative revision/build state
 - Local direct spawn remains available only as an opt-in dev fallback
 
@@ -167,5 +168,4 @@ OPENAI_API_KEY=sk-...  # for generator AI calls
 1. Run the worker poller under a persistent supervisor on the VM
 2. Provision Playwright/build dependencies on that VM
 3. Decide the shared/generated workspace location and retention policy
-4. Add operator-facing worker heartbeat visibility to the portal UI
-5. Add provider adapters for GitHub/Vercel/domain wiring on top of deployment runs
+4. Add provider adapters for GitHub/Vercel/domain wiring on top of deployment runs

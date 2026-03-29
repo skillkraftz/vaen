@@ -1,8 +1,13 @@
 import Link from "next/link";
 import { getServerDeploymentReadiness } from "@/lib/deployment-readiness-server";
+import { createClient } from "@/lib/supabase/server";
+import { loadLatestWorkerHeartbeat } from "@/lib/worker-heartbeats-server";
+import { WorkerHealthCard } from "@/app/dashboard/worker-health-card";
 
 export default async function DeploymentSettingsPage() {
+  const supabase = await createClient();
   const readiness = getServerDeploymentReadiness();
+  const workerSnapshot = await loadLatestWorkerHeartbeat(supabase);
 
   return (
     <div className="section" data-testid="deployment-settings-page">
@@ -25,6 +30,15 @@ export default async function DeploymentSettingsPage() {
           Before release work, verify Business Details and Request Data (JSON) are in sync on the project page so
           downstream export and deployment-payload generation use authoritative data.
         </p>
+      </div>
+
+      <div style={{ marginBottom: "1rem" }}>
+        <WorkerHealthCard
+          heartbeat={workerSnapshot.heartbeat}
+          currentJob={workerSnapshot.currentJob}
+          title="Worker heartbeat"
+          testId="deployment-worker-health"
+        />
       </div>
 
       <div className="card" style={{ marginBottom: "1rem" }}>

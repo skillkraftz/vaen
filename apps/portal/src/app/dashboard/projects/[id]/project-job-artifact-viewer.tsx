@@ -1,5 +1,5 @@
 import type { ArtifactStatus } from "./project-review-types";
-import type { JobRecord } from "@/lib/types";
+import type { JobRecord, WorkerHeartbeat } from "@/lib/types";
 import {
   getJobRelatedArtifacts,
   getLatestAttemptedJob,
@@ -7,6 +7,7 @@ import {
   getProjectArtifactViewerItems,
   summarizeJobForOperator,
 } from "@/lib/project-job-artifact-view";
+import { WorkerHealthCard } from "@/app/dashboard/worker-health-card";
 
 function formatDate(iso: string | null) {
   if (!iso) return "Not yet";
@@ -35,9 +36,13 @@ function statusBadge(status: JobRecord["status"]) {
 export function ProjectJobArtifactViewer({
   jobs,
   artifacts,
+  workerHeartbeat,
+  workerCurrentJob,
 }: {
   jobs: JobRecord[];
   artifacts: ArtifactStatus;
+  workerHeartbeat: Pick<WorkerHeartbeat, "worker_id" | "hostname" | "last_seen_at" | "status" | "current_job_id" | "metadata"> | null;
+  workerCurrentJob?: Pick<JobRecord, "id" | "job_type" | "project_id" | "status"> | null;
 }) {
   const latestGenerate = getLatestAttemptedJob(jobs, "generate");
   const latestReview = getLatestAttemptedJob(jobs, "review");
@@ -61,6 +66,13 @@ export function ProjectJobArtifactViewer({
               This view explains what was attempted, what succeeded last, what files exist, and what to do next.
             </p>
           </div>
+
+          <WorkerHealthCard
+            heartbeat={workerHeartbeat}
+            currentJob={workerCurrentJob}
+            title="Worker status"
+            testId="project-worker-health"
+          />
 
           <div className="detail-grid" data-testid="job-artifact-latest-jobs">
             {jobCards.map(({ label, job, latestSuccess }) => {

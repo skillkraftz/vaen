@@ -23,6 +23,7 @@ import { ModuleManager } from "./module-manager";
 import { QuoteSection } from "./quote-section";
 import { DeploymentRunsSection } from "./project-deployment-panel";
 import { ProjectJobArtifactViewer } from "./project-job-artifact-viewer";
+import { loadLatestWorkerHeartbeat } from "@/lib/worker-heartbeats-server";
 import { expirePastDueQuotes } from "./project-quote-helpers";
 import { readArtifactStatusFromDisk } from "./project-artifact-helpers";
 import {
@@ -154,6 +155,8 @@ export default async function ProjectDetailPage({
     .eq("project_id", id)
     .order("created_at", { ascending: false })
     .limit(10);
+
+  const workerSnapshot = await loadLatestWorkerHeartbeat(supabase);
 
   const assetList = (assets ?? []) as Asset[];
   const eventList = (events ?? []) as ProjectEvent[];
@@ -360,6 +363,8 @@ export default async function ProjectDetailPage({
       <ProjectJobArtifactViewer
         jobs={jobList}
         artifacts={artifactSnapshot}
+        workerHeartbeat={workerSnapshot.heartbeat}
+        workerCurrentJob={workerSnapshot.currentJob}
       />
 
       {/* ── Business Details ───────────────────────────────────────── */}
