@@ -85,20 +85,20 @@ export function DiagnosticsPanel({ projectId, slug }: { projectId: string; slug:
               style={{
                 fontWeight: 600,
                 color:
-                  diag.requestSource === "final"
+                  diag.requestSource === "revision"
                     ? "#065f46"
-                    : diag.requestSource === "draft"
+                    : diag.requestSource === "legacy_draft"
                       ? "#92400e"
                       : "#b71c1c",
               }}
             >
-              {diag.requestSource === "final" && "Using: Final (AI-improved) request"}
-              {diag.requestSource === "draft" && "Using: Draft request"}
+              {diag.requestSource === "revision" && "Using: Active revision request"}
+              {diag.requestSource === "legacy_draft" && "Using: Legacy draft fallback"}
               {diag.requestSource === "none" && "No request available"}
             </p>
-            {diag.hasFinalRequest && (
-              <p className="text-sm" style={{ color: "#065f46" }}>
-                [ok] Final request imported
+            {diag.hasLegacyDraftFallback && (
+              <p className="text-sm" style={{ color: "#92400e" }}>
+                [warn] This project is falling back to the legacy draft column
               </p>
             )}
           </DiagSection>

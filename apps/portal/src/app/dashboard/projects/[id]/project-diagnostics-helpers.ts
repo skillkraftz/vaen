@@ -26,8 +26,9 @@ export async function buildProjectDiagnostics(
     topLevelKeys: draftObj ? Object.keys(draftObj) : [],
   };
 
-  const hasFinalRequest = project?.final_request !== null && project?.final_request !== undefined;
-  const requestSource = hasFinalRequest ? "final" as const : draftDiag.exists ? "draft" as const : "none" as const;
+  const hasRevisionRequest = project?.current_revision_id !== null && project?.current_revision_id !== undefined;
+  const hasLegacyDraftFallback = !hasRevisionRequest && draftDiag.exists;
+  const requestSource = hasRevisionRequest ? "revision" as const : hasLegacyDraftFallback ? "legacy_draft" as const : "none" as const;
 
   const lastGenerate = jobList.find((job) => job.job_type === "generate") ?? null;
   const lastReview = jobList.find((job) => job.job_type === "review") ?? null;
@@ -78,7 +79,7 @@ export async function buildProjectDiagnostics(
   return {
     draft: draftDiag,
     requestSource,
-    hasFinalRequest,
+    hasLegacyDraftFallback,
     files: fileDiag,
     jobs: {
       lastGenerate: lastGenerate

@@ -164,6 +164,17 @@ Important operational note:
 - verify Business Details and Request Data (JSON) are in sync on project detail before trusting deploy/generate artifacts
 - deployment runs validate `deployment-payload.json`, but provider automation for GitHub/Vercel/domains is still pending
 
+### Request Truth Model
+
+Old model:
+- `projects.draft_request` and `projects.final_request` were treated as if they were live request sources
+
+Current model:
+- `project_request_revisions.request_data` at `projects.current_revision_id` is the authoritative request payload
+- exported `generated/<slug>/client-request.json` is written from that active revision
+- `projects.draft_request` remains as a compatibility shadow for older flows and pre-revision projects
+- `projects.final_request` is deprecated legacy residue and should not be treated as an active source of truth
+
 ### Discord Notifications (Optional)
 
 1. Create a webhook in your Discord server (Server Settings > Integrations > Webhooks)

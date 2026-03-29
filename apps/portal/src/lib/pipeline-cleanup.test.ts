@@ -244,7 +244,8 @@ describe("portal displays latest project artifacts", () => {
 
     // Must report request source
     expect(source).toContain("requestSource");
-    expect(source).toContain("hasFinalRequest");
+    expect(source).toContain("hasLegacyDraftFallback");
+    expect(source).toContain('"legacy_draft"');
   });
 
   it("diagnostics includes all timestamps", () => {
@@ -264,6 +265,8 @@ describe("portal displays latest project artifacts", () => {
 
     expect(source).toContain("screenshotsStale");
     expect(source).toContain("STALE");
+    expect(source).toContain("Active revision request");
+    expect(source).toContain("Legacy draft fallback");
   });
 });
 

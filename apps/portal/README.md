@@ -70,6 +70,18 @@ Deployment readiness is visible in the portal at `/dashboard/settings/deployment
 
 Project pages now also support tracked deployment runs from authoritative revision/export/build state. Those runs validate `deployment-payload.json` and record history without pretending provider automation is finished.
 
+## Request Truth Model
+
+Old model:
+- project editing and exports historically leaned on `draft_request` / `final_request`
+
+Current model:
+- the active revision in `project_request_revisions` is the authoritative request payload
+- project business/contact edits must sync into that revision-backed request data
+- exports, generation, prompt export, and deployment preparation read from the active revision
+- `draft_request` is still kept as a compatibility shadow for legacy paths
+- `final_request` is deprecated and no longer treated as a live request source
+
 ## Database
 
 Tables (see `supabase/migrations/` for full SQL):
@@ -146,7 +158,8 @@ The project detail page supports the full intake processing and review workflow:
 
 Server actions in `actions.ts`: `processIntakeAction`, `approveIntakeAction`, `requestRevisionAction`, `markCustomQuoteAction`, `exportToGeneratorAction`, `updateProjectAction`, `updateDraftRequestAction`, `getAssetUrlAction`, `deleteAssetAction`.
 
-New database columns: `client_summary`, `draft_request`, `missing_info`, `recommendations`.
+Legacy compatibility columns still present on `projects`: `draft_request`, `final_request`.
+Authoritative request state now lives in `project_request_revisions` plus `current_revision_id`.
 
 New states: `intake_processing`, `intake_draft_ready`, `intake_needs_revision`, `intake_approved`, `custom_quote_required`.
 

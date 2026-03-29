@@ -34,6 +34,7 @@ import {
 import {
   createRevisionAndSetCurrent,
   loadCurrentDraft,
+  loadAuthoritativeRequestData,
 } from "./project-revision-helpers";
 import {
   categorizeFile,
@@ -192,20 +193,8 @@ export async function approveIntakeAction(projectId: string): Promise<{ error?: 
     return { error: `Cannot approve intake in status "${p.status}"` };
   }
 
-  // Validate from active revision (the single source of truth)
-  let requestData: Record<string, unknown> | null = null;
-  if (p.current_revision_id) {
-    const { data: rev } = await supabase
-      .from("project_request_revisions")
-      .select("request_data")
-      .eq("id", p.current_revision_id)
-      .single();
-    requestData = (rev?.request_data as Record<string, unknown>) ?? null;
-  }
-  // Legacy fallback for pre-migration projects
-  if (!requestData) {
-    requestData = (p.draft_request as Record<string, unknown>) ?? null;
-  }
+  // Validate from the authoritative request payload
+  const { requestData } = await loadAuthoritativeRequestData(supabase, p);
   if (!requestData) {
     return { error: "No request data found. Process the intake first." };
   }
@@ -1837,7 +1826,7 @@ export async function getScreenshotAction(
 // ── Recovery: Re-export draft to disk from any status ────────────────
 
 /**
- * Writes the current draft_request to generated/<slug>/client-request.json
+ * Writes the current authoritative request payload to generated/<slug>/client-request.json
  * so the generator can pick it up. Works from ANY status.
  *
  * Unlike exportToGeneratorAction (which requires intake_approved and
@@ -1845,7 +1834,8 @@ export async function getScreenshotAction(
  * it validates the draft, writes to disk, and does NOT change status.
  *
  * Data flow:
- *   READ:  projects.draft_request (Supabase)
+ *   READ:  project_request_revisions.request_data via current_revision_id
+ *          (legacy fallback: projects.draft_request for pre-revision projects)
  *   WRITE: generated/<slug>/client-request.json (filesystem)
  *   LOG:   project_events.re_exported (Supabase)
  */
@@ -2192,22 +2182,9 @@ export async function exportPromptAction(
 
   const p = project as Project;
 
-  // Read from active revision (single source of truth)
-  let draft: Record<string, unknown> | null = null;
-  let promptSource: "revision" | "draft_request" = "revision";
-  if (p.current_revision_id) {
-    const { data: rev } = await supabase
-      .from("project_request_revisions")
-      .select("request_data")
-      .eq("id", p.current_revision_id)
-      .single();
-    draft = (rev?.request_data as Record<string, unknown>) ?? null;
-  }
-  // Legacy fallback (pre-migration projects only)
-  if (!draft) {
-    draft = (p.draft_request as Record<string, unknown>) ?? null;
-    promptSource = "draft_request";
-  }
+  const requestResult = await loadAuthoritativeRequestData(supabase, p);
+  const draft = requestResult.requestData;
+  const promptSource = requestResult.source;
   if (!draft) {
     return { error: "No request data found. Process the intake first." };
   }
@@ -2383,7 +2360,7 @@ export async function importFinalRequestAction(
 
 export async function getRequestSourceAction(
   projectId: string,
-): Promise<{ source: "revision" | "draft" | "none"; hasRevision: boolean; hasDraft: boolean }> {
+): Promise<{ source: "revision" | "legacy_draft" | "none"; hasRevision: boolean; hasDraft: boolean }> {
   const supabase = await createClient();
 
   const { data: project } = await supabase
@@ -2398,7 +2375,7 @@ export async function getRequestSourceAction(
   const hasDraft = project.draft_request !== null;
 
   return {
-    source: hasRevision ? "revision" : hasDraft ? "draft" : "none",
+    source: hasRevision ? "revision" : hasDraft ? "legacy_draft" : "none",
     hasRevision,
     hasDraft,
   };

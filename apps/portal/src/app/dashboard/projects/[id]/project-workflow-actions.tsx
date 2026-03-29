@@ -502,7 +502,7 @@ export function ImportFinalRequestPanel({ projectId }: { projectId: string }) {
 
 export function RequestSourceIndicator({ projectId }: { projectId: string }) {
   const [info, setInfo] = useState<{
-    source: "revision" | "draft" | "none";
+    source: "revision" | "legacy_draft" | "none";
     hasRevision: boolean;
     hasDraft: boolean;
   } | null>(null);
@@ -519,8 +519,8 @@ export function RequestSourceIndicator({ projectId }: { projectId: string }) {
       color: "#065f46",
       bg: "#d1fae5",
     },
-    draft: {
-      text: "Generation will use: Draft request (no version yet)",
+    legacy_draft: {
+      text: "Generation will use: Legacy draft fallback (no active version yet)",
       color: "#92400e",
       bg: "#fef3c7",
     },

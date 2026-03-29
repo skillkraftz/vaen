@@ -8,8 +8,8 @@ export interface ProjectDiagnostics {
     servicesCount: number;
     topLevelKeys: string[];
   };
-  requestSource: "final" | "draft" | "none";
-  hasFinalRequest: boolean;
+  requestSource: "revision" | "legacy_draft" | "none";
+  hasLegacyDraftFallback: boolean;
   files: {
     hasExportedRequest: boolean;
     hasWorkspace: boolean;

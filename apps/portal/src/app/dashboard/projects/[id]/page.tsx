@@ -35,6 +35,7 @@ import {
 } from "./project-editor";
 import { CollapsibleSection } from "./collapsible-section";
 import { formatStatusLabel } from "@/lib/workflow-steps";
+import { loadAuthoritativeRequestData } from "./project-revision-helpers";
 
 function statusBadge(status: string) {
   const map: Record<string, string> = {
@@ -175,19 +176,7 @@ export default async function ProjectDetailPage({
   const recommendations = p.recommendations as IntakeRecommendations | null;
   const selectedModules = Array.isArray(p.selected_modules) ? p.selected_modules : [];
 
-  // Load request data from active revision (single source of truth)
-  let requestData: Record<string, unknown> | null = null;
-  if (p.current_revision_id) {
-    const { data: rev } = await supabase
-      .from("project_request_revisions")
-      .select("request_data")
-      .eq("id", p.current_revision_id)
-      .single();
-    requestData = (rev?.request_data as Record<string, unknown>) ?? null;
-  }
-  if (!requestData) {
-    requestData = (p.draft_request ?? null) as Record<string, unknown> | null;
-  }
+  const { requestData } = await loadAuthoritativeRequestData(supabase, p);
 
   const requestPreferences = (requestData?.preferences as Record<string, unknown> | undefined) ?? {};
   const templateId = typeof requestPreferences.template === "string"

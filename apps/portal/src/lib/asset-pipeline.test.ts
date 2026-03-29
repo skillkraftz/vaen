@@ -453,14 +453,10 @@ describe("UI uses plain-language labels", () => {
 // ── Revision-driven pipeline correctness ──────────────────────────────
 
 describe("revision-driven pipeline correctness", () => {
-  it("page.tsx loads request data from active revision, not draft_request", () => {
+  it("page.tsx loads request data through the authoritative request helper", () => {
     const pagePath = join(__dirname, "../app/dashboard/projects/[id]/page.tsx");
     const source = readFileSync(pagePath, "utf-8");
-    // Must query revision table for request data
-    expect(source).toContain("project_request_revisions");
-    expect(source).toContain("current_revision_id");
-    // requestData variable should come from revision
-    expect(source).toContain("rev?.request_data");
+    expect(source).toContain("loadAuthoritativeRequestData");
   });
 
   it("patchDraftFieldAction reads from revision via loadCurrentDraft", () => {
@@ -504,14 +500,13 @@ describe("revision-driven pipeline correctness", () => {
     expect(fn).toContain("draft_request: syncedParsed");
   });
 
-  it("approveIntakeAction validates from active revision", () => {
+  it("approveIntakeAction validates from the authoritative request helper", () => {
     const actionsPath = join(__dirname, "../app/dashboard/projects/[id]/actions.ts");
     const source = readFileSync(actionsPath, "utf-8");
     const fnStart = source.indexOf("export async function approveIntakeAction");
     const fnEnd = source.indexOf("export async function requestRevisionAction");
     const fn = source.slice(fnStart, fnEnd);
-    expect(fn).toContain("current_revision_id");
-    expect(fn).toContain("project_request_revisions");
+    expect(fn).toContain("loadAuthoritativeRequestData");
   });
 
   it("resetToDraftAction cleans client-request.json and screenshot assets", () => {
@@ -1001,6 +996,17 @@ describe("prompt export logs which source was used", () => {
 
     expect(fn).toContain("request_source: promptSource");
     expect(fn).toContain("revision_id:");
+  });
+
+  it("exportPromptAction reads request data through the authoritative request helper", () => {
+    const actionsPath = join(__dirname, "../app/dashboard/projects/[id]/actions.ts");
+    const source = readFileSync(actionsPath, "utf-8");
+    const fnStart = source.indexOf("export async function exportPromptAction");
+    const fnEnd = source.indexOf("export async function importFinalRequestAction");
+    const fn = source.slice(fnStart, fnEnd);
+
+    expect(fn).toContain("loadAuthoritativeRequestData");
+    expect(fn).toContain('promptSource = requestResult.source');
   });
 });
 
