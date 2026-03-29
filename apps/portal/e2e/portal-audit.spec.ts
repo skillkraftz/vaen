@@ -390,7 +390,29 @@ test("10 — build and review", async ({ shared: page }) => {
   try {
     await waitForJobCompletion(page, 180_000);
 
-    // Reload to get fresh state
+    // Wait for the portal page to converge on the post-review state.
+    await expect
+      .poll(
+        async () => {
+          await goToProject(page);
+          const workflowStatus = await getStatusText(page);
+          const viewerState = await page
+            .getByTestId("screenshot-viewer")
+            .getAttribute("data-viewer-state")
+            .catch(() => null);
+          if (
+            workflowStatus.includes("Review") ||
+            workflowStatus.includes("Step 9") ||
+            viewerState === "loaded"
+          ) {
+            return "ready";
+          }
+          return `${workflowStatus} :: ${viewerState ?? "no-viewer"}`;
+        },
+        { timeout: 30_000, intervals: [1000, 2000, 3000] },
+      )
+      .toBe("ready");
+
     await goToProject(page);
     const status = await getStatusText(page);
     await snap(page, outputDir, "review-complete", {
@@ -423,13 +445,22 @@ test("11 — screenshot viewer", async ({ shared: page }) => {
   const viewer = page.getByTestId("screenshot-viewer");
   await expect(viewer).toBeVisible({ timeout: 10_000 });
 
-  // Wait for viewer to finish loading (transitions from loading → loaded/empty).
-  // The viewer now always renders with data-viewer-state to distinguish states.
-  await expect(viewer).not.toHaveAttribute("data-viewer-state", "loading", {
-    timeout: 15_000,
-  });
-
-  const viewerState = await viewer.getAttribute("data-viewer-state");
+  let viewerState: string | null = null;
+  try {
+    await expect
+      .poll(
+        async () => {
+          await goToProject(page);
+          return await page.getByTestId("screenshot-viewer").getAttribute("data-viewer-state");
+        },
+        { timeout: 30_000, intervals: [1000, 2000, 3000] },
+      )
+      .toBe("loaded");
+    viewerState = "loaded";
+  } catch {
+    await goToProject(page);
+    viewerState = await page.getByTestId("screenshot-viewer").getAttribute("data-viewer-state");
+  }
 
   if (viewerState === "empty") {
     addBlocker("Screenshot viewer loaded but found no screenshots");

@@ -268,9 +268,10 @@ describe("portal displays screenshots for correct project/revision", () => {
   it("ScreenshotViewer receives projectId, lastReviewedRevisionId, and status", () => {
     const uiPath = join(__dirname, "../app/dashboard/projects/[id]/intake-actions.tsx");
     const source = readFileSync(uiPath, "utf-8");
-    expect(source).toContain("ScreenshotViewer({ slug, projectId, lastReviewedRevisionId, status }");
+    expect(source).toContain("function ScreenshotViewer({");
     expect(source).toContain("projectId={projectId}");
-    expect(source).toContain("status={status}");
+    expect(source).toContain("status={effectiveStatus}");
+    expect(source).toContain("refreshToken={viewerRefreshToken}");
   });
 });
 
@@ -406,7 +407,7 @@ describe("UI uses plain-language labels", () => {
   it("workflow panel uses formatStatusLabel", () => {
     const uiPath = join(__dirname, "../app/dashboard/projects/[id]/intake-actions.tsx");
     const source = readFileSync(uiPath, "utf-8");
-    expect(source).toContain("formatStatusLabel(status)");
+    expect(source).toContain("formatStatusLabel(effectiveStatus)");
   });
 });
 
@@ -685,7 +686,7 @@ describe("screenshot viewer filters by revision", () => {
   it("WorkflowPanel passes lastReviewedRevisionId to ScreenshotViewer", () => {
     const uiPath = join(__dirname, "../app/dashboard/projects/[id]/intake-actions.tsx");
     const source = readFileSync(uiPath, "utf-8");
-    expect(source).toContain("lastReviewedRevisionId={lastReviewedRevisionId}");
+    expect(source).toContain("lastReviewedRevisionId={liveLastReviewedRevisionId}");
   });
 
   it("page.tsx passes last_reviewed_revision_id to WorkflowPanel", () => {
@@ -910,22 +911,23 @@ describe("UI auto-refreshes after job completion", () => {
 
     // Must accept status prop
     expect(fn).toContain("status: string");
-    // useEffect deps must include status
-    expect(fn).toContain("lastReviewedRevisionId, status]");
+    expect(fn).toContain("refreshToken: number");
+    // useEffect deps must include status and refresh token
+    expect(fn).toContain("lastReviewedRevisionId, status, refreshToken]");
+    expect(fn).toContain("maxAttempts");
   });
 
-  it("WorkflowPanel has safety re-refresh after job completion", () => {
+  it("WorkflowPanel polls workflow snapshot after job completion", () => {
     const uiPath = join(__dirname, "../app/dashboard/projects/[id]/intake-actions.tsx");
     const source = readFileSync(uiPath, "utf-8");
     const fnStart = source.indexOf("export function WorkflowPanel");
     const fnEnd = source.indexOf("// ── Job status panel");
     const fn = source.slice(fnStart, fnEnd);
 
-    // Must call router.refresh() on job completion
+    expect(fn).toContain("getProjectWorkflowSnapshotAction");
     expect(fn).toContain("router.refresh()");
-    // Must have safety timer for re-refresh
-    expect(fn).toContain("setTimeout");
-    expect(fn).toContain("clearTimeout");
+    expect(fn).toContain("lastActiveJobRef");
+    expect(fn).toContain("viewerRefreshToken");
   });
 });
 

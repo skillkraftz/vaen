@@ -12,6 +12,7 @@ import {
   runReviewAction,
   getArtifactStatusAction,
   getProjectJobsAction,
+  getProjectWorkflowSnapshotAction,
   getJobStatusAction,
   getScreenshotAction,
   reprocessIntakeAction,
@@ -220,10 +221,24 @@ function statusPhase(status: string): "intake" | "build" | "deploy" | "done" {
 // ── Main workflow panel ───────────────────────────────────────────────
 
 export function WorkflowPanel({ projectId, slug, status, lastReviewedRevisionId }: WorkflowPanelProps) {
-  const phase = statusPhase(status);
   const router = useRouter();
   const [jobs, setJobs] = useState<JobRecord[]>([]);
+  const [liveStatus, setLiveStatus] = useState(status);
+  const [liveLastReviewedRevisionId, setLiveLastReviewedRevisionId] = useState(lastReviewedRevisionId);
+  const [viewerRefreshToken, setViewerRefreshToken] = useState(0);
   const prevActiveRef = useRef(false);
+  const lastActiveJobRef = useRef<{ id: string; type: string } | null>(null);
+
+  useEffect(() => {
+    setLiveStatus(status);
+  }, [status]);
+
+  useEffect(() => {
+    setLiveLastReviewedRevisionId(lastReviewedRevisionId);
+  }, [lastReviewedRevisionId]);
+
+  const effectiveStatus = liveStatus;
+  const phase = statusPhase(effectiveStatus);
 
   // Poll for job updates when there are active jobs
   const refreshJobs = useCallback(async () => {
@@ -234,25 +249,61 @@ export function WorkflowPanel({ projectId, slug, status, lastReviewedRevisionId 
 
   useEffect(() => {
     refreshJobs();
-  }, [refreshJobs, status]);
+  }, [refreshJobs, effectiveStatus]);
 
   // Poll while any job is pending or running
   const hasActiveJob = jobs.some(
     (j) => j.status === "pending" || j.status === "running",
   );
 
+  useEffect(() => {
+    const activeJob = jobs.find(
+      (job) => job.status === "pending" || job.status === "running",
+    );
+    if (activeJob) {
+      lastActiveJobRef.current = { id: activeJob.id, type: activeJob.job_type };
+    }
+  }, [jobs]);
+
+  const refreshProjectView = useCallback(
+    async (options?: { awaitReviewReady?: boolean }) => {
+      const maxAttempts = options?.awaitReviewReady ? 8 : 4;
+      for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+        const snapshot = await getProjectWorkflowSnapshotAction(projectId);
+        const nextStatus = snapshot.status ?? effectiveStatus;
+        const nextRevisionId = snapshot.lastReviewedRevisionId ?? null;
+
+        setLiveStatus(nextStatus);
+        setLiveLastReviewedRevisionId(nextRevisionId);
+        setViewerRefreshToken((value) => value + 1);
+        router.refresh();
+
+        if (!options?.awaitReviewReady) {
+          return;
+        }
+
+        if (nextStatus === "review_ready" && nextRevisionId) {
+          return;
+        }
+
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+      }
+
+      setViewerRefreshToken((value) => value + 1);
+      router.refresh();
+    },
+    [projectId, router, effectiveStatus],
+  );
+
   // Detect job completion: was active → now not active → refresh page
   useEffect(() => {
     if (prevActiveRef.current && !hasActiveJob) {
-      // A job just finished — refresh the server component to get new status.
-      // The worker updates project status before marking job done, but we
-      // also re-refresh after 1s as a safety net for any remaining race.
-      router.refresh();
-      const safetyTimer = setTimeout(() => router.refresh(), 1000);
-      return () => clearTimeout(safetyTimer);
+      const completedJob = lastActiveJobRef.current;
+      const awaitReviewReady = completedJob?.type === "review";
+      refreshProjectView({ awaitReviewReady }).catch(() => undefined);
     }
     prevActiveRef.current = hasActiveJob;
-  }, [hasActiveJob, router]);
+  }, [hasActiveJob, refreshProjectView]);
 
   useEffect(() => {
     if (!hasActiveJob) return;
@@ -262,12 +313,12 @@ export function WorkflowPanel({ projectId, slug, status, lastReviewedRevisionId 
 
   // Action availability
   const canProcess =
-    status === "intake_received" || status === "intake_needs_revision";
-  const canApprove = status === "intake_draft_ready";
+    effectiveStatus === "intake_received" || effectiveStatus === "intake_needs_revision";
+  const canApprove = effectiveStatus === "intake_draft_ready";
   const canRevise =
-    status === "intake_draft_ready" || status === "custom_quote_required";
-  const canQuote = status === "intake_draft_ready";
-  const canExport = status === "intake_approved";
+    effectiveStatus === "intake_draft_ready" || effectiveStatus === "custom_quote_required";
+  const canQuote = effectiveStatus === "intake_draft_ready";
+  const canExport = effectiveStatus === "intake_approved";
   const canGenerate =
     [
       "intake_parsed",
@@ -276,15 +327,15 @@ export function WorkflowPanel({ projectId, slug, status, lastReviewedRevisionId 
       "workspace_generated",
       "build_failed",
       "review_ready",
-    ].includes(status) && !hasActiveJob;
+    ].includes(effectiveStatus) && !hasActiveJob;
   const canReview =
-    ["workspace_generated", "build_failed", "review_ready"].includes(status) &&
+    ["workspace_generated", "build_failed", "review_ready"].includes(effectiveStatus) &&
     !hasActiveJob;
 
   const [advancedOpen, setAdvancedOpen] = useState(false);
 
   // Determine next step info for the banner
-  const nextStep = getNextStep(status, hasActiveJob);
+  const nextStep = getNextStep(effectiveStatus, hasActiveJob);
 
   return (
     <div data-testid="workflow-panel">
@@ -318,7 +369,7 @@ export function WorkflowPanel({ projectId, slug, status, lastReviewedRevisionId 
             >
               Status:
             </span>
-            <strong data-testid="workflow-status-label">{formatStatusLabel(status)}</strong>
+            <strong data-testid="workflow-status-label">{formatStatusLabel(effectiveStatus)}</strong>
           </div>
           <PhaseIndicator phase={phase} />
         </div>
@@ -376,7 +427,13 @@ export function WorkflowPanel({ projectId, slug, status, lastReviewedRevisionId 
       {/* ── Website Preview ──────────────────────────────────────── */}
       <div className="section" data-testid="preview-section">
         <div className="section-label">Website Preview</div>
-        <ScreenshotViewer slug={slug} projectId={projectId} lastReviewedRevisionId={lastReviewedRevisionId} status={status} />
+        <ScreenshotViewer
+          slug={slug}
+          projectId={projectId}
+          lastReviewedRevisionId={liveLastReviewedRevisionId}
+          status={effectiveStatus}
+          refreshToken={viewerRefreshToken}
+        />
       </div>
 
       {/* ── Advanced Tools (collapsible) ─────────────────────────── */}
@@ -392,7 +449,7 @@ export function WorkflowPanel({ projectId, slug, status, lastReviewedRevisionId 
         {advancedOpen && (
           <div className="collapsible-body">
             {/* AI Handoff */}
-            {(phase === "build" || status === "intake_approved" || status === "intake_parsed") && (
+            {(phase === "build" || effectiveStatus === "intake_approved" || effectiveStatus === "intake_parsed") && (
               <ActionSection label="AI Handoff" testId="section-handoff">
                 <ExportPromptBtn projectId={projectId} />
                 <ImportFinalRequestPanel projectId={projectId} />
@@ -422,7 +479,7 @@ export function WorkflowPanel({ projectId, slug, status, lastReviewedRevisionId 
             </ActionSection>
 
             {/* Artifact status */}
-            <ArtifactStatusRow slug={slug} status={status} />
+            <ArtifactStatusRow slug={slug} status={effectiveStatus} />
 
             {/* Diagnostics */}
             <DiagnosticsPanel projectId={projectId} slug={slug} />
@@ -734,7 +791,19 @@ function JobDetails({ job }: { job: JobRecord }) {
 
 // ── Screenshot viewer ─────────────────────────────────────────────────
 
-function ScreenshotViewer({ slug, projectId, lastReviewedRevisionId, status }: { slug: string; projectId: string; lastReviewedRevisionId: string | null; status: string; }) {
+function ScreenshotViewer({
+  slug,
+  projectId,
+  lastReviewedRevisionId,
+  status,
+  refreshToken,
+}: {
+  slug: string;
+  projectId: string;
+  lastReviewedRevisionId: string | null;
+  status: string;
+  refreshToken: number;
+}) {
   const [artifacts, setArtifacts] = useState<ArtifactStatus | null>(null);
   const [supabaseScreenshots, setSupabaseScreenshots] = useState<
     Array<{
@@ -754,22 +823,54 @@ function ScreenshotViewer({ slug, projectId, lastReviewedRevisionId, status }: {
   const [fetchDone, setFetchDone] = useState(false);
 
   useEffect(() => {
-    // Reset fetch state on dependency change so we show loading again
-    setFetchDone(false);
-    // Load both local and Supabase screenshots.
-    // Deps include status so we re-fetch after router.refresh() updates it.
     let cancelled = false;
-    Promise.all([
-      getArtifactStatusAction(slug),
-      getScreenshotsForProjectAction(projectId, lastReviewedRevisionId),
-    ]).then(([artifactResult, screenshotResult]) => {
-      if (cancelled) return;
-      setArtifacts(artifactResult);
-      setSupabaseScreenshots(screenshotResult.screenshots);
-      setFetchDone(true);
+    setFetchDone(false);
+
+    async function loadViewerData() {
+      const maxAttempts =
+        status === "review_ready" || status === "build_in_progress" || refreshToken > 0
+          ? 6
+          : 1;
+
+      for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+        const [artifactResult, screenshotResult] = await Promise.all([
+          getArtifactStatusAction(slug),
+          getScreenshotsForProjectAction(projectId, lastReviewedRevisionId),
+        ]);
+
+        if (cancelled) return;
+
+        setArtifacts(artifactResult);
+        setSupabaseScreenshots(screenshotResult.screenshots);
+
+        const hasAnyScreenshots =
+          artifactResult.hasScreenshots || screenshotResult.screenshots.length > 0;
+        const shouldRetry =
+          !hasAnyScreenshots &&
+          attempt < maxAttempts - 1 &&
+          (status === "review_ready" || status === "build_in_progress" || refreshToken > 0);
+
+        if (!shouldRetry) {
+          setFetchDone(true);
+          return;
+        }
+
+        await new Promise((resolve) => setTimeout(resolve, 1500));
+      }
+
+      if (!cancelled) {
+        setFetchDone(true);
+      }
+    }
+
+    loadViewerData().catch(() => {
+      if (!cancelled) {
+        setFetchDone(true);
+      }
     });
+
     return () => { cancelled = true; };
-  }, [slug, projectId, lastReviewedRevisionId, status]);
+  }, [slug, projectId, lastReviewedRevisionId, status, refreshToken]);
 
   const hasSupabase = supabaseScreenshots.length > 0;
   const hasLocal = artifacts?.hasScreenshots;

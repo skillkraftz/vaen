@@ -1235,6 +1235,30 @@ export async function getProjectJobsAction(
 }
 
 /**
+ * Get the current workflow snapshot for a project.
+ * Used by the client after background jobs finish so the UI can
+ * converge on the latest status/revision without depending on a single refresh.
+ */
+export async function getProjectWorkflowSnapshotAction(
+  projectId: string,
+): Promise<{
+  status: string | null;
+  lastReviewedRevisionId: string | null;
+}> {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("projects")
+    .select("status, last_reviewed_revision_id")
+    .eq("id", projectId)
+    .single();
+
+  return {
+    status: data?.status ?? null,
+    lastReviewedRevisionId: data?.last_reviewed_revision_id ?? null,
+  };
+}
+
+/**
  * Get a single job by ID.
  */
 export async function getJobStatusAction(
