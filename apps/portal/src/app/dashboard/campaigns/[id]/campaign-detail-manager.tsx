@@ -6,10 +6,15 @@ import { useRouter } from "next/navigation";
 import { getProspectSendReadiness } from "@/lib/outreach-execution";
 import type { Campaign, Prospect, ProspectOutreachPackage } from "@/lib/types";
 import {
+  batchAnalyzeCampaignProspectsAction,
+  batchConvertCampaignProspectsAction,
   batchGenerateCampaignPackagesAction,
+  batchRunCampaignAutomationAction,
   batchSendCampaignOutreachAction,
   updateCampaignStatusAction,
 } from "../actions";
+import { PROSPECT_AUTOMATION_LEVELS } from "@/lib/prospect-outreach";
+import type { ProspectAutomationLevel } from "@/lib/types";
 
 interface CampaignProspectRow {
   prospect: Prospect;
@@ -36,9 +41,10 @@ export function CampaignDetailManager({
   const [statusFilter, setStatusFilter] = useState("all");
   const [readinessFilter, setReadinessFilter] = useState("all");
   const [campaignStatus, setCampaignStatus] = useState<Campaign["status"]>(campaign.status);
+  const [automationLevel, setAutomationLevel] = useState<ProspectAutomationLevel>("process_intake");
   const [confirmPhrase, setConfirmPhrase] = useState("");
   const [batchResult, setBatchResult] = useState<{
-    summary?: { sent: number; blocked: number; failed: number };
+    summary?: { sent?: number; blocked?: number; failed: number; succeeded?: number; skipped?: number };
     results?: Array<{ prospectId: string; status: string; message: string }>;
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -87,6 +93,51 @@ export function CampaignDetailManager({
       setBatchResult({
         results: result.results?.map((item) => ({ ...item })),
       });
+      router.refresh();
+    });
+  }
+
+  function analyzeSelected() {
+    setError(null);
+    startTransition(async () => {
+      const result = await batchAnalyzeCampaignProspectsAction({ prospectIds: selectedIds });
+      if (result.error) {
+        setError(result.error);
+        return;
+      }
+      setBatchResult(result);
+      router.refresh();
+    });
+  }
+
+  function convertSelected() {
+    setError(null);
+    startTransition(async () => {
+      const result = await batchConvertCampaignProspectsAction({
+        prospectIds: selectedIds,
+        automationLevel: "convert_only",
+      });
+      if (result.error) {
+        setError(result.error);
+        return;
+      }
+      setBatchResult(result);
+      router.refresh();
+    });
+  }
+
+  function automateSelected() {
+    setError(null);
+    startTransition(async () => {
+      const result = await batchRunCampaignAutomationAction({
+        prospectIds: selectedIds,
+        level: automationLevel,
+      });
+      if (result.error) {
+        setError(result.error);
+        return;
+      }
+      setBatchResult(result);
       router.refresh();
     });
   }
@@ -185,9 +236,52 @@ export function CampaignDetailManager({
 
       <div className="card" style={{ marginBottom: "1rem" }} data-testid="campaign-batch-actions">
         <p className="text-sm text-muted" style={{ marginBottom: "0.75rem" }}>
-          Selected prospects: {selectedIds.length}. Batch actions stay explicit: package generation is safe to run in bulk, and sending requires a typed confirmation phrase.
+          Selected prospects: {selectedIds.length}. Batch actions stay explicit: analysis, conversion, and early pipeline automation run one prospect at a time and report per-prospect outcomes. Sending still requires a typed confirmation phrase.
         </p>
         <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", alignItems: "end" }}>
+          <button
+            type="button"
+            className="btn btn-sm"
+            onClick={analyzeSelected}
+            disabled={isPending || selectedIds.length === 0}
+            data-testid="campaign-batch-analyze-button"
+          >
+            {isPending ? "Running..." : "Analyze Selected"}
+          </button>
+          <button
+            type="button"
+            className="btn btn-sm"
+            onClick={convertSelected}
+            disabled={isPending || selectedIds.length === 0}
+            data-testid="campaign-batch-convert-button"
+          >
+            {isPending ? "Running..." : "Convert Selected"}
+          </button>
+          <div style={{ minWidth: "18rem" }}>
+            <label className="form-label" htmlFor="campaignAutomationLevel">Automation level</label>
+            <select
+              id="campaignAutomationLevel"
+              className="form-input"
+              value={automationLevel}
+              onChange={(event) => setAutomationLevel(event.target.value as ProspectAutomationLevel)}
+              data-testid="campaign-automation-level"
+            >
+              {PROSPECT_AUTOMATION_LEVELS.filter((level) => level.id !== "review_site").map((level) => (
+                <option key={level.id} value={level.id}>
+                  {level.label}
+                </option>
+              ))}
+            </select>
+          </div>
+          <button
+            type="button"
+            className="btn btn-sm"
+            onClick={automateSelected}
+            disabled={isPending || selectedIds.length === 0}
+            data-testid="campaign-batch-automation-button"
+          >
+            {isPending ? "Running..." : "Run Automation"}
+          </button>
           <button
             type="button"
             className="btn btn-sm"
@@ -227,7 +321,11 @@ export function CampaignDetailManager({
       {batchResult?.summary && (
         <div className="card" style={{ marginBottom: "1rem" }} data-testid="campaign-batch-result">
           <p className="text-sm text-muted">
-            Sent: {batchResult.summary.sent} · Blocked: {batchResult.summary.blocked} · Failed: {batchResult.summary.failed}
+            {typeof batchResult.summary.succeeded === "number" && `Succeeded: ${batchResult.summary.succeeded} · `}
+            {typeof batchResult.summary.skipped === "number" && `Skipped: ${batchResult.summary.skipped} · `}
+            {typeof batchResult.summary.sent === "number" && `Sent: ${batchResult.summary.sent} · `}
+            {typeof batchResult.summary.blocked === "number" && `Blocked: ${batchResult.summary.blocked} · `}
+            Failed: {batchResult.summary.failed}
           </p>
           {batchResult.results && (
             <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem", marginTop: "0.75rem" }}>

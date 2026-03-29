@@ -191,6 +191,9 @@ describe("prospect actions and ui", () => {
     expect(campaignSource).toContain("export async function createCampaignAction");
     expect(campaignSource).toContain("export async function assignProspectsToCampaignAction");
     expect(campaignSource).toContain("export async function importProspectsAction");
+    expect(campaignSource).toContain("export async function batchAnalyzeCampaignProspectsAction");
+    expect(campaignSource).toContain("export async function batchConvertCampaignProspectsAction");
+    expect(campaignSource).toContain("export async function batchRunCampaignAutomationAction");
     expect(campaignSource).toContain("export async function batchGenerateCampaignPackagesAction");
     expect(campaignSource).toContain("export async function batchSendCampaignOutreachAction");
   });
@@ -311,6 +314,10 @@ describe("prospect actions and ui", () => {
     expect(importUiSource).toContain('data-testid="prospect-import-page"');
     expect(importUiSource).toContain('data-testid="prospect-import-preview"');
     expect(importUiSource).toContain('data-testid="prospect-import-submit"');
+    expect(campaignDetailUiSource).toContain('data-testid="campaign-batch-analyze-button"');
+    expect(campaignDetailUiSource).toContain('data-testid="campaign-batch-convert-button"');
+    expect(campaignDetailUiSource).toContain('data-testid="campaign-automation-level"');
+    expect(campaignDetailUiSource).toContain('data-testid="campaign-batch-automation-button"');
     expect(campaignDetailUiSource).toContain('data-testid="campaign-batch-actions"');
     expect(campaignDetailUiSource).toContain('data-testid="campaign-batch-send-button"');
     expect(campaignDetailUiSource).toContain('data-testid="campaign-batch-send-phrase"');

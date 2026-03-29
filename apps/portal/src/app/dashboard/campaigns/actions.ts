@@ -5,9 +5,13 @@ import { createClient } from "@/lib/supabase/server";
 import { CAMPAIGN_STATUSES, previewProspectImportRows } from "@/lib/prospect-campaigns";
 import type { Campaign, OutreachSend, Prospect } from "@/lib/types";
 import {
+  analyzeProspectAction,
+  continueProspectAutomationAction,
+  convertProspectAction,
   generateOutreachPackageAction,
   sendProspectOutreachAction,
 } from "../prospects/actions";
+import type { ProspectAutomationLevel } from "@/lib/types";
 
 async function requireCampaignOwner(
   supabase: Awaited<ReturnType<typeof createClient>>,
@@ -332,6 +336,196 @@ export async function batchGenerateCampaignPackagesAction(params: {
   revalidatePath("/dashboard/prospects");
   revalidatePath("/dashboard/campaigns");
   return { results };
+}
+
+export async function batchAnalyzeCampaignProspectsAction(params: {
+  prospectIds: string[];
+}): Promise<{
+  error?: string;
+  summary?: { succeeded: number; skipped: number; failed: number };
+  results?: Array<{ prospectId: string; status: "succeeded" | "skipped" | "failed"; message: string; analysisId?: string }>;
+}> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated" };
+  if (params.prospectIds.length === 0) return { error: "Select at least one prospect." };
+
+  const { data: prospects } = await supabase
+    .from("prospects")
+    .select("id, campaign_id, website_url, status")
+    .in("id", params.prospectIds)
+    .eq("user_id", user.id);
+
+  const results: Array<{ prospectId: string; status: "succeeded" | "skipped" | "failed"; message: string; analysisId?: string }> = [];
+  const touchedCampaignIds = new Set<string>();
+
+  for (const prospect of (prospects ?? []) as Array<Pick<Prospect, "id" | "campaign_id" | "website_url" | "status">>) {
+    if (!prospect.website_url?.trim()) {
+      results.push({
+        prospectId: prospect.id,
+        status: "skipped",
+        message: "Website URL is missing.",
+      });
+      continue;
+    }
+
+    const analyzed = await analyzeProspectAction(prospect.id);
+    results.push({
+      prospectId: prospect.id,
+      status: analyzed.error ? "failed" : "succeeded",
+      message: analyzed.error ?? "Website analysis completed.",
+      analysisId: analyzed.analysisId,
+    });
+    if (prospect.campaign_id) touchedCampaignIds.add(prospect.campaign_id);
+  }
+
+  for (const campaignId of touchedCampaignIds) {
+    await touchCampaign(supabase, campaignId, {
+      last_batch_analysis_at: new Date().toISOString(),
+    });
+    revalidatePath(`/dashboard/campaigns/${campaignId}`);
+  }
+
+  revalidatePath("/dashboard/prospects");
+  revalidatePath("/dashboard/campaigns");
+
+  return {
+    summary: {
+      succeeded: results.filter((item) => item.status === "succeeded").length,
+      skipped: results.filter((item) => item.status === "skipped").length,
+      failed: results.filter((item) => item.status === "failed").length,
+    },
+    results,
+  };
+}
+
+export async function batchConvertCampaignProspectsAction(params: {
+  prospectIds: string[];
+  automationLevel?: ProspectAutomationLevel;
+}): Promise<{
+  error?: string;
+  summary?: { succeeded: number; skipped: number; failed: number };
+  results?: Array<{ prospectId: string; status: "converted" | "skipped" | "failed"; message: string; projectId?: string; clientId?: string }>;
+}> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated" };
+  if (params.prospectIds.length === 0) return { error: "Select at least one prospect." };
+
+  const level = params.automationLevel ?? "convert_only";
+  const { data: prospects } = await supabase
+    .from("prospects")
+    .select("id, campaign_id, converted_project_id")
+    .in("id", params.prospectIds)
+    .eq("user_id", user.id);
+
+  const results: Array<{ prospectId: string; status: "converted" | "skipped" | "failed"; message: string; projectId?: string; clientId?: string }> = [];
+  const touchedCampaignIds = new Set<string>();
+
+  for (const prospect of (prospects ?? []) as Array<Pick<Prospect, "id" | "campaign_id" | "converted_project_id">>) {
+    if (prospect.converted_project_id) {
+      results.push({
+        prospectId: prospect.id,
+        status: "skipped",
+        message: "Prospect has already been converted.",
+        projectId: prospect.converted_project_id,
+      });
+      continue;
+    }
+
+    const converted = await convertProspectAction(prospect.id, { automationLevel: level });
+    results.push({
+      prospectId: prospect.id,
+      status: converted.error ? "failed" : "converted",
+      message: converted.error ?? "Prospect converted successfully.",
+      projectId: converted.projectId,
+      clientId: converted.clientId,
+    });
+    if (prospect.campaign_id) touchedCampaignIds.add(prospect.campaign_id);
+  }
+
+  for (const campaignId of touchedCampaignIds) {
+    await touchCampaign(supabase, campaignId, {
+      last_batch_convert_at: new Date().toISOString(),
+      last_batch_convert_level: level,
+    });
+    revalidatePath(`/dashboard/campaigns/${campaignId}`);
+  }
+
+  revalidatePath("/dashboard/prospects");
+  revalidatePath("/dashboard/campaigns");
+
+  return {
+    summary: {
+      succeeded: results.filter((item) => item.status === "converted").length,
+      skipped: results.filter((item) => item.status === "skipped").length,
+      failed: results.filter((item) => item.status === "failed").length,
+    },
+    results,
+  };
+}
+
+export async function batchRunCampaignAutomationAction(params: {
+  prospectIds: string[];
+  level: ProspectAutomationLevel;
+}): Promise<{
+  error?: string;
+  summary?: { succeeded: number; skipped: number; failed: number };
+  results?: Array<{ prospectId: string; status: "succeeded" | "skipped" | "failed"; message: string; latestJobId?: string | null }>;
+}> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated" };
+  if (params.prospectIds.length === 0) return { error: "Select at least one prospect." };
+
+  const { data: prospects } = await supabase
+    .from("prospects")
+    .select("id, campaign_id, converted_project_id")
+    .in("id", params.prospectIds)
+    .eq("user_id", user.id);
+
+  const results: Array<{ prospectId: string; status: "succeeded" | "skipped" | "failed"; message: string; latestJobId?: string | null }> = [];
+  const touchedCampaignIds = new Set<string>();
+
+  for (const prospect of (prospects ?? []) as Array<Pick<Prospect, "id" | "campaign_id" | "converted_project_id">>) {
+    if (!prospect.converted_project_id) {
+      const converted = await convertProspectAction(prospect.id, { automationLevel: params.level });
+      results.push({
+        prospectId: prospect.id,
+        status: converted.error ? "failed" : "succeeded",
+        message: converted.error ?? "Prospect converted and automation advanced successfully.",
+      });
+    } else {
+      const automation = await continueProspectAutomationAction(prospect.id, params.level);
+      results.push({
+        prospectId: prospect.id,
+        status: automation.error ? "failed" : "succeeded",
+        message: automation.error ?? "Automation advanced successfully.",
+        latestJobId: automation.latestJobId ?? null,
+      });
+    }
+    if (prospect.campaign_id) touchedCampaignIds.add(prospect.campaign_id);
+  }
+
+  for (const campaignId of touchedCampaignIds) {
+    await touchCampaign(supabase, campaignId, {
+      last_batch_automation_at: new Date().toISOString(),
+      last_batch_automation_level: params.level,
+    });
+    revalidatePath(`/dashboard/campaigns/${campaignId}`);
+  }
+
+  revalidatePath("/dashboard/prospects");
+  revalidatePath("/dashboard/campaigns");
+
+  return {
+    summary: {
+      succeeded: results.filter((item) => item.status === "succeeded").length,
+      skipped: results.filter((item) => item.status === "skipped").length,
+      failed: results.filter((item) => item.status === "failed").length,
+    },
+    results,
+  };
 }
 
 export async function batchSendCampaignOutreachAction(params: {

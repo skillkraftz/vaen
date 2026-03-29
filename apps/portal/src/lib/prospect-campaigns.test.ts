@@ -15,9 +15,19 @@ describe("campaign schema", () => {
     expect(existsSync(migrationPath)).toBe(true);
     const source = readFileSync(migrationPath, "utf-8");
     expect(source).toContain("create table if not exists public.campaigns");
+    expect(source).toContain("user_id uuid not null references auth.users(id)");
     expect(source).toContain("add column if not exists campaign_id uuid references public.campaigns");
     expect(source).toContain("alter table public.outreach_sends");
     expect(source).toContain("Users can view own campaigns");
+  });
+
+  it("adds a follow-up repair migration for broken text user_id rollouts", () => {
+    const migrationPath = join(REPO_ROOT, "supabase/migrations/20260329000013_repair_campaign_user_id.sql");
+    expect(existsSync(migrationPath)).toBe(true);
+    const source = readFileSync(migrationPath, "utf-8");
+    expect(source).toContain("alter column user_id type uuid using user_id::uuid");
+    expect(source).toContain("drop constraint if exists campaigns_user_id_fkey");
+    expect(source).toContain("user_id = auth.uid()");
   });
 
   it("adds Campaign type and campaign linkage fields", () => {
