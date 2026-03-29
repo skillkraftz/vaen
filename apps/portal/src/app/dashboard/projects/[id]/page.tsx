@@ -13,6 +13,7 @@ import { detectMissingInfo } from "@/lib/intake-processor";
 import { WorkflowPanel } from "./intake-actions";
 import { WorkflowStepIndicator } from "./workflow-steps";
 import { RevisionList } from "./revision-list";
+import { ProjectLifecyclePanel } from "./project-lifecycle-panel";
 import {
   BuildInputsEditor,
   SummaryEditor,
@@ -140,6 +141,11 @@ export default async function ProjectDetailPage({
               Client: {p.client.name}
             </p>
           )}
+          {p.archived_at && (
+            <p className="text-sm text-muted" style={{ fontSize: "0.8rem", marginTop: "0.2rem" }}>
+              Archived on {fmtDate(p.archived_at)}
+            </p>
+          )}
         </div>
         <span className={`badge ${statusBadge(p.status)}`} data-testid="project-status-badge">
           {formatStatusLabel(p.status)}
@@ -155,6 +161,10 @@ export default async function ProjectDetailPage({
       {/* Contains: NextStep banner, actions, preview, advanced tools */}
       <div className="section">
         <WorkflowPanel projectId={id} slug={p.slug} status={p.status} lastReviewedRevisionId={p.last_reviewed_revision_id} />
+      </div>
+
+      <div className="section">
+        <ProjectLifecyclePanel projectId={id} slug={p.slug} archived={p.archived_at != null} />
       </div>
 
       {/* ── Website Plan ────────────────────────────────────────── */}

@@ -35,6 +35,10 @@ import {
   removeGeneratedTargets,
 } from "./project-recovery-helpers";
 import { buildProjectDiagnostics } from "./project-diagnostics-helpers";
+import {
+  purgeGeneratedProjectDir,
+  purgeProjectStorageAssets,
+} from "./project-lifecycle-helpers";
 
 export type { ProjectDiagnostics } from "./project-diagnostics-types";
 
@@ -1691,5 +1695,128 @@ export async function setActiveRevisionAction(
   });
 
   revalidatePath(`/dashboard/projects/${projectId}`);
+  return {};
+}
+
+// ── Project lifecycle operations ────────────────────────────────────
+
+export async function archiveProjectAction(
+  projectId: string,
+): Promise<{ error?: string }> {
+  const supabase = await createClient();
+
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated" };
+
+  const { data: project } = await supabase
+    .from("projects")
+    .select("id, status, archived_at")
+    .eq("id", projectId)
+    .single();
+
+  if (!project) return { error: "Project not found" };
+  if (project.archived_at) return {};
+
+  const { error } = await supabase
+    .from("projects")
+    .update({
+      archived_at: new Date().toISOString(),
+      archived_by: user.id,
+    })
+    .eq("id", projectId);
+
+  if (error) return { error: error.message };
+
+  await supabase.from("project_events").insert({
+    project_id: projectId,
+    event_type: "project_archived",
+    from_status: project.status,
+    to_status: project.status,
+    metadata: { archived_by: user.id },
+  });
+
+  revalidatePath("/dashboard");
+  revalidatePath(`/dashboard/projects/${projectId}`);
+  return {};
+}
+
+export async function restoreProjectAction(
+  projectId: string,
+): Promise<{ error?: string }> {
+  const supabase = await createClient();
+
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated" };
+
+  const { data: project } = await supabase
+    .from("projects")
+    .select("id, status, archived_at")
+    .eq("id", projectId)
+    .single();
+
+  if (!project) return { error: "Project not found" };
+  if (!project.archived_at) return {};
+
+  const { error } = await supabase
+    .from("projects")
+    .update({
+      archived_at: null,
+      archived_by: null,
+    })
+    .eq("id", projectId);
+
+  if (error) return { error: error.message };
+
+  await supabase.from("project_events").insert({
+    project_id: projectId,
+    event_type: "project_restored",
+    from_status: project.status,
+    to_status: project.status,
+    metadata: { restored_by: user.id },
+  });
+
+  revalidatePath("/dashboard");
+  revalidatePath(`/dashboard/projects/${projectId}`);
+  return {};
+}
+
+export async function purgeProjectAction(
+  projectId: string,
+  confirmSlug: string,
+): Promise<{ error?: string }> {
+  const supabase = await createClient();
+
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated" };
+
+  const { data: project } = await supabase
+    .from("projects")
+    .select("*")
+    .eq("id", projectId)
+    .single();
+
+  if (!project) return { error: "Project not found" };
+
+  const p = project as Project;
+  if (confirmSlug.trim() !== p.slug) {
+    return { error: "Slug confirmation does not match." };
+  }
+
+  const { data: assets } = await supabase
+    .from("assets")
+    .select("*")
+    .eq("project_id", projectId);
+
+  await purgeProjectStorageAssets(user.id, projectId, (assets ?? []) as Asset[]);
+  await purgeGeneratedProjectDir(p.slug);
+
+  const { error } = await supabase
+    .from("projects")
+    .delete()
+    .eq("id", projectId);
+
+  if (error) return { error: error.message };
+
+  revalidatePath("/dashboard");
   return {};
 }
