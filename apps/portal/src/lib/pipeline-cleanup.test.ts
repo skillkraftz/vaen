@@ -25,7 +25,9 @@ describe("reset/reprocess pipeline invalidation rules", () => {
 
   it("resetToDraftAction clears final_request", () => {
     const actionsPath = join(__dirname, "../app/dashboard/projects/[id]/actions.ts");
+    const helperPath = join(__dirname, "../app/dashboard/projects/[id]/project-recovery-helpers.ts");
     const source = readFileSync(actionsPath, "utf-8");
+    const helperSource = readFileSync(helperPath, "utf-8");
 
     // Find the resetToDraftAction function
     const resetFn = source.slice(
@@ -41,7 +43,8 @@ describe("reset/reprocess pipeline invalidation rules", () => {
 
     // Must clean screenshots on disk
     expect(resetFn).toContain("screenshots");
-    expect(resetFn).toContain("rm(");
+    expect(resetFn).toContain("removeGeneratedTargets");
+    expect(helperSource).toContain("rm(join(generatedDir");
 
     // Must clean build cache on disk
     expect(resetFn).toContain(".next");
@@ -224,8 +227,8 @@ describe("project artifact isolation", () => {
 
 describe("portal displays latest project artifacts", () => {
   it("diagnostics includes screenshot staleness detection", () => {
-    const actionsPath = join(__dirname, "../app/dashboard/projects/[id]/actions.ts");
-    const source = readFileSync(actionsPath, "utf-8");
+    const helperPath = join(__dirname, "../app/dashboard/projects/[id]/project-diagnostics-helpers.ts");
+    const source = readFileSync(helperPath, "utf-8");
 
     // Must compute screenshotsStale
     expect(source).toContain("screenshotsStale");
@@ -236,8 +239,8 @@ describe("portal displays latest project artifacts", () => {
   });
 
   it("diagnostics includes request source indicator", () => {
-    const actionsPath = join(__dirname, "../app/dashboard/projects/[id]/actions.ts");
-    const source = readFileSync(actionsPath, "utf-8");
+    const helperPath = join(__dirname, "../app/dashboard/projects/[id]/project-diagnostics-helpers.ts");
+    const source = readFileSync(helperPath, "utf-8");
 
     // Must report request source
     expect(source).toContain("requestSource");
@@ -245,8 +248,8 @@ describe("portal displays latest project artifacts", () => {
   });
 
   it("diagnostics includes all timestamps", () => {
-    const actionsPath = join(__dirname, "../app/dashboard/projects/[id]/actions.ts");
-    const source = readFileSync(actionsPath, "utf-8");
+    const typesPath = join(__dirname, "../app/dashboard/projects/[id]/project-diagnostics-types.ts");
+    const source = readFileSync(typesPath, "utf-8");
 
     // All four timestamps in the interface
     expect(source).toContain("lastProcessedAt");
@@ -256,7 +259,7 @@ describe("portal displays latest project artifacts", () => {
   });
 
   it("UI shows stale screenshot warning", () => {
-    const uiPath = join(__dirname, "../app/dashboard/projects/[id]/intake-actions.tsx");
+    const uiPath = join(__dirname, "../app/dashboard/projects/[id]/project-diagnostics-panel.tsx");
     const source = readFileSync(uiPath, "utf-8");
 
     expect(source).toContain("screenshotsStale");

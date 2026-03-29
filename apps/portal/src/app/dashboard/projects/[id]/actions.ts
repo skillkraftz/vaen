@@ -1,19 +1,14 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
-import { processIntake, detectMissingInfo } from "@/lib/intake-processor";
+import { processIntake } from "@/lib/intake-processor";
 import { notifyDiscord } from "@/lib/discord";
 import { revalidatePath } from "next/cache";
-import { writeFile, mkdir, access, readdir, readFile, rm } from "node:fs/promises";
+import { writeFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
-import { createWriteStream } from "node:fs";
-import { spawn, execSync } from "node:child_process";
 import type { Project, Asset, JobRecord, RequestRevision } from "@/lib/types";
-import type { RevisionSource } from "@/lib/revision-helpers";
-import { isRevisionStale } from "@/lib/revision-helpers";
 import {
   REQUIRED_DRAFT_KEYS,
-  DRAFT_DEFAULTS,
   deepMergeDraft,
   deepSetServer,
   validateDraftRequired,
@@ -22,126 +17,26 @@ import {
 import type { ReviewManifest } from "./project-review-types";
 import type { ProjectDiagnostics } from "./project-diagnostics-types";
 import {
-  getPortalRepoRoot,
   readArtifactStatusFromDisk,
   readGeneratedFileFlags,
   readLocalScreenshotDataUrl,
 } from "./project-artifact-helpers";
+import {
+  createRevisionAndSetCurrent,
+  loadCurrentDraft,
+} from "./project-revision-helpers";
+import {
+  categorizeFile,
+  downloadRevisionAssetsToSite,
+} from "./project-asset-helpers";
+import { spawnWorker } from "./project-worker-helpers";
+import {
+  deleteReviewScreenshotAssets,
+  removeGeneratedTargets,
+} from "./project-recovery-helpers";
+import { buildProjectDiagnostics } from "./project-diagnostics-helpers";
 
 export type { ProjectDiagnostics } from "./project-diagnostics-types";
-
-// ── Revision helpers (internal) ──────────────────────────────────────
-
-/**
- * Create a revision and set it as the current one.
- * Silently skips if the revisions table doesn't exist yet (pre-migration).
- */
-async function createRevisionAndSetCurrent(
-  supabase: Awaited<ReturnType<typeof createClient>>,
-  projectId: string,
-  source: RevisionSource,
-  requestData: Record<string, unknown>,
-  parentRevisionId?: string | null,
-  summary?: string | null,
-): Promise<string | null> {
-  try {
-    const { data: rev, error } = await supabase
-      .from("project_request_revisions")
-      .insert({
-        project_id: projectId,
-        source,
-        request_data: requestData,
-        parent_revision_id: parentRevisionId ?? null,
-        summary: summary ?? null,
-      })
-      .select("id")
-      .single();
-
-    if (error || !rev) return null;
-
-    await supabase
-      .from("projects")
-      .update({ current_revision_id: rev.id })
-      .eq("id", projectId);
-
-    return rev.id;
-  } catch {
-    // Table may not exist yet (pre-migration) — silently skip
-    return null;
-  }
-}
-
-/**
- * Download assets attached to a revision from Supabase storage into
- * generated/<slug>/site/public/images/ so the generated site can serve them.
- * Returns an array of gallery image entries for client-request.json.
- */
-async function downloadRevisionAssetsToSite(
-  supabase: Awaited<ReturnType<typeof createClient>>,
-  revisionId: string | null,
-  projectId: string,
-  siteDir: string,
-): Promise<Array<{ url: string; alt: string }>> {
-  if (!revisionId) return [];
-
-  const imagesDir = join(siteDir, "public", "images");
-
-  // Clean previous images
-  await rm(imagesDir, { recursive: true, force: true });
-  await mkdir(imagesDir, { recursive: true });
-
-  // Get attached image assets for this revision
-  let attachedAssetIds: string[] = [];
-  try {
-    const { data: revAssets } = await supabase
-      .from("revision_assets")
-      .select("asset_id, role, sort_order")
-      .eq("revision_id", revisionId)
-      .order("sort_order", { ascending: true });
-
-    attachedAssetIds = (revAssets ?? []).map((ra) => ra.asset_id);
-  } catch {
-    // revision_assets table may not exist yet
-  }
-
-  // Only use explicitly attached images — no silent fallback
-  let assets: Array<{ id: string; file_name: string; storage_path: string; category: string }> = [];
-  if (attachedAssetIds.length > 0) {
-    const { data } = await supabase
-      .from("assets")
-      .select("id, file_name, storage_path, category")
-      .in("id", attachedAssetIds);
-    assets = (data ?? []).filter((a) => a.category === "image");
-  }
-
-  const galleryImages: Array<{ url: string; alt: string }> = [];
-
-  for (const asset of assets) {
-    try {
-      const { data, error } = await supabase.storage
-        .from("intake-assets")
-        .download(asset.storage_path);
-
-      if (error || !data) {
-        console.error(`Failed to download asset ${asset.file_name}:`, error?.message);
-        continue;
-      }
-
-      const localPath = join(imagesDir, asset.file_name);
-      const buffer = Buffer.from(await data.arrayBuffer());
-      await writeFile(localPath, buffer);
-
-      galleryImages.push({
-        url: `/images/${asset.file_name}`,
-        alt: asset.file_name.replace(/\.[^.]+$/, "").replace(/[-_]/g, " "),
-      });
-    } catch (err) {
-      console.error(`Error downloading asset ${asset.file_name}:`, err);
-    }
-  }
-
-  return galleryImages;
-}
 
 // ── Process intake ───────────────────────────────────────────────────
 
@@ -452,7 +347,7 @@ export async function exportToGeneratorAction(projectId: string): Promise<{ erro
 
     // Download revision-attached assets (or all project images) to site/public/images/
     const galleryImages = await downloadRevisionAssetsToSite(
-      supabase, p.current_revision_id, projectId, siteDir,
+      supabase, p.current_revision_id, siteDir,
     );
 
     // Inject gallery images into the request if assets were downloaded
@@ -534,46 +429,6 @@ export async function updateProjectAction(
 
 // ── Draft request helpers ─────────────────────────────────────────────
 // Pure logic in @/lib/draft-helpers — imported at top of file.
-
-/**
- * Load the current request data from the active revision.
- * Falls back to draft_request only for pre-migration projects.
- */
-async function loadCurrentDraft(
-  supabase: Awaited<ReturnType<typeof createClient>>,
-  projectId: string,
-): Promise<{ draft: Record<string, unknown>; revisionId: string | null; error?: string }> {
-  const { data: project, error } = await supabase
-    .from("projects")
-    .select("current_revision_id, draft_request")
-    .eq("id", projectId)
-    .single();
-
-  if (error || !project) {
-    return { draft: { ...DRAFT_DEFAULTS }, revisionId: null, error: error?.message ?? "Project not found" };
-  }
-
-  // Primary: load from active revision
-  if (project.current_revision_id) {
-    try {
-      const { data: rev } = await supabase
-        .from("project_request_revisions")
-        .select("request_data")
-        .eq("id", project.current_revision_id)
-        .single();
-      if (rev?.request_data) {
-        return {
-          draft: ensureDraftDefaults(rev.request_data as Record<string, unknown>),
-          revisionId: project.current_revision_id,
-        };
-      }
-    } catch { /* fall through to legacy */ }
-  }
-
-  // Legacy fallback for pre-migration projects
-  const existing = (project.draft_request as Record<string, unknown>) ?? {};
-  return { draft: ensureDraftDefaults(existing), revisionId: null };
-}
 
 // ── Patch a single field in draft request (MERGE-BASED) ──────────────
 
@@ -683,13 +538,6 @@ export async function updateDraftRequestAction(
 }
 
 // ── File management ──────────────────────────────────────────────────
-
-function categorizeFile(mimeType: string): string {
-  if (mimeType.startsWith("audio/")) return "audio";
-  if (mimeType.startsWith("image/")) return "image";
-  if (mimeType.startsWith("text/") || mimeType === "application/pdf") return "document";
-  return "general";
-}
 
 /**
  * Upload files to an existing project. Works at any status.
@@ -942,45 +790,6 @@ export async function deleteAssetAction(
 // ── Phase 3A: Worker-delegated automation ────────────────────────────
 
 /**
- * Spawn the worker process to execute a job.
- * Rebuilds worker + generator dist before spawning so the worker
- * always runs the latest compiled code (prevents split-brain where
- * TypeScript source is fixed but dist is stale).
- */
-function spawnWorker(jobId: string): void {
-  const repoRoot = join(process.cwd(), "../..");
-
-  // Rebuild worker and generator to ensure compiled code matches source.
-  // Fast (~1-2s for tsc on small packages). Blocks the server action
-  // briefly, but guarantees the spawned process uses fresh code.
-  try {
-    execSync(
-      "pnpm --filter @vaen/worker --filter @vaen/generator --filter @vaen/review-tools build",
-      { cwd: repoRoot, stdio: "pipe", timeout: 30_000 },
-    );
-  } catch (err) {
-    // Log but don't fail — stale dist is better than no worker at all.
-    console.error("[portal] Pre-spawn build failed:", err instanceof Error ? err.message : err);
-  }
-
-  const workerScript = join(repoRoot, "apps", "worker", "dist", "run-job.js");
-
-  const child = spawn("node", [workerScript, jobId], {
-    cwd: repoRoot,
-    detached: true,
-    stdio: "ignore",
-    env: {
-      ...process.env,
-      // Pass Supabase creds to the worker (service role for DB access)
-      SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL,
-      SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY,
-    },
-  });
-
-  child.unref();
-}
-
-/**
  * Generate a site from the exported client-request.json.
  * Creates a job record and spawns the worker — does NOT block.
  */
@@ -1043,7 +852,7 @@ export async function generateSiteAction(
 
     // Download revision-attached assets to site/public/images/
     const galleryImages = await downloadRevisionAssetsToSite(
-      supabase, p.current_revision_id, projectId, siteDir,
+      supabase, p.current_revision_id, siteDir,
     );
     if (galleryImages.length > 0) {
       const content = (revisionData.content ?? {}) as Record<string, unknown>;
@@ -1329,7 +1138,7 @@ export async function reExportAction(
 
     // Download revision-attached assets to site/public/images/
     const galleryImages = await downloadRevisionAssetsToSite(
-      supabase, p.current_revision_id, projectId, siteDir,
+      supabase, p.current_revision_id, siteDir,
     );
 
     if (galleryImages.length > 0) {
@@ -1447,23 +1256,13 @@ export async function reprocessIntakeAction(
   );
 
   // Clean stale disk artifacts that no longer match the active revision
-  const repoRoot = join(process.cwd(), "../..");
-  const generatedDir = join(repoRoot, "generated", p.slug);
-  const staleTargets = [
-    join(generatedDir, "client-request.json"),
-    join(generatedDir, "artifacts", "prompt.txt"),
-    join(generatedDir, "artifacts", "screenshots"),
-  ];
-  for (const target of staleTargets) {
-    await rm(target, { recursive: true, force: true }).catch(() => {});
-  }
+  await removeGeneratedTargets(p.slug, [
+    ["client-request.json"],
+    ["artifacts", "prompt.txt"],
+    ["artifacts", "screenshots"],
+  ]);
 
-  // Delete screenshot asset records — they point to the old revision
-  await supabase
-    .from("assets")
-    .delete()
-    .eq("project_id", projectId)
-    .eq("asset_type", "review_screenshot");
+  await deleteReviewScreenshotAssets(supabase, projectId);
 
   await supabase.from("project_events").insert({
     project_id: projectId,
@@ -1523,26 +1322,16 @@ export async function resetToDraftAction(
   if (updateError) return { error: updateError.message };
 
   // Clean downstream artifacts on disk
-  const repoRoot = join(process.cwd(), "../..");
-  const generatedDir = join(repoRoot, "generated", p.slug);
-  const cleanTargets = [
-    join(generatedDir, "client-request.json"),
-    join(generatedDir, "artifacts", "screenshots"),
-    join(generatedDir, "artifacts", "validation.json"),
-    join(generatedDir, "artifacts", "prompt.txt"),
-    join(generatedDir, "site", "public", "images"),
-    join(generatedDir, "site", ".next"),
-  ];
-  for (const target of cleanTargets) {
-    await rm(target, { recursive: true, force: true }).catch(() => {});
-  }
+  await removeGeneratedTargets(p.slug, [
+    ["client-request.json"],
+    ["artifacts", "screenshots"],
+    ["artifacts", "validation.json"],
+    ["artifacts", "prompt.txt"],
+    ["site", "public", "images"],
+    ["site", ".next"],
+  ]);
 
-  // Delete screenshot asset records from DB (they point to stale data)
-  await supabase
-    .from("assets")
-    .delete()
-    .eq("project_id", projectId)
-    .eq("asset_type", "review_screenshot");
+  await deleteReviewScreenshotAssets(supabase, projectId);
 
   await supabase.from("project_events").insert({
     project_id: projectId,
@@ -1586,89 +1375,17 @@ export async function getProjectDiagnosticsAction(
   const eventList = (events ?? []) as Array<{ event_type: string; created_at: string }>;
   const jobList = (jobs ?? []) as JobRecord[];
 
-  // Draft diagnostics
-  const draftObj = (p?.draft_request as Record<string, unknown>) ?? null;
-  const draftDiag = {
-    exists: draftObj !== null,
-    hasVersion: !!(draftObj?.version),
-    hasBusiness: !!(draftObj?.business),
-    hasContact: !!(draftObj?.contact),
-    hasServices: Array.isArray(draftObj?.services) && (draftObj.services as unknown[]).length > 0,
-    servicesCount: Array.isArray(draftObj?.services) ? (draftObj.services as unknown[]).length : 0,
-    topLevelKeys: draftObj ? Object.keys(draftObj) : [],
-  };
-
-  // Request source
-  const hasFinalRequest = p?.final_request !== null && p?.final_request !== undefined;
-  const requestSource = hasFinalRequest ? "final" as const : draftDiag.exists ? "draft" as const : "none" as const;
-
-  const repoRoot = getPortalRepoRoot();
   const fileDiag = await readGeneratedFileFlags(slug);
 
-  // Job diagnostics
-  const lastGenerate = jobList.find((j) => j.job_type === "generate") ?? null;
-  const lastReview = jobList.find((j) => j.job_type === "review") ?? null;
-
-  // Timestamp diagnostics
-  const lastProcessedEvent = eventList.find((e) => e.event_type === "intake_processed" || e.event_type === "intake_reprocessed");
-  const lastExportedEvent = eventList.find((e) => e.event_type === "exported_to_generator" || e.event_type === "re_exported");
-  const lastGeneratedAt = lastGenerate?.completed_at ?? null;
-  const lastReviewedAt = lastReview?.completed_at ?? null;
-
-  // Screenshots are stale if there was a generate after the last review
-  const screenshotsStale = (() => {
-    if (!fileDiag.hasScreenshots) return false;
-    if (!lastGeneratedAt) return false;
-    if (!lastReviewedAt) return true; // screenshots exist but no review job — stale
-    return new Date(lastGeneratedAt) > new Date(lastReviewedAt);
-  })();
-
-  // Live missing info (recomputed from current state)
-  const liveMissing = p ? detectMissingInfo(p, assetList) : [];
-
-  // Revision diagnostics (null if table doesn't exist yet)
-  let revisionDiag: ProjectDiagnostics["revisions"] = null;
-  try {
-    const { data: revisions, error: revErr } = await supabase
-      .from("project_request_revisions")
-      .select("id, source")
-      .eq("project_id", projectId)
-      .order("created_at", { ascending: false });
-
-    if (!revErr && revisions && p) {
-      const staleness = isRevisionStale(p);
-      const currentRev = p.current_revision_id
-        ? revisions.find((r) => r.id === p.current_revision_id)
-        : null;
-      revisionDiag = {
-        count: revisions.length,
-        currentSource: currentRev?.source ?? null,
-        exportStale: staleness.exportStale,
-        generateStale: staleness.generateStale,
-        reviewStale: staleness.reviewStale,
-      };
-    }
-  } catch { /* pre-migration: silently skip */ }
-
-  return {
-    draft: draftDiag,
-    requestSource,
-    hasFinalRequest,
-    files: fileDiag,
-    jobs: {
-      lastGenerate: lastGenerate ? { id: lastGenerate.id, status: lastGenerate.status, completedAt: lastGenerate.completed_at } : null,
-      lastReview: lastReview ? { id: lastReview.id, status: lastReview.status, completedAt: lastReview.completed_at } : null,
-    },
-    timestamps: {
-      lastProcessedAt: lastProcessedEvent?.created_at ?? null,
-      lastExportedAt: lastExportedEvent?.created_at ?? null,
-      lastGeneratedAt,
-      lastReviewedAt,
-    },
-    screenshotsStale,
-    liveMissingInfo: liveMissing,
-    revisions: revisionDiag,
-  };
+  return buildProjectDiagnostics(
+    supabase,
+    projectId,
+    p,
+    assetList,
+    eventList,
+    jobList,
+    fileDiag,
+  );
 }
 
 // ── Phase 3B: Export prompt.txt ──────────────────────────────────────

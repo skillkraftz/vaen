@@ -123,11 +123,13 @@ describe("active revision asset selection affects generation input", () => {
 
   it("export downloads revision assets to site/public/images/", () => {
     const actionsPath = join(__dirname, "../app/dashboard/projects/[id]/actions.ts");
-    const source = readFileSync(actionsPath, "utf-8");
-    expect(source).toContain("downloadRevisionAssetsToSite");
-    expect(source).toContain("public/images/");
+    const helperPath = join(__dirname, "../app/dashboard/projects/[id]/project-asset-helpers.ts");
+    const actionSource = readFileSync(actionsPath, "utf-8");
+    const helperSource = readFileSync(helperPath, "utf-8");
+    expect(actionSource).toContain("downloadRevisionAssetsToSite");
+    expect(helperSource).toContain('join(siteDir, "public", "images")');
     // Must clean previous images before downloading new ones
-    expect(source).toContain('rm(imagesDir, { recursive: true, force: true })');
+    expect(helperSource).toContain('rm(imagesDir, { recursive: true, force: true })');
   });
 
   it("export injects galleryImages into client-request.json", () => {
@@ -148,10 +150,10 @@ describe("active revision asset selection affects generation input", () => {
   });
 
   it("downloadRevisionAssetsToSite uses only revision-attached assets", () => {
-    const actionsPath = join(__dirname, "../app/dashboard/projects/[id]/actions.ts");
-    const source = readFileSync(actionsPath, "utf-8");
-    const fnStart = source.indexOf("async function downloadRevisionAssetsToSite");
-    const fnEnd = source.indexOf("// ── Process intake");
+    const helperPath = join(__dirname, "../app/dashboard/projects/[id]/project-asset-helpers.ts");
+    const source = readFileSync(helperPath, "utf-8");
+    const fnStart = source.indexOf("export async function downloadRevisionAssetsToSite");
+    const fnEnd = source.indexOf("export function categorizeFile");
     const fn = source.slice(fnStart, fnEnd);
     // Must check revision_assets
     expect(fn).toContain('"revision_assets"');
@@ -279,9 +281,9 @@ describe("portal displays screenshots for correct project/revision", () => {
 
 describe("rerun after asset change produces different output", () => {
   it("export cleans previous images before downloading new ones", () => {
-    const actionsPath = join(__dirname, "../app/dashboard/projects/[id]/actions.ts");
-    const source = readFileSync(actionsPath, "utf-8");
-    const fnStart = source.indexOf("async function downloadRevisionAssetsToSite");
+    const helperPath = join(__dirname, "../app/dashboard/projects/[id]/project-asset-helpers.ts");
+    const source = readFileSync(helperPath, "utf-8");
+    const fnStart = source.indexOf("export async function downloadRevisionAssetsToSite");
     const fn = source.slice(fnStart, fnStart + 500);
     // Must rm the images dir before writing
     expect(fn).toContain("rm(imagesDir");
@@ -437,10 +439,10 @@ describe("revision-driven pipeline correctness", () => {
   });
 
   it("loadCurrentDraft reads from revision first", () => {
-    const actionsPath = join(__dirname, "../app/dashboard/projects/[id]/actions.ts");
-    const source = readFileSync(actionsPath, "utf-8");
-    const fnStart = source.indexOf("async function loadCurrentDraft");
-    const fnEnd = source.indexOf("// ── Patch a single field");
+    const helperPath = join(__dirname, "../app/dashboard/projects/[id]/project-revision-helpers.ts");
+    const source = readFileSync(helperPath, "utf-8");
+    const fnStart = source.indexOf("export async function loadCurrentDraft");
+    const fnEnd = source.length;
     const fn = source.slice(fnStart, fnEnd);
     // Must check current_revision_id first
     expect(fn).toContain("current_revision_id");
@@ -475,16 +477,19 @@ describe("revision-driven pipeline correctness", () => {
 
   it("resetToDraftAction cleans client-request.json and screenshot assets", () => {
     const actionsPath = join(__dirname, "../app/dashboard/projects/[id]/actions.ts");
-    const source = readFileSync(actionsPath, "utf-8");
-    const fnStart = source.indexOf("export async function resetToDraftAction");
-    const fnEnd = source.indexOf("// ── Project diagnostics");
-    const fn = source.slice(fnStart, fnEnd);
+    const helperPath = join(__dirname, "../app/dashboard/projects/[id]/project-recovery-helpers.ts");
+    const actionSource = readFileSync(actionsPath, "utf-8");
+    const helperSource = readFileSync(helperPath, "utf-8");
+    const fnStart = actionSource.indexOf("export async function resetToDraftAction");
+    const fnEnd = actionSource.indexOf("// ── Project diagnostics");
+    const fn = actionSource.slice(fnStart, fnEnd);
     // Must clean client-request.json from disk
     expect(fn).toContain("client-request.json");
     // Must clean site/public/images (via join())
     expect(fn).toContain('"public", "images"');
     // Must delete screenshot asset records from DB
-    expect(fn).toContain("review_screenshot");
+    expect(fn).toContain("deleteReviewScreenshotAssets");
+    expect(helperSource).toContain("review_screenshot");
   });
 
   it("screenshot assets include request_revision_id in worker", () => {
@@ -1011,27 +1016,33 @@ describe("reprocessIntakeAction invalidates downstream state", () => {
 
   it("cleans stale disk artifacts", () => {
     const actionsPath = join(__dirname, "../app/dashboard/projects/[id]/actions.ts");
-    const source = readFileSync(actionsPath, "utf-8");
-    const fnStart = source.indexOf("export async function reprocessIntakeAction");
-    const fnEnd = source.indexOf("// ── Recovery: Reset status to draft ready");
-    const fn = source.slice(fnStart, fnEnd);
+    const helperPath = join(__dirname, "../app/dashboard/projects/[id]/project-recovery-helpers.ts");
+    const actionSource = readFileSync(actionsPath, "utf-8");
+    const helperSource = readFileSync(helperPath, "utf-8");
+    const fnStart = actionSource.indexOf("export async function reprocessIntakeAction");
+    const fnEnd = actionSource.indexOf("// ── Recovery: Reset status to draft ready");
+    const fn = actionSource.slice(fnStart, fnEnd);
 
     // Must clean stale files
     expect(fn).toContain("client-request.json");
     expect(fn).toContain("prompt.txt");
     expect(fn).toContain("screenshots");
-    expect(fn).toContain("rm(target");
+    expect(fn).toContain("removeGeneratedTargets");
+    expect(helperSource).toContain("rm(join(generatedDir");
   });
 
   it("deletes stale screenshot asset records", () => {
     const actionsPath = join(__dirname, "../app/dashboard/projects/[id]/actions.ts");
-    const source = readFileSync(actionsPath, "utf-8");
-    const fnStart = source.indexOf("export async function reprocessIntakeAction");
-    const fnEnd = source.indexOf("// ── Recovery: Reset status to draft ready");
-    const fn = source.slice(fnStart, fnEnd);
+    const helperPath = join(__dirname, "../app/dashboard/projects/[id]/project-recovery-helpers.ts");
+    const actionSource = readFileSync(actionsPath, "utf-8");
+    const helperSource = readFileSync(helperPath, "utf-8");
+    const fnStart = actionSource.indexOf("export async function reprocessIntakeAction");
+    const fnEnd = actionSource.indexOf("// ── Recovery: Reset status to draft ready");
+    const fn = actionSource.slice(fnStart, fnEnd);
 
-    expect(fn).toContain(".delete()");
-    expect(fn).toContain("review_screenshot");
+    expect(fn).toContain("deleteReviewScreenshotAssets");
+    expect(helperSource).toContain(".delete()");
+    expect(helperSource).toContain("review_screenshot");
   });
 
   it("logs invalidation in event metadata", () => {
