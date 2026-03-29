@@ -74,6 +74,9 @@ describe("project archive and purge actions", () => {
     const actionsPath = join(__dirname, "../app/dashboard/projects/[id]/actions.ts");
     const source = readFileSync(actionsPath, "utf-8");
     const purgeFn = source.slice(source.indexOf("export async function purgeProjectAction"));
+    const bulkPurgeFn = source.slice(source.indexOf("export async function bulkPurgeProjectsAction"));
+    expect(purgeFn).toContain('requireRole("admin")');
+    expect(bulkPurgeFn).toContain('requireRole("admin")');
     expect(purgeFn).toContain("confirmSlug.trim() !== p.slug");
     expect(purgeFn).toContain("Slug confirmation does not match");
   });

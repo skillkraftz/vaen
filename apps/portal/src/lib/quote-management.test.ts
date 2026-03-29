@@ -32,6 +32,28 @@ describe("quote actions and UI", () => {
     expect(source).toContain('event_type: "quote_created"');
   });
 
+  it("makes quote discounting role-aware and approval-ready", () => {
+    const actionsPath = join(__dirname, "../app/dashboard/projects/[id]/actions.ts");
+    const helperPath = join(__dirname, "quote-helpers.ts");
+    const uiPath = join(__dirname, "../app/dashboard/projects/[id]/quote-section.tsx");
+    const actionSource = readFileSync(actionsPath, "utf-8");
+    const helperSource = readFileSync(helperPath, "utf-8");
+    const uiSource = readFileSync(uiPath, "utf-8");
+    const discountFn = actionSource.slice(
+      actionSource.indexOf("export async function setQuoteDiscountAction"),
+      actionSource.indexOf("/**\n * Get a single job by ID."),
+    );
+    expect(discountFn).toContain('requireRole("sales")');
+    expect(discountFn).toContain("approval_required");
+    expect(helperSource).toContain('role === "sales"');
+    expect(helperSource).toContain('role === "operator"');
+    expect(helperSource).toContain('role === "admin"');
+    expect(helperSource).toContain("maximum allowed for sales (10%)");
+    expect(helperSource).toContain("maximum allowed for operators (25%)");
+    expect(helperSource).toContain("maximum allowed (50%)");
+    expect(uiSource).toContain("requires approval");
+  });
+
   it("snapshots revision and selected modules when creating a quote", () => {
     const actionsPath = join(__dirname, "../app/dashboard/projects/[id]/actions.ts");
     const source = readFileSync(actionsPath, "utf-8");

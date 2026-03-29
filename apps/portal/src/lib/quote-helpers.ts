@@ -1,4 +1,4 @@
-import type { QuoteLine, SelectedModule } from "./types";
+import type { QuoteLine, SelectedModule, UserRole } from "./types";
 
 export interface QuoteLineDraft {
   line_type: QuoteLine["line_type"];
@@ -24,25 +24,65 @@ export function calculateQuoteSubtotals(lines: Array<Pick<QuoteLine, "line_type"
   );
 }
 
+export interface DiscountValidationResult {
+  valid: boolean;
+  error?: string;
+  percent?: number;
+  approval_required?: boolean;
+  approval_context?: {
+    kind: "large_discount";
+    role: UserRole;
+    percent: number;
+  };
+}
+
 export function validateDiscount(
   discountCents: number,
   subtotalCents: number,
   reason: string | null,
-): { valid: boolean; error?: string; percent?: number } {
+  role: UserRole = "operator",
+): DiscountValidationResult {
   if (discountCents < 0) return { valid: false, error: "Discount cannot be negative." };
   if (discountCents > subtotalCents) return { valid: false, error: "Discount cannot exceed subtotal." };
   if (subtotalCents === 0) return { valid: true, percent: 0 };
 
+  if (discountCents > 0 && (!reason || reason.trim().length < 3)) {
+    return { valid: false, error: "A reason is required for discounts." };
+  }
+
   const percent = subtotalCents > 0 ? (discountCents / subtotalCents) * 100 : 0;
-  if (percent > 25) {
+  if (percent > 50) {
     return {
       valid: false,
-      error: `Discount of ${percent.toFixed(0)}% exceeds maximum allowed (25%).`,
+      error: `Discount of ${percent.toFixed(0)}% exceeds maximum allowed (50%).`,
     };
   }
 
-  if (discountCents > 0 && (!reason || reason.trim().length < 3)) {
-    return { valid: false, error: "A reason is required for discounts." };
+  if (role === "sales" && percent > 10) {
+    return {
+      valid: false,
+      error: `Discount of ${percent.toFixed(0)}% exceeds maximum allowed for sales (10%).`,
+    };
+  }
+
+  if (role === "operator" && percent > 25) {
+    return {
+      valid: false,
+      error: `Discount of ${percent.toFixed(0)}% exceeds maximum allowed for operators (25%).`,
+    };
+  }
+
+  if (role === "admin" && percent > 25) {
+    return {
+      valid: false,
+      percent,
+      approval_required: true,
+      approval_context: {
+        kind: "large_discount",
+        role,
+        percent,
+      },
+    };
   }
 
   return { valid: true, percent };

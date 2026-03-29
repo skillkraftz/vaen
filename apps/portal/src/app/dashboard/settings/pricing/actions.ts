@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import type { PackagePricing, PricingChangeEvent } from "@/lib/types";
+import { requireRole } from "@/lib/user-role-server";
 import {
   buildPricingChangeAudit,
   sanitizePricingItemUpdate,
@@ -47,6 +48,8 @@ export async function updatePricingItemAction(
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: "Not authenticated" };
+  const roleCheck = await requireRole("admin");
+  if (!roleCheck.ok) return { error: roleCheck.error };
 
   const validation = validatePricingItemUpdate(input);
   if (!validation.valid) return { error: validation.error };

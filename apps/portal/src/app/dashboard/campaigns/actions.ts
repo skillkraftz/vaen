@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { CAMPAIGN_STATUSES, previewProspectImportRows } from "@/lib/prospect-campaigns";
+import { requireRole } from "@/lib/user-role-server";
 import type { Campaign, OutreachSend, Prospect } from "@/lib/types";
 import {
   analyzeProspectAction,
@@ -533,13 +534,22 @@ export async function batchSendCampaignOutreachAction(params: {
   confirmPhrase: string;
 }): Promise<{
   error?: string;
+  approval_required?: boolean;
   summary?: { sent: number; blocked: number; failed: number };
   results?: Array<{ prospectId: string; status: "sent" | "blocked" | "failed"; message: string }>;
 }> {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: "Not authenticated" };
+  const roleCheck = await requireRole("sales");
+  if (!roleCheck.ok) return { error: roleCheck.error };
   if (params.prospectIds.length === 0) return { error: "Select at least one prospect." };
+  if (params.prospectIds.length > 20) {
+    return {
+      approval_required: true,
+      error: "Batch outreach above 20 recipients will require approval in the next phase.",
+    };
+  }
 
   const expectedPhrase = `SEND ${params.prospectIds.length} EMAIL${params.prospectIds.length === 1 ? "" : "S"}`;
   if (params.confirmPhrase.trim() !== expectedPhrase) {

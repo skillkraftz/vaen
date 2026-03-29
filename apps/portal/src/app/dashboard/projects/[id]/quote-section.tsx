@@ -144,6 +144,10 @@ function QuoteCard({
         percent: discountPercent === "" ? 0 : Number(discountPercent),
         reason: discountReason,
       });
+      if (result.approval_required) {
+        setError("Discount above 25% requires approval. This request was not applied.");
+        return;
+      }
       if (result.error) {
         setError(result.error);
         return;

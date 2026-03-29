@@ -14,6 +14,7 @@ import type {
   SelectedModule,
   Quote,
   QuoteLine,
+  UserRole,
 } from "@/lib/types";
 import {
   REQUIRED_DRAFT_KEYS,
@@ -56,7 +57,8 @@ import {
   syncDraftWithSelectedModules,
   validateSelectedModules,
 } from "@/lib/module-selection";
-import { calculateQuoteTotals } from "@/lib/quote-helpers";
+import { calculateQuoteTotals, resolveDiscountCents, validateDiscount } from "@/lib/quote-helpers";
+import { requireRole } from "@/lib/user-role-server";
 import type { ModuleManifest } from "@vaen/module-registry";
 import {
   buildQuoteLineDrafts,
@@ -1505,10 +1507,20 @@ export async function removeQuoteLineAction(
 export async function setQuoteDiscountAction(
   quoteId: string,
   discount: { percent?: number | null; cents?: number | null; reason: string | null },
-): Promise<{ error?: string }> {
+): Promise<{
+  error?: string;
+  approval_required?: boolean;
+  approval_context?: {
+    kind: "large_discount";
+    role: UserRole;
+    percent: number;
+  };
+}> {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: "Not authenticated" };
+  const roleCheck = await requireRole("sales");
+  if (!roleCheck.ok) return { error: roleCheck.error };
 
   const { data: quote } = await supabase
     .from("quotes")
@@ -1518,6 +1530,35 @@ export async function setQuoteDiscountAction(
 
   if (!quote) return { error: "Quote not found." };
   if (quote.status !== "draft") return { error: "Only draft quotes can be discounted." };
+
+  const { data: lineRows } = await supabase
+    .from("quote_lines")
+    .select("line_type, setup_price_cents, recurring_price_cents, quantity")
+    .eq("quote_id", quoteId);
+
+  const subtotalCents = calculateQuoteTotals({
+    lines: (lineRows ?? []) as Array<Pick<QuoteLine, "line_type" | "setup_price_cents" | "recurring_price_cents" | "quantity">>,
+    discountCents: 0,
+  }).setupSubtotalCents;
+
+  const resolvedDiscountCents = resolveDiscountCents({
+    subtotalCents,
+    discountPercent: discount.percent ?? null,
+    discountCents: discount.cents ?? null,
+  });
+  const validation = validateDiscount(
+    resolvedDiscountCents,
+    subtotalCents,
+    discount.reason,
+    roleCheck.role ?? "operator",
+  );
+  if (validation.approval_required) {
+    return {
+      approval_required: true,
+      approval_context: validation.approval_context,
+    };
+  }
+  if (!validation.valid) return { error: validation.error };
 
   try {
     await recalculateQuote(supabase, quoteId, {
@@ -2434,6 +2475,8 @@ export async function purgeProjectAction(
 
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: "Not authenticated" };
+  const roleCheck = await requireRole("admin");
+  if (!roleCheck.ok) return { error: roleCheck.error };
 
   const { data: project } = await supabase
     .from("projects")
@@ -2544,6 +2587,8 @@ export async function bulkPurgeProjectsAction(
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: "Not authenticated" };
+  const roleCheck = await requireRole("admin");
+  if (!roleCheck.ok) return { error: roleCheck.error };
   const ids = [...new Set(projectIds.filter(Boolean))];
   if (ids.length === 0) return { error: "No projects selected." };
 

@@ -224,9 +224,14 @@ describe("prospect actions and ui", () => {
 
   it("uses the outreach package as the send source of truth and records send history", () => {
     const actionsPath = join(__dirname, "../app/dashboard/prospects/actions.ts");
+    const campaignActionsPath = join(__dirname, "../app/dashboard/campaigns/actions.ts");
     const source = readFileSync(actionsPath, "utf-8");
+    const campaignSource = readFileSync(campaignActionsPath, "utf-8");
     const sendFn = source.slice(
       source.indexOf("export async function sendProspectOutreachAction"),
+    );
+    const batchSendFn = campaignSource.slice(
+      campaignSource.indexOf("export async function batchSendCampaignOutreachAction"),
     );
     expect(sendFn).toContain('from("prospect_outreach_packages")');
     expect(sendFn).toContain('from("outreach_sends")');
@@ -238,6 +243,9 @@ describe("prospect actions and ui", () => {
     expect(sendFn).toContain('status: "sent"');
     expect(sendFn).toContain('outreach_status: "sent"');
     expect(sendFn).toContain("computeNextFollowUpDate");
+    expect(batchSendFn).toContain('requireRole("sales")');
+    expect(batchSendFn).toContain("approval_required");
+    expect(batchSendFn).toContain("20 recipients");
   });
 
   it("adds a dedicated prospects area in the dashboard", () => {

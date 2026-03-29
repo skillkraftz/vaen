@@ -28,15 +28,40 @@ describe("quote helpers", () => {
   });
 
   it("blocks discounts over 25 percent", () => {
-    const result = validateDiscount(50000, 170000, "Too much");
+    const result = validateDiscount(50000, 170000, "Too much", "operator");
     expect(result.valid).toBe(false);
-    expect(result.error).toContain("25%");
+    expect(result.error).toContain("operators");
   });
 
   it("requires a reason for any non-zero discount", () => {
-    const result = validateDiscount(1000, 170000, "");
+    const result = validateDiscount(1000, 170000, "", "sales");
     expect(result.valid).toBe(false);
     expect(result.error).toContain("reason");
+  });
+
+  it("limits sales discounts to 10 percent", () => {
+    const result = validateDiscount(20000, 170000, "Light promo", "sales");
+    expect(result.valid).toBe(false);
+    expect(result.error).toContain("sales");
+    expect(result.error).toContain("10%");
+  });
+
+  it("returns approval_required for admin discounts above 25 percent", () => {
+    const result = validateDiscount(50000, 170000, "Strategic deal", "admin");
+    expect(result.valid).toBe(false);
+    expect(result.approval_required).toBe(true);
+    expect(result.approval_context).toEqual({
+      kind: "large_discount",
+      role: "admin",
+      percent: expect.any(Number),
+    });
+  });
+
+  it("blocks discounts above 50 percent for admins", () => {
+    const result = validateDiscount(100000, 170000, "Too deep", "admin");
+    expect(result.valid).toBe(false);
+    expect(result.approval_required).not.toBe(true);
+    expect(result.error).toContain("50%");
   });
 
   it("detects outdated quotes by module id snapshot", () => {

@@ -104,6 +104,7 @@ describe("pricing settings actions and UI", () => {
     const source = readFileSync(actionsPath, "utf-8");
     expect(source).toContain("export async function listPricingSettingsAction");
     expect(source).toContain("export async function updatePricingItemAction");
+    expect(source).toContain('requireRole("admin")');
     expect(source).toContain("validatePricingItemUpdate");
     expect(source).toContain('from("pricing_change_events").insert');
     expect(source).toContain('from("package_pricing")');
