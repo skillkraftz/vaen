@@ -211,6 +211,27 @@ Branch states:
 | Worker VM for isolated builds | Planned |
 | Additional templates and modules | Planned |
 
+### Phase 4 — Sales Ops & Governance (mostly complete)
+
+| Component | Status |
+|-----------|--------|
+| Client-backed project creation | Complete |
+| Archive / restore / guarded purge | Complete |
+| Project variants / duplication lineage | Complete |
+| Authoritative module management | Complete |
+| Pricing, quotes, contracts | Complete |
+| Audited pricing settings | Complete |
+| Prospects and website analysis | Complete |
+| Outreach package generation + Resend execution | Complete |
+| Outreach readiness/config hardening | Complete |
+| Campaigns + bulk import + batch outreach | Complete |
+| Role foundation + gated high-risk actions | Complete |
+| Approval workflow | Complete |
+| Campaign sequence builder | Complete |
+| Campaign sequence execution | Complete |
+| Analytics dashboard (`/dashboard/analytics`) | Complete |
+| Campaign-detail analytics row | Planned |
+
 ## Assumptions
 - Templates use Next.js (App Router) with top-level `app/` directory for SSG/SSR flexibility
 - Portal uses Supabase for auth, database, and storage

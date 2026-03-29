@@ -108,6 +108,37 @@ describe("analytics funnel metrics", () => {
     expect(funnel.followUpsDueNow).toBe(2); // both overdue + due today
   });
 
+  it("excludes paused and do_not_contact prospects from due follow-up counts", () => {
+    const prospects = [
+      makeProspect({
+        id: "p-1",
+        outreach_status: "do_not_contact",
+        next_follow_up_due_at: "2026-03-29T10:00:00Z",
+      }),
+      makeProspect({
+        id: "p-2",
+        next_follow_up_due_at: "2026-03-29T11:00:00Z",
+        metadata: {
+          sequence_state: {
+            current_step: 2,
+            steps: [],
+            paused: true,
+            paused_reason: "manual",
+          },
+        },
+      }),
+      makeProspect({
+        id: "p-3",
+        next_follow_up_due_at: "2026-03-29T09:00:00Z",
+      }),
+    ];
+
+    const funnel = computeFunnelMetrics(prospects, [], new Set(), now);
+
+    expect(funnel.followUpsOverdue).toBe(1);
+    expect(funnel.followUpsDueNow).toBe(1);
+  });
+
   it("detects paused prospects via sequence state", () => {
     const prospects = [
       makeProspect({
@@ -174,6 +205,40 @@ describe("analytics campaign rollups", () => {
     expect(rollups[0].converted).toBe(1);
   });
 
+  it("does not count paused or do_not_contact prospects as due follow-ups in rollups", () => {
+    const campaign = makeCampaign({ id: "c-1", name: "Spring Push" });
+    const campaignMap = new Map([["c-1", campaign]]);
+    const prospects = [
+      makeProspect({
+        id: "p-1",
+        campaign_id: "c-1",
+        next_follow_up_due_at: "2026-03-29T10:00:00Z",
+        metadata: {
+          sequence_state: {
+            current_step: 2,
+            steps: [],
+            paused: true,
+            paused_reason: "manual",
+          },
+        },
+      }),
+      makeProspect({
+        id: "p-2",
+        campaign_id: "c-1",
+        outreach_status: "do_not_contact",
+        next_follow_up_due_at: "2026-03-29T11:00:00Z",
+      }),
+      makeProspect({
+        id: "p-3",
+        campaign_id: "c-1",
+        next_follow_up_due_at: "2026-03-29T09:00:00Z",
+      }),
+    ];
+
+    const rollups = computeCampaignRollups(prospects, campaignMap, now);
+    expect(rollups[0].followUpDue).toBe(1);
+  });
+
   it("includes active campaigns with zero prospects", () => {
     const campaign = makeCampaign({ id: "c-1", status: "active" });
     const campaignMap = new Map([["c-1", campaign]]);
@@ -227,6 +292,43 @@ describe("analytics follow-ups due", () => {
     expect(result[1].companyName).toBe("Soon Co");
     expect(result[1].overdue).toBe(false);
   });
+
+  it("omits paused and do_not_contact prospects from the due list", () => {
+    const campaign = makeCampaign({ id: "c-1", name: "Spring Push" });
+    const campaignMap = new Map([["c-1", campaign]]);
+    const prospects = [
+      makeProspect({
+        id: "p-1",
+        company_name: "Paused Co",
+        campaign_id: "c-1",
+        next_follow_up_due_at: "2026-03-28T10:00:00Z",
+        metadata: {
+          sequence_state: {
+            current_step: 2,
+            steps: [],
+            paused: true,
+            paused_reason: "manual",
+          },
+        },
+      }),
+      makeProspect({
+        id: "p-2",
+        company_name: "Blocked Co",
+        campaign_id: "c-1",
+        outreach_status: "do_not_contact",
+        next_follow_up_due_at: "2026-03-28T11:00:00Z",
+      }),
+      makeProspect({
+        id: "p-3",
+        company_name: "Real Co",
+        campaign_id: "c-1",
+        next_follow_up_due_at: "2026-03-28T12:00:00Z",
+      }),
+    ];
+
+    const result = computeFollowUpsDue(prospects, campaignMap, now);
+    expect(result.map((item) => item.companyName)).toEqual(["Real Co"]);
+  });
 });
 
 describe("analytics quote pipeline", () => {
@@ -264,6 +366,8 @@ describe("analytics page integration", () => {
     expect(source).toContain('requireRole("sales")');
     expect(source).toContain("fetchAnalyticsData");
     expect(source).toContain("AnalyticsDashboard");
+    expect(source).toContain('data-testid="analytics-page-error"');
+    expect(source).toContain("Analytics data is unavailable right now.");
   });
 
   it("has analytics dashboard with expected sections", () => {
@@ -277,6 +381,7 @@ describe("analytics page integration", () => {
     expect(source).toContain('data-testid="analytics-followups-due"');
     expect(source).toContain('data-testid="analytics-prospect-status"');
     expect(source).toContain('data-testid="analytics-outreach-status"');
+    expect(source).toContain('data-testid="analytics-quote-pipeline-empty"');
     expect(source).toContain("/dashboard/prospects/");
     expect(source).toContain("/dashboard/campaigns/");
   });

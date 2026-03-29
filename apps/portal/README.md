@@ -1,8 +1,8 @@
 # @vaen/portal — vaen.space
 
-Authenticated operations portal for the vaen website factory. Serves as the intake front door where projects are created, files uploaded, and intakes tracked.
+Authenticated operations portal for the vaen website factory. It now covers intake, project automation, pricing and quotes, prospects, campaigns, approvals, sequencing, and analytics.
 
-**Status:** Phase 2 complete — auth, dashboard, intake form, file uploads, Discord notifications, intake processing, approval workflow, generator export.
+**Status:** Core portal workflow, sales ops, governance, and campaign sequencing foundations are implemented. The main remaining work is deeper automation continuation, richer analytics on campaign detail, and broader team-management polish.
 
 ## Tech Stack
 
@@ -19,6 +19,12 @@ Authenticated operations portal for the vaen website factory. Serves as the inta
 | `/dashboard` | Project list with status badges |
 | `/dashboard/new` | New intake form with file uploads |
 | `/dashboard/projects/[id]` | Project detail with processing, approval, and export |
+| `/dashboard/prospects` | Prospect list, import, and detail workflow |
+| `/dashboard/campaigns` | Campaign list and campaign detail operations |
+| `/dashboard/settings/pricing` | Admin pricing settings |
+| `/dashboard/settings/outreach` | Outreach readiness and config status |
+| `/dashboard/approvals` | Admin approval queue |
+| `/dashboard/analytics` | Sales and campaign analytics dashboard |
 
 ## Setup
 
@@ -137,7 +143,7 @@ New states: `intake_processing`, `intake_draft_ready`, `intake_needs_revision`, 
 
 ## Next Phase
 
-- Screenshot viewer integration
-- Deployment trigger from portal
-- Search and filtering on dashboard
-- Worker automation (Phase 3)
+- Campaign-detail analytics row and deeper analytics breakdowns
+- Automation continuation after async generate/review boundaries
+- Broader team management and role administration UI
+- Deployment trigger and operational release controls

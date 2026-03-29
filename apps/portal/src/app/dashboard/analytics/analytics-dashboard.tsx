@@ -136,7 +136,7 @@ export function AnalyticsDashboard({ data }: { data: AnalyticsData }) {
       </div>
 
       {/* ── Quote Pipeline ─────────────────────────────────── */}
-      {quotePipeline.totalQuotes > 0 && (
+      {quotePipeline.totalQuotes > 0 ? (
         <div
           className="card"
           style={{ marginBottom: "1rem", padding: "0.75rem" }}
@@ -168,6 +168,17 @@ export function AnalyticsDashboard({ data }: { data: AnalyticsData }) {
               </span>
             ))}
           </div>
+        </div>
+      ) : (
+        <div
+          className="card"
+          style={{ marginBottom: "1rem", padding: "0.75rem" }}
+          data-testid="analytics-quote-pipeline-empty"
+        >
+          <strong style={{ fontSize: "0.85rem" }}>Quote Pipeline</strong>
+          <p className="text-sm text-muted" style={{ marginTop: "0.5rem" }}>
+            No quotes have been created yet.
+          </p>
         </div>
       )}
 

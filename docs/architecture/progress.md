@@ -111,6 +111,25 @@
 - [x] Jobs INSERT RLS policy (migration 7) — users can create jobs for own projects
 - [x] Target model documentation (`docs/architecture/target-model.md`)
 
+### Phase 4 — Sales Ops, Governance, and Campaign Automation
+- [x] Clients as first-class records with project linkage and snapshot-based intake creation
+- [x] Project archive / restore / guarded purge
+- [x] Project duplication / variants with lineage and reset downstream artifacts
+- [x] Authoritative project-level selected modules with revision/staleness integration
+- [x] Pricing model, quote creation, quote lifecycle, and contract creation
+- [x] Audited in-app pricing settings
+- [x] Prospects, website analysis, conversion into clients/projects, and automation levels
+- [x] Outreach package generation and explicit Resend-backed outreach execution
+- [x] Outreach readiness/config hardening and green full portal Vitest signal
+- [x] Campaigns, bulk prospect import, bulk analyze, bulk convert, and controlled batch outreach
+- [x] Role foundation (`viewer < sales < operator < admin`)
+- [x] High-risk role gating (pricing writes, purge, batch outreach)
+- [x] Approval workflow for large discounts, batch outreach, and project purge
+- [x] Campaign sequence builder (S1)
+- [x] Campaign sequence execution with explicit “advance due follow-ups” (S2)
+- [x] Analytics dashboard at `/dashboard/analytics`
+- [ ] Campaign-detail analytics card row
+
 ## Developer Commands
 
 | Task | Command |

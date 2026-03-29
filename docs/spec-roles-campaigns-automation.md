@@ -11,14 +11,14 @@ What exists today:
 
 | Area | Current state |
 |------|--------------|
-| Auth | Supabase email/password, single-user model, no roles |
-| RLS | All tables enforce `user_id = auth.uid()` ownership |
-| Discounts | Hard cap at 25%, reason required, `discount_approved_by` field exists but unused |
-| Approvals | None. Outreach send has confirmation checkbox + typed phrase for batch. |
-| Campaigns | Container for prospects. Status: draft/active/paused/completed/archived. |
-| Sequencing | None. Single outreach send per prospect with `follow_up_count` tracking. 3-day/7-day follow-up timing computed but not acted on. |
-| Analytics | Campaign metrics: prospect count, ready count, sent count. No funnel, no conversion tracking. |
-| Automation | 5 tiers (convert_only through review_site). Stops at async job boundaries. No auto-continuation. Manual retry via `continueProspectAutomationAction`. |
+| Auth | Supabase email/password with app-level roles (`viewer < sales < operator < admin`) |
+| RLS | Ownership RLS is in place; high-risk actions also use server-side role checks |
+| Discounts | Role-aware bands implemented; >25% admin discounts route through approval requests |
+| Approvals | Lightweight approval queue implemented for large discounts, batch outreach, and project purge |
+| Campaigns | Container for prospects. Status: draft/active/paused/completed/archived. Batch import/analyze/convert/automation exist. |
+| Sequencing | Per-campaign sequence builder and explicit “advance due follow-ups” execution are implemented |
+| Analytics | System analytics dashboard at `/dashboard/analytics` is implemented; campaign-detail analytics row is still pending |
+| Automation | 5 tiers (convert_only through review_site). Stops at async job boundaries. Manual continuation via `continueProspectAutomationAction`. |
 | Worker comms | DB-mediated: worker writes project status + job status. Portal polls every 3s when job active. No webhooks. |
 
 ---

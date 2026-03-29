@@ -9,6 +9,29 @@ import { readProspectSequenceState } from "./campaign-sequences";
 
 type PortalSupabase = Awaited<ReturnType<typeof createClient>>;
 
+function getSupabaseErrorMessage(
+  result: { error?: { message?: string } | null },
+  label: string,
+) {
+  return result.error?.message ? `${label}: ${result.error.message}` : null;
+}
+
+function isProspectFollowUpExcluded(prospect: Pick<Prospect, "outreach_status" | "metadata">) {
+  if (prospect.outreach_status === "do_not_contact") return true;
+  const sequenceState = readProspectSequenceState(prospect.metadata);
+  return sequenceState?.paused === true;
+}
+
+function isProspectFollowUpDueBy(
+  prospect: Pick<Prospect, "next_follow_up_due_at" | "outreach_status" | "metadata">,
+  cutoff: Date,
+) {
+  if (!prospect.next_follow_up_due_at) return false;
+  if (isProspectFollowUpExcluded(prospect)) return false;
+  const dueAt = new Date(prospect.next_follow_up_due_at);
+  return dueAt <= cutoff;
+}
+
 /* ── Funnel metrics ─────────────────────────────────────────────── */
 
 export interface FunnelMetrics {
@@ -81,13 +104,7 @@ export async function fetchAnalyticsData(
 ): Promise<AnalyticsData> {
   const now = new Date();
 
-  const [
-    { data: prospects },
-    { data: campaigns },
-    { data: sends },
-    { data: outreachPackages },
-    { data: quotes },
-  ] = await Promise.all([
+  const [prospectsResult, campaignsResult, sendsResult, outreachPackagesResult, quotesResult] = await Promise.all([
     supabase.from("prospects").select("*").order("created_at", { ascending: false }),
     supabase.from("campaigns").select("*").order("created_at", { ascending: false }),
     supabase.from("outreach_sends").select("id, status").order("created_at", { ascending: false }),
@@ -95,15 +112,27 @@ export async function fetchAnalyticsData(
     supabase.from("quotes").select("status, setup_total_cents, recurring_total_cents"),
   ]);
 
-  const allProspects = (prospects ?? []) as Prospect[];
-  const allCampaigns = (campaigns ?? []) as Campaign[];
-  const allSends = (sends ?? []) as Pick<OutreachSend, "id" | "status">[];
+  const errors = [
+    getSupabaseErrorMessage(prospectsResult, "Failed to load prospects"),
+    getSupabaseErrorMessage(campaignsResult, "Failed to load campaigns"),
+    getSupabaseErrorMessage(sendsResult, "Failed to load outreach sends"),
+    getSupabaseErrorMessage(outreachPackagesResult, "Failed to load outreach packages"),
+    getSupabaseErrorMessage(quotesResult, "Failed to load quotes"),
+  ].filter((value): value is string => !!value);
+
+  if (errors.length > 0) {
+    throw new Error(errors.join(" · "));
+  }
+
+  const allProspects = (prospectsResult.data ?? []) as Prospect[];
+  const allCampaigns = (campaignsResult.data ?? []) as Campaign[];
+  const allSends = (sendsResult.data ?? []) as Pick<OutreachSend, "id" | "status">[];
   const readyPackageProspectIds = new Set(
-    ((outreachPackages ?? []) as Array<{ prospect_id: string; status: string }>)
+    ((outreachPackagesResult.data ?? []) as Array<{ prospect_id: string; status: string }>)
       .filter((pkg) => pkg.status === "ready")
       .map((pkg) => pkg.prospect_id),
   );
-  const allQuotes = (quotes ?? []) as Pick<Quote, "status" | "setup_total_cents" | "recurring_total_cents">[];
+  const allQuotes = (quotesResult.data ?? []) as Pick<Quote, "status" | "setup_total_cents" | "recurring_total_cents">[];
 
   const campaignMap = new Map(allCampaigns.map((c) => [c.id, c]));
 
@@ -156,7 +185,7 @@ export function computeFunnelMetrics(
     if (p.converted_project_id) convertedToProject++;
 
     // Follow-up due tracking
-    if (p.next_follow_up_due_at) {
+    if (!isProspectFollowUpExcluded(p) && p.next_follow_up_due_at) {
       const dueAt = new Date(p.next_follow_up_due_at);
       if (dueAt <= now) {
         followUpsOverdue++;
@@ -240,10 +269,8 @@ export function computeCampaignRollups(
     if (p.outreach_status === "replied") rollup.replied++;
     if (p.converted_client_id || p.converted_project_id) rollup.converted++;
 
-    if (p.next_follow_up_due_at) {
-      const dueAt = new Date(p.next_follow_up_due_at);
-      const tomorrow = new Date(now.getTime() + 24 * 60 * 60 * 1000);
-      if (dueAt <= tomorrow) rollup.followUpDue++;
+    if (isProspectFollowUpDueBy(p, new Date(now.getTime() + 24 * 60 * 60 * 1000))) {
+      rollup.followUpDue++;
     }
 
     const seqState = readProspectSequenceState(p.metadata);
@@ -264,9 +291,9 @@ export function computeFollowUpsDue(
   const items: FollowUpDueItem[] = [];
 
   for (const p of prospects) {
-    if (!p.next_follow_up_due_at) continue;
-    const dueAt = new Date(p.next_follow_up_due_at);
-    if (dueAt > tomorrow) continue;
+    if (!isProspectFollowUpDueBy(p, tomorrow)) continue;
+    const nextFollowUpDueAt = p.next_follow_up_due_at!;
+    const dueAt = new Date(nextFollowUpDueAt);
 
     const campaign = p.campaign_id ? campaignMap.get(p.campaign_id) : null;
     items.push({
@@ -275,7 +302,7 @@ export function computeFollowUpsDue(
       campaignId: p.campaign_id ?? null,
       campaignName: campaign?.name ?? null,
       outreachStatus: p.outreach_status ?? null,
-      nextFollowUpDueAt: p.next_follow_up_due_at,
+      nextFollowUpDueAt,
       overdue: dueAt <= now,
     });
   }
