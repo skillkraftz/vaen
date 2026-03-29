@@ -139,6 +139,16 @@ describe("active revision asset selection affects generation input", () => {
     expect(source).toContain("content.galleryImages = galleryImages");
   });
 
+  it("export writes the full active revision draft without remapping away intake metadata", () => {
+    const actionsPath = join(__dirname, "../app/dashboard/projects/[id]/actions.ts");
+    const source = readFileSync(actionsPath, "utf-8");
+    const fnStart = source.indexOf("export async function exportToGeneratorAction");
+    const fnEnd = source.indexOf("export async function updateProjectAction");
+    const fn = source.slice(fnStart, fnEnd);
+    expect(fn).toContain("const draft = { ...(rev.request_data as Record<string, unknown>) }");
+    expect(fn).toContain("JSON.stringify(draft, null, 2)");
+  });
+
   it("reExportAction also reads from active revision", () => {
     const actionsPath = join(__dirname, "../app/dashboard/projects/[id]/actions.ts");
     const source = readFileSync(actionsPath, "utf-8");

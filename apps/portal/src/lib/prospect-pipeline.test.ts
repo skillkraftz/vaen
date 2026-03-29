@@ -215,6 +215,22 @@ describe("prospect actions and ui", () => {
     expect(convertFn).toContain("runProspectAutomationLevel");
   });
 
+  it("conversion snapshots prospect fields into the project draft and initial revision", () => {
+    const actionsPath = join(__dirname, "../app/dashboard/prospects/actions.ts");
+    const source = readFileSync(actionsPath, "utf-8");
+    const convertFn = source.slice(
+      source.indexOf("export async function convertProspectAction"),
+    );
+    expect(convertFn).toContain("websiteUrl: p.website_url");
+    expect(convertFn).toContain("source: p.source");
+    expect(convertFn).toContain("campaign: p.campaign");
+    expect(convertFn).toContain("outreachSummary: p.outreach_summary");
+    expect(convertFn).toContain("sourceProspectId: p.id");
+    expect(convertFn).toContain("draft_request: initialSnapshot");
+    expect(convertFn).toContain("initialSnapshot");
+    expect(convertFn).toContain("createRevisionAndSetCurrent");
+  });
+
   it("supports explicit automation levels and stops cleanly at async job boundaries", () => {
     const actionsPath = join(__dirname, "../app/dashboard/prospects/actions.ts");
     const source = readFileSync(actionsPath, "utf-8");

@@ -402,6 +402,11 @@ export async function convertProspectAction(
     contactEmail: p.contact_email,
     contactPhone: p.contact_phone,
     notes: p.notes ?? p.outreach_summary,
+    websiteUrl: p.website_url,
+    source: p.source,
+    campaign: p.campaign,
+    outreachSummary: p.outreach_summary,
+    sourceProspectId: p.id,
   });
 
   const { data: createdProject, error: projectError } = await supabase

@@ -303,6 +303,86 @@ describe("processIntake", () => {
       const services = result.draftRequest.services as Array<{ name: string }>;
       expect(services).toEqual([{ name: "My Custom Service" }]);
     });
+
+    it("preserves prospect intake metadata when rebuilding the draft", () => {
+      const p = baseProject({
+        name: "Audit Run Co",
+        business_type: "Painting contractor",
+        contact_name: "Alex",
+        contact_email: "alex@example.com",
+        contact_phone: "(555) 111-2222",
+        notes: "High-touch residential repaint projects",
+        draft_request: {
+          version: "1.0.0",
+          business: { name: "Audit Run Co", type: "Painting contractor" },
+          contact: { name: "Alex", email: "alex@example.com", phone: "(555) 111-2222" },
+          services: [{ name: "Interior Painting" }],
+          content: {
+            about: "High-touch residential repaint projects",
+          },
+          preferences: {},
+          _intake: {
+            websiteUrl: "https://audit-run.example",
+            source: "csv_import",
+            campaign: "Spring Push",
+            outreachSummary: "Outdated site and weak call to action",
+            sourceProspectId: "prospect-123",
+          },
+        },
+      });
+
+      const result = processIntake(p, []);
+      expect(result.draftRequest.contact).toEqual(
+        expect.objectContaining({
+          name: "Alex",
+          email: "alex@example.com",
+          phone: "(555) 111-2222",
+        }),
+      );
+      expect(result.draftRequest.content).toEqual(
+        expect.objectContaining({
+          about: "High-touch residential repaint projects",
+        }),
+      );
+      expect(result.draftRequest._intake).toEqual(
+        expect.objectContaining({
+          businessName: "Audit Run Co",
+          businessType: "Painting contractor",
+          contactName: "Alex",
+          contactEmail: "alex@example.com",
+          contactPhone: "(555) 111-2222",
+          notes: "High-touch residential repaint projects",
+          websiteUrl: "https://audit-run.example",
+          source: "csv_import",
+          campaign: "Spring Push",
+          outreachSummary: "Outdated site and weak call to action",
+          sourceProspectId: "prospect-123",
+        }),
+      );
+    });
+
+    it("preserves existing about content when notes are absent", () => {
+      const p = baseProject({
+        business_type: "Electrician",
+        contact_email: "a@b.com",
+        draft_request: {
+          version: "1.0.0",
+          business: { name: "Test Business", type: "Electrician" },
+          contact: { email: "a@b.com" },
+          services: [{ name: "Panel Upgrades" }],
+          content: {
+            about: "Imported website summary",
+          },
+        },
+      });
+
+      const result = processIntake(p, []);
+      expect(result.draftRequest.content).toEqual(
+        expect.objectContaining({
+          about: "Imported website summary",
+        }),
+      );
+    });
   });
 
   describe("recommendations", () => {

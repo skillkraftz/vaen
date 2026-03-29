@@ -108,4 +108,33 @@ describe("initial request snapshot", () => {
     });
     expect(snapshot._intake).toBeTruthy();
   });
+
+  it("captures prospect-origin fields into the authoritative intake snapshot", () => {
+    const snapshot = buildInitialRequestSnapshot({
+      name: "Audit Run Co",
+      businessType: "Painting contractor",
+      contactName: "Alex",
+      contactEmail: "alex@example.com",
+      contactPhone: "(555) 111-2222",
+      notes: "High-touch residential repaint projects",
+      websiteUrl: "https://audit-run.example",
+      source: "csv_import",
+      campaign: "Spring Push",
+      outreachSummary: "Outdated site and weak call to action",
+      sourceProspectId: "prospect-123",
+    });
+
+    expect(snapshot.content).toEqual({
+      about: "High-touch residential repaint projects",
+    });
+    expect(snapshot._intake).toEqual(
+      expect.objectContaining({
+        websiteUrl: "https://audit-run.example",
+        source: "csv_import",
+        campaign: "Spring Push",
+        outreachSummary: "Outdated site and weak call to action",
+        sourceProspectId: "prospect-123",
+      }),
+    );
+  });
 });

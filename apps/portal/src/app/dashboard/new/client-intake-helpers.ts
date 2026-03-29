@@ -7,6 +7,11 @@ export interface ClientSeed {
   contactEmail: string | null;
   contactPhone: string | null;
   notes: string | null;
+  websiteUrl?: string | null;
+  source?: string | null;
+  campaign?: string | null;
+  outreachSummary?: string | null;
+  sourceProspectId?: string | null;
 }
 
 export function asNullableString(value: FormDataEntryValue | null): string | null {
@@ -27,7 +32,9 @@ export function buildInitialRequestSnapshot(seed: ClientSeed): Record<string, un
       phone: seed.contactPhone ?? "",
     },
     services: [],
-    content: {},
+    content: {
+      ...(seed.notes ? { about: seed.notes } : {}),
+    },
     preferences: {},
     _intake: {
       businessName: seed.name,
@@ -36,6 +43,11 @@ export function buildInitialRequestSnapshot(seed: ClientSeed): Record<string, un
       contactEmail: seed.contactEmail ?? undefined,
       contactPhone: seed.contactPhone ?? undefined,
       notes: seed.notes ?? undefined,
+      websiteUrl: seed.websiteUrl ?? undefined,
+      source: seed.source ?? undefined,
+      campaign: seed.campaign ?? undefined,
+      outreachSummary: seed.outreachSummary ?? undefined,
+      sourceProspectId: seed.sourceProspectId ?? undefined,
     },
   });
 }

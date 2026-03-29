@@ -8,6 +8,7 @@
  */
 
 import type { Project, Asset, MissingInfoItem, IntakeRecommendations } from "./types";
+import { ensureDraftDefaults } from "./draft-helpers";
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -127,6 +128,9 @@ function generateClientSummary(
 // ── E. Draft client-request.json ─────────────────────────────────────
 
 function buildDraftRequest(project: Project): Record<string, unknown> {
+  const existingDraft = ensureDraftDefaults((project.draft_request as Record<string, unknown> | null) ?? null);
+  const existingContent = (existingDraft.content ?? {}) as Record<string, unknown>;
+  const existingIntake = (existingDraft._intake ?? {}) as Record<string, unknown>;
   // Extract services: try notes first, then infer from business type
   let services: Array<{ name: string; description?: string }> = extractServicesFromNotes(project.notes);
   if (services.length === 0) {
@@ -147,6 +151,7 @@ function buildDraftRequest(project: Project): Record<string, unknown> {
       ...(project.business_type ? { description: `${project.name} provides professional ${project.business_type.toLowerCase()} services.` } : {}),
     },
     contact: {
+      ...(project.contact_name ? { name: project.contact_name } : {}),
       ...(project.contact_email ? { email: project.contact_email } : {}),
       ...(project.contact_phone ? { phone: project.contact_phone } : {}),
     },
@@ -162,15 +167,26 @@ function buildDraftRequest(project: Project): Record<string, unknown> {
   };
 
   // Add content from notes — use it for 'about' but try to make it concise
-  if (project.notes) {
+  if (project.notes || existingContent.about || Object.keys(existingContent).length > 0) {
     // Truncate very long notes for the about field
-    const aboutText = project.notes.length > 500
-      ? project.notes.substring(0, 500) + "..."
-      : project.notes;
+    const aboutText = project.notes
+      ? (project.notes.length > 500 ? project.notes.substring(0, 500) + "..." : project.notes)
+      : existingContent.about;
     draft.content = {
-      about: aboutText,
+      ...existingContent,
+      ...(aboutText ? { about: aboutText } : {}),
     };
   }
+
+  draft._intake = {
+    ...existingIntake,
+    businessName: project.name,
+    businessType: project.business_type ?? existingIntake.businessType ?? undefined,
+    contactName: project.contact_name ?? existingIntake.contactName ?? undefined,
+    contactEmail: project.contact_email ?? existingIntake.contactEmail ?? undefined,
+    contactPhone: project.contact_phone ?? existingIntake.contactPhone ?? undefined,
+    notes: project.notes ?? existingIntake.notes ?? undefined,
+  };
 
   return draft;
 }
