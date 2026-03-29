@@ -6,7 +6,8 @@
   "scripts": {
     "build": "tsc",
     "clean": "rm -rf dist",
-    "start": "node dist/index.js",
+    "start": "node dist/poll.js",
+    "poll": "node dist/poll.js",
     "run-job": "node dist/run-job.js"
   },
   "dependencies": {

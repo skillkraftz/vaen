@@ -92,12 +92,14 @@ The authenticated intake front door. Built with Next.js + Supabase:
 - **Storage** — Supabase Storage bucket `intake-assets` with user-scoped paths
 
 ### 8. Worker Layer (`apps/worker`)
-Background job runner. Portal creates a job record in the DB and spawns the worker
-as a detached child process. The worker reads the job, executes it (generate or review
-via child_process.spawn), captures stdout/stderr, and writes results back to the DB.
+Background job runner. Portal creates a job record in the DB, and a long-running worker
+poller claims pending jobs from Supabase. The worker executes them (generate or review
+via child_process.spawn), captures stdout/stderr, writes results back to the DB, and
+updates worker heartbeats for health visibility.
 
 Entrypoints:
-- `run-job.ts` — Execute a single job by ID (spawned by portal)
+- `poll.ts` — Long-running Supabase poller + heartbeat writer
+- `run-job.ts` — Execute a single job by ID (used by the poller and local fallback)
 - `db.ts` — Supabase client using service role key (bypasses RLS)
 - `handlers.ts` — Job handler registry (v0 built-in handlers)
 - `pipeline.ts` — Sequential pipeline runner with lifecycle callbacks
@@ -200,9 +202,10 @@ Branch states:
 | Portal-triggered build & review (runReviewAction) | Complete |
 | Artifact status visibility (getArtifactStatusAction) | Complete |
 | Phase indicator (intake / build / deploy / done) | Complete |
-| Worker job runner (run-job.ts, detached child process) | Complete |
+| Worker job runner (run-job.ts) | Complete |
 | Jobs DB table (status, payload, result, stdout, stderr) | Complete |
-| Non-blocking job dispatch (portal → worker via DB + spawn) | Complete |
+| Supabase-polled worker dispatch (portal inserts jobs, worker claims) | Complete |
+| Worker heartbeat table + poll loop | Complete |
 | Job status panel with log viewer | Complete |
 | Screenshot viewer in portal (inline base64 PNGs) | Complete |
 | Intake field enrichment in generator (_intake.* → siteConfig) | Complete |
@@ -239,8 +242,8 @@ Branch states:
 - Templates use Next.js (App Router) with top-level `app/` directory for SSG/SSR flexibility
 - Portal uses Supabase for auth, database, and storage
 - Portal is the primary operating surface for the entire pipeline
-- Portal dispatches jobs to the worker; worker executes via child_process.spawn
+- Portal dispatches jobs into Supabase; the worker poller claims and executes them
 - Worker uses Supabase service role key for DB access (bypasses RLS)
 - Playwright screenshots run against local build server
 - Target resolution is the single source of truth for workspace paths
-- Job model: DB-backed records, portal spawns worker per job; queue-backed in v1
+- Job model: DB-backed records, worker claims atomically from Supabase; no external queue yet

@@ -1136,22 +1136,23 @@ describe("deployment doc has clear implementation status labels", () => {
     const docPath = join(REPO_ROOT, "docs/architecture/deployment.md");
     const source = readFileSync(docPath, "utf-8");
     expect(source).toContain("CURRENT");
-    expect(source).toContain("Phase 1");
+    expect(source).toContain("Phase 2");
   });
 
-  it("marks target architecture as PLANNED", () => {
+  it("marks the remaining VM-oriented architecture as planned", () => {
     const docPath = join(REPO_ROOT, "docs/architecture/deployment.md");
     const source = readFileSync(docPath, "utf-8");
     expect(source).toContain("PLANNED");
-    // Should appear near Vercel, Worker on VM, Tailscale, Phase 2, Phase 3
-    expect(source).toContain("Portal on Vercel — PLANNED");
-    expect(source).toContain("Worker on VM (via Tailscale) — PLANNED");
+    expect(source).toContain("Worker on VM (via Tailscale) — NEXT");
+    expect(source).toContain("Tailscale for phone testing — PLANNED");
   });
 
-  it("marks required code changes as not implemented", () => {
+  it("documents the remaining VM deployment work explicitly", () => {
     const docPath = join(REPO_ROOT, "docs/architecture/deployment.md");
     const source = readFileSync(docPath, "utf-8");
-    expect(source).toContain("NOT YET IMPLEMENTED");
+    expect(source).toContain("Remaining Work For True VM Deployment");
+    expect(source).toContain("persistent supervisor");
+    expect(source).toContain("deploy target orchestration");
   });
 
   it("has top-level status summary", () => {

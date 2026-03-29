@@ -2,7 +2,7 @@
 
 Background job runner for the vaen pipeline — processes generation, build, review, and deployment jobs.
 
-**Status:** Scaffolded — pipeline runner, job handler registry, and built-in handlers implemented. No queue or VM isolation yet.
+**Status:** Supabase-polled worker implemented. Jobs are claimed from the DB, executed, and tracked with worker heartbeats.
 
 ## Architecture
 
@@ -18,10 +18,27 @@ Each job type has a registered handler. Jobs run sequentially within a pipeline.
 
 | File | Purpose |
 |------|---------|
-| `src/index.ts` | Entry point |
+| `src/index.ts` | Info / package entry point |
+| `src/poll.ts` | Long-running Supabase poller + heartbeat loop |
+| `src/run-job.ts` | Execute a single claimed job |
 | `src/config.ts` | Worker configuration (concurrency, isolation, timeout) |
 | `src/handlers.ts` | Job handler registry + built-in handlers |
 | `src/pipeline.ts` | Pipeline runner with lifecycle callbacks |
+
+## Runtime model
+
+1. Portal inserts a `jobs` row
+2. `src/poll.ts` claims the next pending job via `claim_next_job()`
+3. Poller updates `worker_heartbeats`
+4. `src/run-job.ts` executes the claimed job
+5. Job + project state are written back to Supabase
+
+Local direct execution still exists for debugging:
+
+```bash
+pnpm --filter @vaen/worker poll
+pnpm --filter @vaen/worker run-job -- <job-id>
+```
 
 ## Usage (programmatic)
 
@@ -34,8 +51,8 @@ const pipeline = await runPipeline(
 );
 ```
 
-## v1 Targets
-- BullMQ job queue for distributed processing
-- Firecracker/microVM isolation per job
-- Webhook callbacks on job completion
-- Retry logic with exponential backoff
+## Remaining deployment work
+- run the poller under a real process supervisor on a VM
+- provision Playwright/build dependencies on that VM
+- add operator-facing heartbeat status in the portal UI
+- add deploy-target orchestration on top of the job backbone

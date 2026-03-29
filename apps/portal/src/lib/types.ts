@@ -149,6 +149,17 @@ export interface JobRecord {
   completed_at: string | null;
 }
 
+export interface WorkerHeartbeat {
+  worker_id: string;
+  hostname: string;
+  current_job_id: string | null;
+  last_seen_at: string;
+  status: "idle" | "running" | "error";
+  metadata: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface PackagePricing {
   id: string;
   item_type: "template" | "module";

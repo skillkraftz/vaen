@@ -3,10 +3,11 @@
 /**
  * run-job — Executes a single job by ID.
  *
- * Called by the portal as a detached child process:
+ * Called either by the long-running worker poller after it claims a job,
+ * or directly for local debugging:
  *   node apps/worker/dist/run-job.js <job-id>
  *
- * Reads the job from the DB, executes it (generate or review),
+ * Reads the claimed job from the DB, executes it (generate or review),
  * captures stdout/stderr, and writes results back to the DB.
  * Also updates the parent project's status on success/failure.
  *
@@ -272,13 +273,11 @@ interface SiteSourceSummary {
 
 // ── Main ──────────────────────────────────────────────────────────────
 
-async function main() {
-  const jobId = process.argv[2];
-  if (!jobId) {
-    console.error("Usage: run-job <job-id>");
-    process.exit(1);
-  }
-
+export async function runJobById(
+  jobId: string,
+  options: { claimIfPending?: boolean } = {},
+) {
+  const { claimIfPending = true } = options;
   const db = createWorkerClient();
 
   // Load the job
@@ -289,15 +288,17 @@ async function main() {
     .single();
 
   if (jobErr || !job) {
-    console.error(`Job ${jobId} not found:`, jobErr?.message);
-    process.exit(1);
+    throw new Error(`Job ${jobId} not found: ${jobErr?.message ?? "missing row"}`);
   }
 
   const j = job as JobRow;
 
-  if (j.status !== "pending") {
-    console.error(`Job ${jobId} is not pending (status: ${j.status})`);
-    process.exit(1);
+  if (claimIfPending) {
+    if (j.status !== "pending") {
+      throw new Error(`Job ${jobId} is not pending (status: ${j.status})`);
+    }
+  } else if (j.status !== "running") {
+    throw new Error(`Job ${jobId} is not running (status: ${j.status})`);
   }
 
   // Load the project
@@ -308,17 +309,18 @@ async function main() {
     .single();
 
   if (projErr || !project) {
-    console.error(`Project ${j.project_id} not found:`, projErr?.message);
-    process.exit(1);
+    throw new Error(`Project ${j.project_id} not found: ${projErr?.message ?? "missing row"}`);
   }
 
   const p = project as ProjectRow;
 
-  // Mark job as running
-  await db
-    .from("jobs")
-    .update({ status: "running", started_at: new Date().toISOString() })
-    .eq("id", jobId);
+  if (claimIfPending) {
+    // Mark job as running when invoked directly by job ID.
+    await db
+      .from("jobs")
+      .update({ status: "running", started_at: new Date().toISOString() })
+      .eq("id", jobId);
+  }
 
   console.log(`[worker] Running job ${jobId} (${j.job_type}) for ${p.slug}`);
 
@@ -346,6 +348,16 @@ async function main() {
       })
       .eq("id", jobId);
   }
+}
+
+async function main() {
+  const jobId = process.argv[2];
+  if (!jobId) {
+    console.error("Usage: run-job <job-id>");
+    process.exit(1);
+  }
+
+  await runJobById(jobId, { claimIfPending: true });
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────

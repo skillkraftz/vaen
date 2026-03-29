@@ -39,7 +39,7 @@ import {
   categorizeFile,
   downloadRevisionAssetsToSite,
 } from "./project-asset-helpers";
-import { spawnWorker } from "./project-worker-helpers";
+import { shouldUseLocalWorkerSpawn, spawnWorker } from "./project-worker-helpers";
 import {
   deleteReviewScreenshotAssets,
   removeGeneratedTargets,
@@ -935,7 +935,7 @@ export async function deleteAssetAction(
 
 /**
  * Generate a site from the exported client-request.json.
- * Creates a job record and spawns the worker — does NOT block.
+ * Creates a job record for the polling worker — does NOT block.
  */
 export async function generateSiteAction(
   projectId: string,
@@ -1050,8 +1050,11 @@ export async function generateSiteAction(
     metadata: { job_id: job.id, job_type: "generate", triggered_by: user.id },
   });
 
-  // Spawn the worker (fire-and-forget)
-  spawnWorker(job.id);
+  // Normal path: worker poller picks this up from Supabase.
+  // Local/dev fallback remains opt-in and isolated behind an env flag.
+  if (shouldUseLocalWorkerSpawn()) {
+    spawnWorker(job.id);
+  }
 
   revalidatePath(`/dashboard/projects/${projectId}`);
   return { jobId: job.id };
@@ -1059,7 +1062,7 @@ export async function generateSiteAction(
 
 /**
  * Run the review (build + screenshot capture) for a generated site.
- * Creates a job record and spawns the worker — does NOT block.
+ * Creates a job record for the polling worker — does NOT block.
  */
 export async function runReviewAction(
   projectId: string,
@@ -1117,8 +1120,11 @@ export async function runReviewAction(
     metadata: { job_id: job.id, job_type: "review", triggered_by: user.id },
   });
 
-  // Spawn the worker (fire-and-forget)
-  spawnWorker(job.id);
+  // Normal path: worker poller picks this up from Supabase.
+  // Local/dev fallback remains opt-in and isolated behind an env flag.
+  if (shouldUseLocalWorkerSpawn()) {
+    spawnWorker(job.id);
+  }
 
   revalidatePath(`/dashboard/projects/${projectId}`);
   return { jobId: job.id };

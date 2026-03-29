@@ -1,6 +1,10 @@
 import { execSync, spawn } from "node:child_process";
 import { join } from "node:path";
 
+export function shouldUseLocalWorkerSpawn(env: NodeJS.ProcessEnv = process.env): boolean {
+  return env.VAEN_ENABLE_LOCAL_WORKER_SPAWN === "true";
+}
+
 export function spawnWorker(jobId: string): void {
   const repoRoot = join(process.cwd(), "../..");
 

@@ -2,8 +2,8 @@
  * @vaen/worker — Background job runner for the vaen pipeline.
  *
  * Architecture:
- *   Portal creates a job record in the DB → spawns `run-job <id>` →
- *   worker reads the job, executes it, writes results back to DB.
+ *   Portal creates a job record in the DB → poller claims the next pending job →
+ *   worker executes it and writes results back to DB.
  *
  * Job types:
  *   - "generate" — runs the generator CLI (pnpm -w generate)
@@ -14,8 +14,8 @@
  * The DB is the source of truth for job status and logs.
  *
  * Entrypoints:
- *   node dist/run-job.js <job-id>  — execute a single job
- *   node dist/index.js             — info / future: polling daemon
+ *   node dist/poll.js              — long-running polling daemon
+ *   node dist/run-job.js <job-id>  — execute a single job directly
  */
 
 import { runPipeline } from "./pipeline.js";
@@ -30,11 +30,14 @@ export type { WorkerConfig } from "./config.js";
 async function main() {
   const config = DEFAULT_WORKER_CONFIG;
 
-  console.log("@vaen/worker — Phase 3A");
+  console.log("@vaen/worker — Supabase-polled worker");
   console.log(`  Max concurrent jobs: ${config.maxConcurrency}`);
   console.log(`  Isolation: ${config.isolation}`);
   console.log("");
-  console.log("Job execution:");
+  console.log("Long-running:");
+  console.log("  node dist/poll.js            Poll, claim, execute, heartbeat");
+  console.log("");
+  console.log("Direct execution:");
   console.log("  node dist/run-job.js <job-id>   Execute a single job");
   console.log("");
   console.log("Programmatic:");

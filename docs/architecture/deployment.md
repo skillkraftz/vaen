@@ -1,6 +1,6 @@
 # Vaen Deployment Architecture
 
-> **Implementation status:** Phase 1 (local) is **CURRENT**. Phases 2-3 are **PLANNED** — not yet implemented.
+> **Implementation status:** Phase 2 (Supabase-polled worker) is **CURRENT**. VM/Tailscale deployment remains **PLANNED**.
 
 ## Overview
 
@@ -19,20 +19,23 @@ Vaen splits into two runtime contexts: the **portal** (web UI, database access) 
   - Revision management
   - File upload to Supabase Storage
   - Job dispatch (creates job record in DB)
+  - Worker heartbeat visibility
   - Status display, screenshot viewing
 
 ### Worker (VM / local machine)
-- **Runtime**: Node.js process spawned per job
+- **Runtime**: Long-running Node.js poller
 - **Location**: Any machine with Tailscale access to Supabase
 - **Responsibilities**:
   - Poll for pending jobs in the `jobs` table
+  - Atomically claim one pending job at a time
+  - Write worker heartbeat state to `worker_heartbeats`
   - Run `@vaen/generator` (AI-powered site generation)
   - Run `review.sh` (build + Playwright screenshot capture)
   - Upload screenshots to Supabase Storage
   - Update job status and project status in DB
 
 ### Database (Supabase)
-- **Tables**: projects, project_request_revisions, assets, revision_assets, jobs, project_events
+- **Tables**: projects, project_request_revisions, assets, revision_assets, jobs, project_events, worker_heartbeats
 - **Storage buckets**: intake-assets, review-screenshots
 - **Auth**: Supabase Auth (portal), Service Role Key (worker)
 
@@ -54,35 +57,40 @@ Worker (VM) polls jobs ---+
   +---> updates job/project status in Supabase DB
 ```
 
-## Current Architecture (Development) — STATUS: CURRENT
+## Current Architecture — STATUS: CURRENT
 
-Portal and worker run on the same machine. The portal spawns the worker as a detached child process:
+Portal and worker can run on separate machines. The portal inserts jobs into Supabase, and the worker poller claims them:
 
 ```
-Portal (localhost:3100)
+Portal (localhost:3100 or https://vaen.space)
   |
-  +---> spawn("node", [workerScript, jobId])
-  |       |
-  |       +---> reads client-request.json from disk
-  |       +---> runs generator
-  |       +---> runs review.sh
-  |       +---> uploads to Supabase
+  +---> insert into jobs (status: pending)
   |
   +---> Supabase DB (remote)
+            ^
+            |
+Worker poller +---> claim_next_job() -> status: running
+  |               |
+  |               +---> reads client-request.json from disk
+  |               +---> runs generator / review
+  |               +---> uploads to Supabase
+  |               +---> writes job + project results
+  |
+  +---> upsert worker_heartbeats
 ```
 
-## Target Architecture (Production) — STATUS: PLANNED (not implemented)
+## Production Direction — STATUS: PARTIALLY IMPLEMENTED
 
-### Portal on Vercel — PLANNED
+### Portal on Vercel — READY IN PRINCIPLE
 - Deploy `apps/portal` to Vercel
 - Environment variables: `NEXT_PUBLIC_SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`
 - No filesystem access — all data goes through Supabase DB/Storage
-- Job dispatch: insert into `jobs` table (no child_process spawn)
+- Job dispatch: insert into `jobs` table (normal path no longer depends on `child_process.spawn`)
 - Supabase auth callback should be configured as `https://vaen.space/auth/callback`
 - Resend webhook target should be `https://vaen.space/api/webhooks/resend`
 - Deployment trust depends on active revision request data and exported `client-request.json`, not just visible project fields
 
-### Worker on VM (via Tailscale) — PLANNED
+### Worker on VM (via Tailscale) — NEXT
 - Install Tailscale on VM
 - Worker polls `jobs` table for pending work
 - On new job: claim it (status: running), execute, update (status: completed/failed)
@@ -112,28 +120,28 @@ DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/...
 ```
 SUPABASE_URL=https://xxx.supabase.co
 SUPABASE_SERVICE_ROLE_KEY=eyJ...
+WORKER_ID=worker-prod-1
 OPENAI_API_KEY=sk-...  # for generator AI calls
 ```
 
 ## Migration Path
 
-### Phase 1: Everything local — CURRENT
+### Phase 1: Everything local — COMPLETE
 - Portal and worker on same machine
-- `child_process.spawn()` for job execution
+- Direct local child-process execution from portal
 - Disk-based artifact sharing
 
-### Phase 2: Portal on Vercel, worker local — PLANNED (next)
-- Deploy portal to Vercel
-- Add `apps/worker/src/poll.ts` — polls jobs table
+### Phase 2: Portal inserts jobs, worker polls Supabase — CURRENT
+- `apps/worker/src/poll.ts` claims pending jobs from Supabase
 - Portal inserts jobs; worker polls and executes
-- Remove `spawnWorker()` from portal actions
-- Add fallback: portal detects no worker polling → shows message
+- `worker_heartbeats` is the worker health source
+- Local direct spawn remains available only as an opt-in dev fallback
 
 ### Phase 3: Worker on cloud VM — PLANNED (future)
 - Move worker to cloud VM with Tailscale
 - Same polling mechanism as Phase 2
-- Add health check: worker reports last poll time to DB
-- Portal shows worker health status
+- Operationalize heartbeat monitoring
+- Run poller under a real process manager (systemd/pm2/container)
 
 ## What Runs Where
 
@@ -150,9 +158,10 @@ OPENAI_API_KEY=sk-...  # for generator AI calls
 | Supabase DB access | x | x | |
 | File storage | | | Supabase Storage |
 
-## Required Code Changes for Phase 2 — NOT YET IMPLEMENTED
+## Remaining Work For True VM Deployment
 
-1. **`apps/worker/src/poll.ts`** (new) — Long-running process that polls `jobs` table
-2. **`apps/portal/src/app/dashboard/projects/[id]/actions.ts`** — Remove `spawnWorker()`, replace with job-insert-only
-3. **Worker health table** — `worker_heartbeats` table for monitoring
-4. **Vercel config** — `vercel.json` with build settings for portal
+1. Run the worker poller under a persistent supervisor on the VM
+2. Provision Playwright/build dependencies on that VM
+3. Decide the shared/generated workspace location and retention policy
+4. Add operator-facing worker heartbeat visibility to the portal UI
+5. Add deploy target orchestration (GitHub/Vercel/domain wiring)

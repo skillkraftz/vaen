@@ -87,9 +87,9 @@
 
 ### Phase 3b — Worker-Oriented Architecture
 - [x] Database migration — `jobs` table with status, payload, result, stdout, stderr
-- [x] Worker job runner — `apps/worker/src/run-job.ts`, executes jobs as detached child process
+- [x] Worker job runner — `apps/worker/src/run-job.ts`, executes a claimed job by ID
 - [x] Worker Supabase integration — service role key for DB access (bypasses RLS)
-- [x] Portal job dispatch — `generateSiteAction` and `runReviewAction` create job records, spawn worker
+- [x] Portal job dispatch — `generateSiteAction` and `runReviewAction` create job records
 - [x] Non-blocking automation — portal returns immediately after dispatching, polls for status
 - [x] Job status API — `getProjectJobsAction`, `getJobStatusAction` for UI polling
 - [x] Job status panel — expandable job list with status badges, timing, result messages
@@ -99,6 +99,14 @@
 - [x] Discord multi-event notifications — portal: processed, approved, revision, exported; worker: generated, reviewed, failed
 - [x] Worker environment config — `.env.example` with SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
 - [x] Updated docs and README
+
+### Phase 3c — Supabase-Polled Worker Backbone
+- [x] Atomic job claiming via `claim_next_job()` and `FOR UPDATE SKIP LOCKED`
+- [x] Long-running worker poller — `apps/worker/src/poll.ts`
+- [x] Worker heartbeat table — `worker_heartbeats`
+- [x] Heartbeat freshness helpers in portal
+- [x] Portal normal path decoupled from direct local child-process spawn
+- [x] Local direct spawn retained only as an opt-in dev fallback (`VAEN_ENABLE_LOCAL_WORKER_SPAWN`)
 
 ### Phase 3b Fix — Target Path Resolution
 - [x] Canonical path fix — `resolveTarget()` defaults to `generated/<slug>/client-request.json` (was `examples/fake-clients/`)
@@ -141,6 +149,7 @@
 | Run portal dev server | `pnpm --filter @vaen/portal dev` |
 | Generate a site | `pnpm -w generate -- --target <slug>` |
 | Capture screenshots | `pnpm -w review -- --target <slug>` |
+| Run worker poller | `pnpm --filter @vaen/worker poll` |
 | Run a worker job | `pnpm -w worker:run-job -- <job-id>` |
 | Run generated site | `cd generated/<slug>/site && npm install && npm run dev` |
 
