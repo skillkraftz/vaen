@@ -30,6 +30,9 @@ export default async function DashboardLayout({
           vaen.space
         </Link>
         <nav className="header-nav">
+          <Link href="/dashboard/prospects" className="text-sm text-muted">
+            Prospects
+          </Link>
           <Link href="/dashboard/settings/pricing" className="text-sm text-muted">
             Pricing
           </Link>

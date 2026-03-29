@@ -3,6 +3,7 @@
 export interface Client {
   id: string;
   user_id: string;
+  source_prospect_id?: string | null;
   name: string;
   contact_name: string | null;
   contact_email: string | null;
@@ -17,6 +18,7 @@ export interface Client {
 export interface Project {
   id: string;
   user_id: string;
+  source_prospect_id?: string | null;
   client_id: string | null;
   variant_of: string | null;
   variant_label: string | null;
@@ -142,6 +144,41 @@ export interface PricingChangeEvent {
   previous_values: Record<string, unknown>;
   next_values: Record<string, unknown>;
   change_reason: string | null;
+  created_at: string;
+}
+
+export interface Prospect {
+  id: string;
+  user_id: string;
+  company_name: string;
+  website_url: string;
+  contact_name: string | null;
+  contact_email: string | null;
+  contact_phone: string | null;
+  notes: string | null;
+  status: "new" | "researching" | "analyzed" | "ready_for_outreach" | "converted" | "disqualified";
+  source: string | null;
+  campaign: string | null;
+  outreach_summary: string | null;
+  metadata: Record<string, unknown>;
+  converted_client_id: string | null;
+  converted_project_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ProspectSiteAnalysis {
+  id: string;
+  prospect_id: string;
+  status: "pending" | "completed" | "failed";
+  analysis_source: "server_fetch" | "worker_job" | "manual";
+  site_title: string | null;
+  meta_description: string | null;
+  primary_h1: string | null;
+  content_excerpt: string | null;
+  structured_output: Record<string, unknown>;
+  raw_html_excerpt: string | null;
+  error_message: string | null;
   created_at: string;
 }
 
