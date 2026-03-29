@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import type { ApprovalRequest, Campaign, Prospect, ProspectOutreachPackage } from "@/lib/types";
+import { getLockedCampaignStepCounts } from "@/lib/campaign-sequences";
+import type { ApprovalRequest, Campaign, CampaignSequenceStep, Prospect, ProspectOutreachPackage } from "@/lib/types";
 import { CampaignDetailManager } from "./campaign-detail-manager";
 import { listVisibleApprovalRequests } from "@/lib/approval-helpers";
 
@@ -27,6 +28,11 @@ export default async function CampaignDetailPage({
     .order("created_at", { ascending: false });
 
   const prospectItems = (prospects ?? []) as Prospect[];
+  const { data: sequenceSteps } = await supabase
+    .from("campaign_sequence_steps")
+    .select("*")
+    .eq("campaign_id", id)
+    .order("step_number", { ascending: true });
   const prospectIds = prospectItems.map((prospect) => prospect.id);
   const { data: packages } = prospectIds.length > 0
     ? await supabase
@@ -51,6 +57,7 @@ export default async function CampaignDetailPage({
   const latestApproval = (approvalRequests as ApprovalRequest[]).find(
     (request) => request.context?.campaign_id === id,
   ) ?? null;
+  const lockedStepCounts = Object.fromEntries(getLockedCampaignStepCounts(prospectItems).entries());
 
   return (
     <CampaignDetailManager
@@ -60,6 +67,8 @@ export default async function CampaignDetailPage({
         latestPackage: latestPackageByProspect.get(prospect.id) ?? null,
       }))}
       approvalRequest={latestApproval}
+      sequenceSteps={(sequenceSteps ?? []) as CampaignSequenceStep[]}
+      lockedStepCounts={lockedStepCounts}
     />
   );
 }

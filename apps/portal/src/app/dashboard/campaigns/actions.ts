@@ -5,7 +5,15 @@ import { createClient } from "@/lib/supabase/server";
 import { CAMPAIGN_STATUSES, previewProspectImportRows } from "@/lib/prospect-campaigns";
 import { requireRole } from "@/lib/user-role-server";
 import { createApprovalRequestRecord } from "@/lib/approval-helpers";
-import type { Campaign, OutreachSend, Prospect } from "@/lib/types";
+import {
+  canRemoveCampaignStep,
+  getLockedCampaignStepCounts,
+  normalizeCampaignSequenceStepInput,
+  sortCampaignSequenceSteps,
+  validateCampaignSequenceSteps,
+  type CampaignSequenceStepInput,
+} from "@/lib/campaign-sequences";
+import type { Campaign, CampaignSequenceStep, OutreachSend, Prospect } from "@/lib/types";
 import {
   analyzeProspectAction,
   continueProspectAutomationAction,
@@ -28,6 +36,26 @@ async function requireCampaignOwner(
     .single();
 
   return data as Campaign | null;
+}
+
+async function getCampaignProspects(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  campaignId: string,
+) {
+  const { data } = await supabase
+    .from("prospects")
+    .select("id, metadata")
+    .eq("campaign_id", campaignId);
+
+  return (data ?? []) as Array<Pick<Prospect, "id" | "metadata">>;
+}
+
+async function getSequenceLockCounts(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  campaignId: string,
+) {
+  const prospects = await getCampaignProspects(supabase, campaignId);
+  return getLockedCampaignStepCounts(prospects);
 }
 
 async function touchCampaign(
@@ -120,6 +148,158 @@ export async function updateCampaignStatusAction(
 
   revalidatePath("/dashboard/campaigns");
   revalidatePath(`/dashboard/campaigns/${campaignId}`);
+  return {};
+}
+
+export async function listCampaignSequenceStepsAction(
+  campaignId: string,
+): Promise<{
+  error?: string;
+  steps?: CampaignSequenceStep[];
+  lockedStepCounts?: Record<number, number>;
+}> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated" };
+
+  const campaign = await requireCampaignOwner(supabase, campaignId, user.id);
+  if (!campaign) return { error: "Campaign not found." };
+
+  const [{ data: steps, error }, lockedCounts] = await Promise.all([
+    supabase
+      .from("campaign_sequence_steps")
+      .select("*")
+      .eq("campaign_id", campaignId)
+      .order("step_number", { ascending: true }),
+    getSequenceLockCounts(supabase, campaignId),
+  ]);
+
+  if (error) return { error: error.message };
+
+  return {
+    steps: (steps ?? []) as CampaignSequenceStep[],
+    lockedStepCounts: Object.fromEntries(lockedCounts.entries()),
+  };
+}
+
+export async function saveCampaignSequenceAction(
+  campaignId: string,
+  steps: CampaignSequenceStepInput[],
+): Promise<{ error?: string }> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated" };
+
+  const campaign = await requireCampaignOwner(supabase, campaignId, user.id);
+  if (!campaign) return { error: "Campaign not found." };
+
+  const normalized = sortCampaignSequenceSteps(steps.map(normalizeCampaignSequenceStepInput));
+  const validation = validateCampaignSequenceSteps(normalized);
+  if (!validation.valid) return { error: validation.error };
+
+  const [{ data: existingSteps, error: existingError }, lockedCounts] = await Promise.all([
+    supabase
+      .from("campaign_sequence_steps")
+      .select("*")
+      .eq("campaign_id", campaignId)
+      .order("step_number", { ascending: true }),
+    getSequenceLockCounts(supabase, campaignId),
+  ]);
+
+  if (existingError) return { error: existingError.message };
+  const currentSteps = (existingSteps ?? []) as CampaignSequenceStep[];
+
+  for (const step of currentSteps) {
+    if (!canRemoveCampaignStep(step.step_number, lockedCounts)) {
+      const incoming = normalized.find((item) => item.step_number === step.step_number);
+      if (!incoming) {
+        return { error: `Step ${step.step_number} is locked and cannot be removed.` };
+      }
+      if (
+        incoming.label !== step.label
+        || incoming.delay_days !== step.delay_days
+        || (incoming.subject_template ?? null) !== (step.subject_template ?? null)
+        || (incoming.body_template ?? null) !== (step.body_template ?? null)
+      ) {
+        return { error: `Step ${step.step_number} is locked and cannot be edited.` };
+      }
+    }
+  }
+
+  const lockedNumbers = new Set(
+    currentSteps
+      .filter((step) => !canRemoveCampaignStep(step.step_number, lockedCounts))
+      .map((step) => step.step_number),
+  );
+  const editableExistingIds = currentSteps
+    .filter((step) => !lockedNumbers.has(step.step_number))
+    .map((step) => step.id);
+
+  if (editableExistingIds.length > 0) {
+    const { error: deleteError } = await supabase
+      .from("campaign_sequence_steps")
+      .delete()
+      .in("id", editableExistingIds);
+    if (deleteError) return { error: deleteError.message };
+  }
+
+  const editableSteps = normalized.filter((step) => !lockedNumbers.has(step.step_number));
+  if (editableSteps.length > 0) {
+    const { error: insertError } = await supabase
+      .from("campaign_sequence_steps")
+      .insert(editableSteps.map((step) => ({
+        campaign_id: campaignId,
+        step_number: step.step_number,
+        label: step.label,
+        delay_days: step.delay_days,
+        subject_template: step.subject_template ?? null,
+        body_template: step.body_template ?? null,
+      })));
+    if (insertError) return { error: insertError.message };
+  }
+
+  await touchCampaign(supabase, campaignId, {
+    last_sequence_update_at: new Date().toISOString(),
+    sequence_step_count: normalized.length,
+  });
+
+  revalidatePath(`/dashboard/campaigns/${campaignId}`);
+  revalidatePath("/dashboard/campaigns");
+  return {};
+}
+
+export async function deleteCampaignSequenceStepAction(
+  campaignId: string,
+  stepNumber: number,
+): Promise<{ error?: string }> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated" };
+
+  const campaign = await requireCampaignOwner(supabase, campaignId, user.id);
+  if (!campaign) return { error: "Campaign not found." };
+  if (stepNumber < 1 || stepNumber > 5) return { error: "Step number must be between 1 and 5." };
+
+  const lockedCounts = await getSequenceLockCounts(supabase, campaignId);
+  if (!canRemoveCampaignStep(stepNumber, lockedCounts)) {
+    return { error: `Step ${stepNumber} is locked and cannot be removed.` };
+  }
+
+  const { error } = await supabase
+    .from("campaign_sequence_steps")
+    .delete()
+    .eq("campaign_id", campaignId)
+    .eq("step_number", stepNumber);
+
+  if (error) return { error: error.message };
+
+  await touchCampaign(supabase, campaignId, {
+    last_sequence_update_at: new Date().toISOString(),
+    deleted_step_number: stepNumber,
+  });
+
+  revalidatePath(`/dashboard/campaigns/${campaignId}`);
+  revalidatePath("/dashboard/campaigns");
   return {};
 }
 

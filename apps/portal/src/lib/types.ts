@@ -210,6 +210,33 @@ export interface Campaign {
   updated_at: string;
 }
 
+export interface CampaignSequenceStep {
+  id: string;
+  campaign_id: string;
+  step_number: number;
+  label: string;
+  delay_days: number;
+  subject_template: string | null;
+  body_template: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ProspectSequenceStepState {
+  step_number: number;
+  sent_at: string | null;
+  send_id: string | null;
+  due_at: string | null;
+  skipped: boolean;
+}
+
+export interface ProspectSequenceState {
+  current_step: number;
+  steps: ProspectSequenceStepState[];
+  paused: boolean;
+  paused_reason: "replied" | "manual" | "do_not_contact" | null;
+}
+
 export interface ProspectSiteAnalysis {
   id: string;
   prospect_id: string;

@@ -3,14 +3,21 @@
 import Link from "next/link";
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import {
+  getAvailableStepNumbers,
+  isCampaignStepLocked,
+  sortCampaignSequenceSteps,
+  type CampaignSequenceStepInput,
+} from "@/lib/campaign-sequences";
 import { getProspectSendReadiness } from "@/lib/outreach-execution";
-import type { ApprovalRequest, Campaign, Prospect, ProspectOutreachPackage } from "@/lib/types";
+import type { ApprovalRequest, Campaign, CampaignSequenceStep, Prospect, ProspectOutreachPackage } from "@/lib/types";
 import {
   batchAnalyzeCampaignProspectsAction,
   batchConvertCampaignProspectsAction,
   batchGenerateCampaignPackagesAction,
   batchRunCampaignAutomationAction,
   batchSendCampaignOutreachAction,
+  saveCampaignSequenceAction,
   updateCampaignStatusAction,
 } from "../actions";
 import { PROSPECT_AUTOMATION_LEVELS } from "@/lib/prospect-outreach";
@@ -33,10 +40,14 @@ export function CampaignDetailManager({
   campaign,
   rows,
   approvalRequest,
+  sequenceSteps,
+  lockedStepCounts,
 }: {
   campaign: Campaign;
   rows: CampaignProspectRow[];
   approvalRequest: ApprovalRequest | null;
+  sequenceSteps: CampaignSequenceStep[];
+  lockedStepCounts: Record<number, number>;
 }) {
   const router = useRouter();
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -49,6 +60,16 @@ export function CampaignDetailManager({
     summary?: { sent?: number; blocked?: number; failed: number; succeeded?: number; skipped?: number };
     results?: Array<{ prospectId: string; status: string; message: string }>;
   } | null>(null);
+  const [sequenceDraft, setSequenceDraft] = useState<CampaignSequenceStepInput[]>(
+    sortCampaignSequenceSteps(sequenceSteps.map((step) => ({
+      id: step.id,
+      step_number: step.step_number,
+      label: step.label,
+      delay_days: step.delay_days,
+      subject_template: step.subject_template,
+      body_template: step.body_template,
+    }))),
+  );
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
@@ -62,6 +83,7 @@ export function CampaignDetailManager({
     }),
     [rows, statusFilter, readinessFilter],
   );
+  const availableStepNumbers = getAvailableStepNumbers(sequenceDraft);
 
   const confirmationPhrase = `SEND ${selectedIds.length} EMAIL${selectedIds.length === 1 ? "" : "S"}`;
 
@@ -71,6 +93,45 @@ export function CampaignDetailManager({
         ? current.filter((id) => id !== prospectId)
         : [...current, prospectId]
     ));
+  }
+
+  function updateStep(stepNumber: number, patch: Partial<CampaignSequenceStepInput>) {
+    setSequenceDraft((current) => sortCampaignSequenceSteps(current.map((step) => (
+      step.step_number === stepNumber ? { ...step, ...patch } : step
+    ))));
+  }
+
+  function addStep() {
+    const nextStepNumber = availableStepNumbers[0];
+    if (!nextStepNumber) return;
+    setSequenceDraft((current) => sortCampaignSequenceSteps([
+      ...current,
+      {
+        step_number: nextStepNumber,
+        label: `Step ${nextStepNumber}`,
+        delay_days: nextStepNumber === 1 ? 0 : 3,
+        subject_template: "",
+        body_template: "",
+      },
+    ]));
+  }
+
+  function removeStep(stepNumber: number) {
+    setSequenceDraft((current) => current.filter((step) => step.step_number !== stepNumber));
+  }
+
+  function saveSequence() {
+    setError(null);
+    setNotice(null);
+    startTransition(async () => {
+      const result = await saveCampaignSequenceAction(campaign.id, sequenceDraft);
+      if (result.error) {
+        setError(result.error);
+        return;
+      }
+      setNotice("Campaign sequence saved.");
+      router.refresh();
+    });
   }
 
   function saveStatus() {
@@ -239,6 +300,147 @@ export function CampaignDetailManager({
               <option value="blocked">blocked</option>
             </select>
           </div>
+        </div>
+      </div>
+
+      <div className="card" style={{ marginBottom: "1rem" }} data-testid="campaign-sequence-builder">
+        <div className="section-header" style={{ marginBottom: "0.75rem" }}>
+          <div>
+            <h2 style={{ fontSize: "1rem", fontWeight: 600 }}>Outreach Sequence</h2>
+            <p className="text-sm text-muted">
+              Define up to 5 campaign-specific follow-up steps. Template variables: {"{{company_name}}"}, {"{{contact_name}}"}, {"{{website_url}}"}, {"{{offer_summary}}"}, {"{{pricing_summary}}"}.
+            </p>
+          </div>
+          <button
+            type="button"
+            className="btn btn-sm"
+            onClick={addStep}
+            disabled={isPending || availableStepNumbers.length === 0}
+            data-testid="campaign-sequence-add-step"
+          >
+            Add Step
+          </button>
+        </div>
+
+        {sequenceDraft.length === 0 ? (
+          <p className="text-sm text-muted">No sequence steps yet.</p>
+        ) : (
+          <div style={{ display: "grid", gap: "0.75rem" }}>
+            {sequenceDraft.map((step) => {
+              const locked = isCampaignStepLocked(step.step_number, new Map(
+                Object.entries(lockedStepCounts).map(([key, value]) => [Number(key), value]),
+              ));
+              const lockCount = lockedStepCounts[step.step_number] ?? 0;
+              return (
+                <div
+                  key={step.id ?? step.step_number}
+                  className="card"
+                  style={{ padding: "0.75rem", background: "var(--color-surface-subtle)" }}
+                  data-testid={`campaign-sequence-step-${step.step_number}`}
+                >
+                  <div style={{ display: "flex", justifyContent: "space-between", gap: "0.75rem", alignItems: "center", marginBottom: "0.75rem" }}>
+                    <strong>Step {step.step_number}</strong>
+                    {locked ? (
+                      <span className="badge" data-testid={`campaign-sequence-step-locked-${step.step_number}`}>
+                        locked · {lockCount} send{lockCount === 1 ? "" : "s"}
+                      </span>
+                    ) : (
+                      <button
+                        type="button"
+                        className="btn btn-sm"
+                        onClick={() => removeStep(step.step_number)}
+                        disabled={isPending}
+                        data-testid={`campaign-sequence-step-remove-${step.step_number}`}
+                      >
+                        Remove
+                      </button>
+                    )}
+                  </div>
+                  <div style={{ display: "grid", gap: "0.5rem" }}>
+                    <div style={{ display: "grid", gridTemplateColumns: "9rem 1fr 9rem", gap: "0.75rem" }}>
+                      <div>
+                        <label className="form-label" htmlFor={`step-number-${step.step_number}`}>Step #</label>
+                        <select
+                          id={`step-number-${step.step_number}`}
+                          className="form-input"
+                          value={step.step_number}
+                          disabled={locked || isPending}
+                          onChange={(event) => updateStep(step.step_number, { step_number: Number(event.target.value) })}
+                          data-testid={`campaign-sequence-step-number-${step.step_number}`}
+                        >
+                          {[1, 2, 3, 4, 5].map((value) => (
+                            <option key={value} value={value}>{value}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="form-label" htmlFor={`step-label-${step.step_number}`}>Label</label>
+                        <input
+                          id={`step-label-${step.step_number}`}
+                          className="form-input"
+                          value={step.label}
+                          disabled={locked || isPending}
+                          onChange={(event) => updateStep(step.step_number, { label: event.target.value })}
+                          data-testid={`campaign-sequence-step-label-${step.step_number}`}
+                        />
+                      </div>
+                      <div>
+                        <label className="form-label" htmlFor={`step-delay-${step.step_number}`}>Delay (days)</label>
+                        <input
+                          id={`step-delay-${step.step_number}`}
+                          className="form-input text-mono"
+                          type="number"
+                          min={0}
+                          value={step.delay_days}
+                          disabled={locked || isPending}
+                          onChange={(event) => updateStep(step.step_number, { delay_days: Number(event.target.value) })}
+                          data-testid={`campaign-sequence-step-delay-${step.step_number}`}
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="form-label" htmlFor={`step-subject-${step.step_number}`}>Subject template</label>
+                      <input
+                        id={`step-subject-${step.step_number}`}
+                        className="form-input"
+                        value={step.subject_template ?? ""}
+                        disabled={locked || isPending}
+                        onChange={(event) => updateStep(step.step_number, { subject_template: event.target.value })}
+                        data-testid={`campaign-sequence-step-subject-${step.step_number}`}
+                      />
+                    </div>
+                    <div>
+                      <label className="form-label" htmlFor={`step-body-${step.step_number}`}>Body template</label>
+                      <textarea
+                        id={`step-body-${step.step_number}`}
+                        className="form-input"
+                        rows={4}
+                        value={step.body_template ?? ""}
+                        disabled={locked || isPending}
+                        onChange={(event) => updateStep(step.step_number, { body_template: event.target.value })}
+                        data-testid={`campaign-sequence-step-body-${step.step_number}`}
+                      />
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        <div style={{ marginTop: "0.75rem", display: "flex", gap: "0.5rem", flexWrap: "wrap", alignItems: "center" }}>
+          <button
+            type="button"
+            className="btn btn-sm btn-primary"
+            onClick={saveSequence}
+            disabled={isPending}
+            data-testid="campaign-sequence-save"
+          >
+            {isPending ? "Saving..." : "Save Sequence"}
+          </button>
+          <p className="text-sm text-muted">
+            Steps with existing sends are locked. Future steps remain editable.
+          </p>
         </div>
       </div>
 
