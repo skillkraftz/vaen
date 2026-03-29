@@ -120,3 +120,72 @@ export interface JobRecord {
   started_at: string | null;
   completed_at: string | null;
 }
+
+export interface PackagePricing {
+  id: string;
+  item_type: "template" | "module";
+  label: string;
+  description: string | null;
+  setup_price_cents: number;
+  recurring_price_cents: number;
+  active: boolean;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Quote {
+  id: string;
+  project_id: string;
+  quote_number: number;
+  revision_id: string | null;
+  template_id: string;
+  selected_modules_snapshot: SelectedModule[];
+  status: "draft" | "sent" | "accepted" | "rejected" | "expired";
+  setup_subtotal_cents: number;
+  recurring_subtotal_cents: number;
+  discount_cents: number;
+  discount_percent: number | null;
+  discount_reason: string | null;
+  discount_approved_by: string | null;
+  setup_total_cents: number;
+  recurring_total_cents: number;
+  valid_days: number;
+  valid_until: string | null;
+  client_name: string | null;
+  client_email: string | null;
+  notes: string | null;
+  metadata: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface QuoteLine {
+  id: string;
+  quote_id: string;
+  line_type: "template" | "module" | "addon" | "discount";
+  reference_id: string | null;
+  label: string;
+  description: string | null;
+  setup_price_cents: number;
+  recurring_price_cents: number;
+  quantity: number;
+  sort_order: number;
+}
+
+export interface Contract {
+  id: string;
+  quote_id: string;
+  project_id: string;
+  client_id: string | null;
+  contract_number: number;
+  status: "active" | "completed" | "cancelled";
+  billing_type: "one_time" | "monthly" | "annual";
+  setup_amount_cents: number;
+  recurring_amount_cents: number;
+  started_at: string;
+  renewal_at: string | null;
+  notes: string | null;
+  metadata: Record<string, unknown>;
+  created_at: string;
+}

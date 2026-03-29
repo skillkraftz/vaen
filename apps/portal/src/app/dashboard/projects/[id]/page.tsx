@@ -8,6 +8,8 @@ import type {
   ProjectEvent,
   MissingInfoItem,
   IntakeRecommendations,
+  Quote,
+  QuoteLine,
 } from "@/lib/types";
 import { detectMissingInfo } from "@/lib/intake-processor";
 import { WorkflowPanel } from "./intake-actions";
@@ -15,6 +17,7 @@ import { WorkflowStepIndicator } from "./workflow-steps";
 import { RevisionList } from "./revision-list";
 import { ProjectLifecyclePanel } from "./project-lifecycle-panel";
 import { ModuleManager } from "./module-manager";
+import { QuoteSection } from "./quote-section";
 import {
   BuildInputsEditor,
   SummaryEditor,
@@ -116,8 +119,15 @@ export default async function ProjectDetailPage({
     .eq("project_id", id)
     .order("created_at", { ascending: false });
 
+  const { data: quotes } = await supabase
+    .from("quotes")
+    .select("*, lines:quote_lines(*)")
+    .eq("project_id", id)
+    .order("created_at", { ascending: false });
+
   const assetList = (assets ?? []) as Asset[];
   const eventList = (events ?? []) as ProjectEvent[];
+  const quoteList = (quotes ?? []) as Array<Quote & { lines: QuoteLine[] }>;
   const missingInfo = detectMissingInfo(p, assetList);
   const recommendations = p.recommendations as IntakeRecommendations | null;
   const selectedModules = Array.isArray(p.selected_modules) ? p.selected_modules : [];
@@ -297,6 +307,8 @@ export default async function ProjectDetailPage({
           </div>
         </>
       )}
+
+      <QuoteSection projectId={id} quotes={quoteList} currentModules={selectedModules} />
 
       {/* ── Business Details ───────────────────────────────────────── */}
       <div className="section">

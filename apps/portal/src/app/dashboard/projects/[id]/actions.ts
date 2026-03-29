@@ -6,7 +6,15 @@ import { notifyDiscord } from "@/lib/discord";
 import { revalidatePath } from "next/cache";
 import { writeFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
-import type { Project, Asset, JobRecord, RequestRevision, SelectedModule } from "@/lib/types";
+import type {
+  Project,
+  Asset,
+  JobRecord,
+  RequestRevision,
+  SelectedModule,
+  Quote,
+  QuoteLine,
+} from "@/lib/types";
 import {
   REQUIRED_DRAFT_KEYS,
   deepMergeDraft,
@@ -49,7 +57,14 @@ import {
   syncDraftWithSelectedModules,
   validateSelectedModules,
 } from "@/lib/module-selection";
+import { calculateQuoteTotals } from "@/lib/quote-helpers";
 import type { ModuleManifest } from "@vaen/module-registry";
+import {
+  buildQuoteLineDrafts,
+  insertQuoteLines,
+  loadPricingRows,
+  recalculateQuote,
+} from "./project-quote-helpers";
 
 export type { ProjectDiagnostics } from "./project-diagnostics-types";
 
@@ -1182,6 +1197,264 @@ export async function updateModulesAction(
   });
 
   revalidatePath(`/dashboard/projects/${projectId}`);
+  return {};
+}
+
+export async function getQuotesForProjectAction(
+  projectId: string,
+): Promise<{ quotes: Array<Quote & { lines: QuoteLine[] }>; error?: string }> {
+  const supabase = await createClient();
+
+  const { data: quotes, error } = await supabase
+    .from("quotes")
+    .select("*, lines:quote_lines(*)")
+    .eq("project_id", projectId)
+    .order("created_at", { ascending: false });
+
+  if (error) return { quotes: [], error: error.message };
+  return { quotes: (quotes ?? []) as Array<Quote & { lines: QuoteLine[] }> };
+}
+
+export async function createQuoteAction(
+  projectId: string,
+): Promise<{ error?: string; quoteId?: string }> {
+  const supabase = await createClient();
+
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated" };
+
+  const { data: project } = await supabase
+    .from("projects")
+    .select("*, client:clients(name, contact_email)")
+    .eq("id", projectId)
+    .single();
+
+  if (!project) return { error: "Project not found" };
+
+  const p = project as Project & { client?: { name: string | null; contact_email: string | null } | null };
+  const { draft, revisionId, error: draftError } = await loadCurrentDraft(supabase, projectId);
+  if (draftError) return { error: draftError };
+  if (!revisionId) return { error: "Create a revision before creating a quote." };
+
+  const templateId = getProjectTemplateId(p, draft);
+  const selectedModules = getAuthoritativeSelectedModules(p);
+  let lineDrafts;
+  try {
+    const pricing = await loadPricingRows(supabase, [templateId, ...selectedModules.map((module) => module.id)]);
+    lineDrafts = buildQuoteLineDrafts({ templateId, selectedModules, pricing });
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : String(error) };
+  }
+  const initialTotals = calculateQuoteTotals({ lines: lineDrafts, discountCents: 0 });
+
+  const { data: quote, error: quoteError } = await supabase
+    .from("quotes")
+    .insert({
+      project_id: projectId,
+      revision_id: revisionId,
+      template_id: templateId,
+      selected_modules_snapshot: selectedModules,
+      status: "draft",
+      setup_subtotal_cents: initialTotals.setupSubtotalCents,
+      recurring_subtotal_cents: initialTotals.recurringSubtotalCents,
+      discount_cents: 0,
+      discount_percent: null,
+      discount_reason: null,
+      setup_total_cents: initialTotals.setupTotalCents,
+      recurring_total_cents: initialTotals.recurringTotalCents,
+      valid_days: 30,
+      valid_until: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+      client_name: p.client?.name ?? p.name,
+      client_email: p.client?.contact_email ?? p.contact_email,
+      notes: null,
+      metadata: {
+        selected_modules: selectedModules.map((module) => module.id),
+      },
+    })
+    .select("id")
+    .single();
+
+  if (quoteError || !quote) {
+    return { error: quoteError?.message ?? "Failed to create quote." };
+  }
+
+  try {
+    await insertQuoteLines(supabase, quote.id, lineDrafts);
+    await recalculateQuote(supabase, quote.id);
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : String(error) };
+  }
+
+  await supabase.from("project_events").insert({
+    project_id: projectId,
+    event_type: "quote_created",
+    from_status: p.status,
+    to_status: p.status,
+    metadata: {
+      quote_id: quote.id,
+      revision_id: revisionId,
+      template_id: templateId,
+      selected_modules: selectedModules.map((module) => module.id),
+      created_by: user.id,
+    },
+  });
+
+  revalidatePath(`/dashboard/projects/${projectId}`);
+  return { quoteId: quote.id };
+}
+
+export async function updateQuoteLineAction(
+  lineId: string,
+  updates: {
+    label?: string;
+    description?: string | null;
+    setup_price_cents?: number;
+    recurring_price_cents?: number;
+    quantity?: number;
+  },
+): Promise<{ error?: string }> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated" };
+
+  const { data: line } = await supabase
+    .from("quote_lines")
+    .select("*, quote:quotes(id, project_id, status)")
+    .eq("id", lineId)
+    .single();
+
+  if (!line) return { error: "Quote line not found." };
+  const quoteRef = Array.isArray(line.quote) ? line.quote[0] : line.quote;
+  if (!quoteRef || quoteRef.status !== "draft") return { error: "Only draft quote lines can be edited." };
+
+  const nextUpdate = {
+    ...(updates.label !== undefined ? { label: updates.label.trim() || line.label } : {}),
+    ...(updates.description !== undefined ? { description: updates.description } : {}),
+    ...(updates.setup_price_cents !== undefined ? { setup_price_cents: Math.max(0, Math.round(Number.isFinite(updates.setup_price_cents) ? updates.setup_price_cents : 0)) } : {}),
+    ...(updates.recurring_price_cents !== undefined ? { recurring_price_cents: Math.max(0, Math.round(Number.isFinite(updates.recurring_price_cents) ? updates.recurring_price_cents : 0)) } : {}),
+    ...(updates.quantity !== undefined ? { quantity: Math.max(1, Math.round(updates.quantity)) } : {}),
+  };
+
+  const { error } = await supabase
+    .from("quote_lines")
+    .update(nextUpdate)
+    .eq("id", lineId);
+
+  if (error) return { error: error.message };
+
+  await recalculateQuote(supabase, quoteRef.id);
+  revalidatePath(`/dashboard/projects/${quoteRef.project_id}`);
+  return {};
+}
+
+export async function addQuoteLineAction(
+  quoteId: string,
+  line: {
+    label: string;
+    description?: string | null;
+    setup_price_cents?: number;
+    recurring_price_cents?: number;
+  },
+): Promise<{ error?: string }> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated" };
+
+  const [{ data: quote }, { data: lines }] = await Promise.all([
+    supabase.from("quotes").select("id, project_id, status").eq("id", quoteId).single(),
+    supabase.from("quote_lines").select("sort_order").eq("quote_id", quoteId).order("sort_order", { ascending: false }).limit(1),
+  ]);
+
+  if (!quote) return { error: "Quote not found." };
+  if (quote.status !== "draft") return { error: "Only draft quotes can be edited." };
+
+  const nextSort = (lines?.[0]?.sort_order ?? 0) + 1;
+  const { error } = await supabase
+    .from("quote_lines")
+    .insert({
+      quote_id: quoteId,
+      line_type: "addon",
+      reference_id: null,
+      label: line.label.trim() || "Custom line item",
+      description: line.description ?? null,
+      setup_price_cents: Math.max(0, Math.round(Number.isFinite(line.setup_price_cents ?? 0) ? (line.setup_price_cents ?? 0) : 0)),
+      recurring_price_cents: Math.max(0, Math.round(Number.isFinite(line.recurring_price_cents ?? 0) ? (line.recurring_price_cents ?? 0) : 0)),
+      quantity: 1,
+      sort_order: nextSort,
+    });
+
+  if (error) return { error: error.message };
+  await recalculateQuote(supabase, quoteId);
+  revalidatePath(`/dashboard/projects/${quote.project_id}`);
+  return {};
+}
+
+export async function removeQuoteLineAction(
+  lineId: string,
+): Promise<{ error?: string }> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated" };
+
+  const { data: line } = await supabase
+    .from("quote_lines")
+    .select("id, line_type, quote:quotes(id, project_id, status)")
+    .eq("id", lineId)
+    .single();
+
+  if (!line) return { error: "Quote line not found." };
+  const quoteRef = Array.isArray(line.quote) ? line.quote[0] : line.quote;
+  if (!quoteRef || quoteRef.status !== "draft") return { error: "Only draft quotes can be edited." };
+  if (line.line_type !== "addon") return { error: "Only addon lines can be removed." };
+
+  const { error } = await supabase.from("quote_lines").delete().eq("id", lineId);
+  if (error) return { error: error.message };
+
+  await recalculateQuote(supabase, quoteRef.id);
+  revalidatePath(`/dashboard/projects/${quoteRef.project_id}`);
+  return {};
+}
+
+export async function setQuoteDiscountAction(
+  quoteId: string,
+  discount: { percent?: number | null; cents?: number | null; reason: string | null },
+): Promise<{ error?: string }> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated" };
+
+  const { data: quote } = await supabase
+    .from("quotes")
+    .select("id, project_id, status")
+    .eq("id", quoteId)
+    .single();
+
+  if (!quote) return { error: "Quote not found." };
+  if (quote.status !== "draft") return { error: "Only draft quotes can be discounted." };
+
+  try {
+    await recalculateQuote(supabase, quoteId, {
+      discountPercent: discount.percent ?? null,
+      discountCents: discount.cents ?? null,
+      reason: discount.reason,
+    });
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : String(error) };
+  }
+
+  await supabase.from("project_events").insert({
+    project_id: quote.project_id,
+    event_type: "quote_discount_applied",
+    metadata: {
+      quote_id: quoteId,
+      discount_cents: discount.cents ?? null,
+      discount_percent: discount.percent ?? null,
+      reason: discount.reason,
+      applied_by: user.id,
+    },
+  });
+
+  revalidatePath(`/dashboard/projects/${quote.project_id}`);
   return {};
 }
 
