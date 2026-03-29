@@ -20,6 +20,7 @@ import {
   REQUIRED_DRAFT_KEYS,
   deepMergeDraft,
   deepSetServer,
+  syncProjectFieldsIntoDraft,
   validateDraftRequired,
   ensureDraftDefaults,
 } from "@/lib/draft-helpers";
@@ -463,12 +464,83 @@ export async function updateProjectAction(
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: "Not authenticated" };
 
+  const { data: project } = await supabase
+    .from("projects")
+    .select("id, name, business_type, contact_name, contact_email, contact_phone, notes")
+    .eq("id", projectId)
+    .single();
+
+  if (!project) return { error: "Project not found" };
+
+  const p = project as Pick<Project, "id" | "name" | "business_type" | "contact_name" | "contact_email" | "contact_phone" | "notes">;
+
   const { error: updateError } = await supabase
     .from("projects")
     .update(fields)
     .eq("id", projectId);
 
   if (updateError) return { error: updateError.message };
+
+  const touchesRequestData = [
+    "business_type",
+    "contact_name",
+    "contact_email",
+    "contact_phone",
+    "notes",
+  ].some((key) => key in fields);
+
+  if (touchesRequestData) {
+    const { draft: current, revisionId: currentRevId, error: loadError } = await loadCurrentDraft(supabase, projectId);
+    if (loadError) return { error: loadError };
+
+    const syncedDraft = syncProjectFieldsIntoDraft(current, {
+      name: p.name,
+      business_type: fields.business_type ?? p.business_type,
+      contact_name: fields.contact_name ?? p.contact_name,
+      contact_email: fields.contact_email ?? p.contact_email,
+      contact_phone: fields.contact_phone ?? p.contact_phone,
+      notes: fields.notes ?? p.notes,
+    });
+
+    const validationError = validateDraftRequired(syncedDraft);
+    if (validationError) return { error: validationError };
+
+    try {
+      const { data: recent } = await supabase
+        .from("project_request_revisions")
+        .select("id, source, created_at")
+        .eq("project_id", projectId)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .single();
+
+      const isRecentEdit = recent?.source === "user_edit"
+        && Date.now() - new Date(recent.created_at).getTime() < 30_000;
+
+      if (isRecentEdit && recent) {
+        await supabase
+          .from("project_request_revisions")
+          .update({ request_data: syncedDraft })
+          .eq("id", recent.id);
+      } else {
+        await createRevisionAndSetCurrent(
+          supabase,
+          projectId,
+          "user_edit",
+          syncedDraft,
+          currentRevId,
+          "Synced project field edits into request data",
+        );
+      }
+    } catch {
+      // pre-migration compatibility: fall back to legacy column only
+    }
+
+    await supabase
+      .from("projects")
+      .update({ draft_request: syncedDraft })
+      .eq("id", projectId);
+  }
 
   revalidatePath(`/dashboard/projects/${projectId}`);
   return {};

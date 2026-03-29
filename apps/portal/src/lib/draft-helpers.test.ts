@@ -11,6 +11,7 @@ import {
   deepSetServer,
   validateDraftRequired,
   ensureDraftDefaults,
+  syncProjectFieldsIntoDraft,
   DRAFT_DEFAULTS,
   REQUIRED_DRAFT_KEYS,
 } from "./draft-helpers";
@@ -243,6 +244,99 @@ describe("ensureDraftDefaults", () => {
     const copy = { ...input };
     ensureDraftDefaults(input);
     expect(input).toEqual(copy);
+  });
+});
+
+// ── syncProjectFieldsIntoDraft ──────────────────────────────────────
+
+describe("syncProjectFieldsIntoDraft", () => {
+  it("syncs saved business and contact fields into the authoritative draft", () => {
+    const draft = completeDraft();
+    const synced = syncProjectFieldsIntoDraft(draft, {
+      name: "Updated Electric",
+      business_type: "Electrical contractor",
+      contact_name: "Jamie Spark",
+      contact_email: "jamie@updated.test",
+      contact_phone: "555-8888",
+      notes: "Updated business notes",
+    });
+
+    expect(synced.business).toEqual({
+      name: "Updated Electric",
+      type: "Electrical contractor",
+    });
+    expect(synced.contact).toEqual({
+      email: "jamie@updated.test",
+      phone: "555-8888",
+      name: "Jamie Spark",
+    });
+    expect(synced.content).toEqual({ about: "Updated business notes" });
+    expect(synced._intake).toEqual({
+      businessName: "Updated Electric",
+      businessType: "Electrical contractor",
+      contactName: "Jamie Spark",
+      contactEmail: "jamie@updated.test",
+      contactPhone: "555-8888",
+      notes: "Updated business notes",
+    });
+  });
+
+  it("removes cleared contact and notes fields so visible state cannot diverge from request data", () => {
+    const draft = {
+      ...completeDraft(),
+      contact: {
+        name: "Old Contact",
+        email: "old@acme.com",
+        phone: "555-0000",
+      },
+      content: { about: "Old about" },
+      _intake: {
+        businessName: "Acme Electric",
+        businessType: "electrician",
+        contactName: "Old Contact",
+        contactEmail: "old@acme.com",
+        contactPhone: "555-0000",
+        notes: "Old about",
+      },
+    };
+
+    const synced = syncProjectFieldsIntoDraft(draft, {
+      name: "Acme Electric",
+      business_type: null,
+      contact_name: null,
+      contact_email: null,
+      contact_phone: null,
+      notes: null,
+    });
+
+    expect(synced.business).toEqual({ name: "Acme Electric" });
+    expect(synced.contact).toEqual({});
+    expect(synced.content).toEqual({});
+    expect(synced._intake).toEqual({ businessName: "Acme Electric" });
+  });
+
+  it("preserves unrelated draft fields while syncing project-owned fields", () => {
+    const draft = {
+      ...completeDraft(),
+      services: [{ name: "Panel Upgrades" }],
+      preferences: { template: "service-core", modules: ["maps-embed"] },
+    };
+
+    const synced = syncProjectFieldsIntoDraft(draft, {
+      name: "Updated Electric",
+      contact_name: "Jamie Spark",
+    });
+
+    expect(synced.services).toEqual([{ name: "Panel Upgrades" }]);
+    expect(synced.preferences).toEqual({
+      template: "service-core",
+      modules: ["maps-embed"],
+    });
+    expect(synced.contact).toEqual({
+      email: "test@acme.com",
+      phone: "555-1234",
+      name: "Jamie Spark",
+    });
   });
 });
 

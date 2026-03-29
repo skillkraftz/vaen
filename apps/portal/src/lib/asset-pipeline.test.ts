@@ -159,6 +159,19 @@ describe("active revision asset selection affects generation input", () => {
     expect(fn).toContain("downloadRevisionAssetsToSite");
   });
 
+  it("project field saves sync the active draft and revision before export", () => {
+    const actionsPath = join(__dirname, "../app/dashboard/projects/[id]/actions.ts");
+    const source = readFileSync(actionsPath, "utf-8");
+    const fnStart = source.indexOf("export async function updateProjectAction");
+    const fnEnd = source.indexOf("export async function patchDraftFieldAction");
+    const fn = source.slice(fnStart, fnEnd);
+    expect(fn).toContain("loadCurrentDraft");
+    expect(fn).toContain("syncProjectFieldsIntoDraft");
+    expect(fn).toContain("validateDraftRequired(syncedDraft)");
+    expect(fn).toContain("createRevisionAndSetCurrent");
+    expect(fn).toContain("draft_request: syncedDraft");
+  });
+
   it("downloadRevisionAssetsToSite uses only revision-attached assets", () => {
     const helperPath = join(__dirname, "../app/dashboard/projects/[id]/project-asset-helpers.ts");
     const source = readFileSync(helperPath, "utf-8");
