@@ -4,7 +4,7 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import type { DeploymentRun, Project } from "@/lib/types";
 import { createDeploymentRunAction } from "./actions";
-import { summarizeDeploymentPayloadMetadata } from "@/lib/deployment-control-plane";
+import { summarizeDeploymentPayloadMetadata, summarizeProviderExecutionFromRun } from "@/lib/deployment-control-plane";
 
 function formatDate(iso: string | null) {
   if (!iso) return "Not started";
@@ -188,6 +188,12 @@ export function DeploymentRunsSection({
                   {run.error_summary && (
                     <p className="text-sm" style={{ color: "var(--color-error)", marginTop: "0.5rem" }}>
                       {run.error_summary}
+                    </p>
+                  )}
+
+                  {summarizeProviderExecutionFromRun(run) && (
+                    <p className="text-sm text-muted" style={{ marginTop: "0.5rem" }} data-testid={`deployment-run-provider-summary-${run.id}`}>
+                      Providers: {summarizeProviderExecutionFromRun(run)}
                     </p>
                   )}
                 </div>

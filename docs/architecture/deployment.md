@@ -163,9 +163,76 @@ OPENAI_API_KEY=sk-...  # for generator AI calls
 | Supabase DB access | x | x | |
 | File storage | | | Supabase Storage |
 
+## Provider Adapter Foundation — STATUS: ADAPTER BOUNDARY READY
+
+The provider adapter layer sits between validated deployment runs and actual hosting
+platforms. Each adapter is independently implementable and returns a structured result.
+
+### Architecture
+
+```
+deployment_run (status: validated)
+  │
+  ├─ deploy_execute job dispatched
+  │
+  └─ Worker: executeProviderAdapters()
+       ├─ GitHubProviderAdapter  (push site to repo)
+       ├─ VercelProviderAdapter  (deploy from repo)
+       └─ DomainProviderAdapter  (DNS / custom domain)
+```
+
+### Adapter Interface
+
+Each adapter implements `DeploymentProviderAdapter` from `@vaen/shared`:
+- `isConfigured()` — checks env vars for required credentials
+- `execute(context)` — returns a `ProviderStepResult` with explicit status
+
+### Provider Execution Flow
+
+1. Adapters run in order: github → vercel → domain
+2. If a required adapter fails, subsequent adapters are skipped
+3. Results are recorded in `deployment_run.payload_metadata.provider_execution`
+4. No adapter fakes success — unconfigured adapters return `{ status: "not_configured" }`
+
+### Result Statuses
+
+| Status | Meaning |
+|--------|---------|
+| `not_configured` | Adapter lacks required env vars (e.g. `GITHUB_TOKEN`) |
+| `succeeded` | Provider step completed successfully |
+| `failed` | Provider step returned an error |
+| `skipped` | Skipped due to earlier provider failure |
+
+### Environment Variables (per provider)
+
+| Provider | Required Variables | Status |
+|----------|--------------------|--------|
+| GitHub | `GITHUB_TOKEN`, `GITHUB_ORG` | Adapter registered, execution pending |
+| Vercel | `VERCEL_TOKEN`, `VERCEL_TEAM_ID` (optional) | Adapter registered, execution pending |
+| Domain | `DNS_PROVIDER_TOKEN`, `VAEN_BASE_DOMAIN` | Adapter registered, execution pending |
+
+### What is implemented
+
+- `DeploymentProviderAdapter` interface in `@vaen/shared`
+- `ProviderStepResult` / `ProviderExecutionResult` structured result model
+- Provider registry with execution ordering
+- GitHub / Vercel / Domain adapter stubs (return `not_configured`)
+- Worker `deploy_execute` job handler that routes through adapters
+- `deploy_execute` job type added to shared pipeline definitions
+- Results stored in deployment run metadata for audit
+
+### What requires real provider credentials
+
+- GitHub API calls (repo creation, code push)
+- Vercel API calls (project creation, deployment trigger)
+- DNS API calls (subdomain creation, custom domain wiring)
+- Each of these is a separate future PR with real integration tests
+
 ## Remaining Work For True VM Deployment
 
 1. Run the worker poller under a persistent supervisor on the VM
 2. Provision Playwright/build dependencies on that VM
 3. Decide the shared/generated workspace location and retention policy
-4. Add provider adapters for GitHub/Vercel/domain wiring on top of deployment runs
+4. Implement real GitHub provider (Octokit, repo management, code push)
+5. Implement real Vercel provider (project creation, deployment trigger)
+6. Implement real domain provider (DNS API, TLS verification)

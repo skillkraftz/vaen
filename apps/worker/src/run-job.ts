@@ -46,6 +46,7 @@ import {
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import type { DeploymentPayload } from "@vaen/schemas";
 import { createWorkerClient } from "./db.js";
+import { executeProviderAdapters } from "./providers/index.js";
 
 // ── Types ─────────────────────────────────────────────────────────────
 
@@ -335,6 +336,9 @@ export async function runJobById(
         break;
       case "deploy_prepare":
         await executeDeploymentPrepare(db, j, p);
+        break;
+      case "deploy_execute":
+        await executeDeploymentProviders(db, j, p);
         break;
       default:
         throw new Error(`Unknown job type: ${j.job_type}`);
@@ -1762,6 +1766,215 @@ async function executeDeploymentPrepare(
     from_status: project.status,
     to_status: "deploy_ready",
     metadata: { job_id: job.id, payload_path: payloadPath, payload_summary: summary },
+  });
+}
+
+// ── Provider deployment execution ─────────────────────────────────────
+
+async function executeDeploymentProviders(
+  db: ReturnType<typeof createWorkerClient>,
+  job: JobRow,
+  project: ProjectRow,
+) {
+  const now = new Date().toISOString();
+  const payload = job.payload as Record<string, unknown>;
+  const deploymentRunId = typeof payload.deployment_run_id === "string" ? payload.deployment_run_id : null;
+
+  // Find the deployment run
+  const { data: deploymentRun } = deploymentRunId
+    ? await db.from("deployment_runs").select("id, status, payload_metadata").eq("id", deploymentRunId).maybeSingle()
+    : await db.from("deployment_runs").select("id, status, payload_metadata").eq("job_id", job.id).maybeSingle();
+
+  if (!deploymentRun) {
+    await db
+      .from("jobs")
+      .update({
+        status: "failed",
+        result: { success: false, message: "No deployment run found for this job." },
+        completed_at: now,
+      })
+      .eq("id", job.id);
+    return;
+  }
+
+  // Deployment run must be validated before provider execution
+  if (deploymentRun.status !== "validated") {
+    const message = `Deployment run is not validated (status: ${deploymentRun.status}). Cannot execute providers.`;
+    await db
+      .from("jobs")
+      .update({
+        status: "failed",
+        result: { success: false, message },
+        completed_at: now,
+      })
+      .eq("id", job.id);
+    return;
+  }
+
+  // Mark deployment run as running
+  await db
+    .from("deployment_runs")
+    .update({
+      status: "running",
+      started_at: now,
+      updated_at: now,
+    })
+    .eq("id", deploymentRun.id);
+
+  // Extract validated payload from deployment run metadata
+  const meta = (deploymentRun.payload_metadata ?? {}) as Record<string, unknown>;
+  const validatedPayload = (meta.payload ?? {}) as Record<string, unknown>;
+  const payloadSummary = (meta.summary ?? {}) as Record<string, unknown>;
+
+  // Execute provider adapters
+  const result = await executeProviderAdapters({
+    deploymentRunId: deploymentRun.id,
+    projectId: project.id,
+    targetSlug: project.slug,
+    payload: validatedPayload,
+    payloadSummary,
+  });
+
+  const completedAt = new Date().toISOString();
+
+  if (result.status === "not_configured") {
+    // No providers configured — record clearly, do not fake success
+    await db
+      .from("jobs")
+      .update({
+        status: "completed",
+        result: {
+          success: true,
+          message: result.summary,
+          artifacts: [],
+        },
+        completed_at: completedAt,
+      })
+      .eq("id", job.id);
+
+    await db
+      .from("deployment_runs")
+      .update({
+        status: "validated",
+        log_summary: result.summary,
+        payload_metadata: {
+          ...meta,
+          provider_execution: {
+            status: result.status,
+            summary: result.summary,
+            steps: result.steps,
+            executed_at: completedAt,
+          },
+        },
+        completed_at: completedAt,
+        updated_at: completedAt,
+      })
+      .eq("id", deploymentRun.id);
+
+    await db.from("project_events").insert({
+      project_id: project.id,
+      event_type: "deployment_providers_not_configured",
+      from_status: project.status,
+      to_status: project.status,
+      metadata: { job_id: job.id, deployment_run_id: deploymentRun.id, summary: result.summary },
+    });
+    return;
+  }
+
+  if (result.status === "succeeded") {
+    const providerRefs = result.steps
+      .filter((s) => s.providerReference)
+      .map((s) => `${s.provider}: ${s.providerReference}`)
+      .join(", ");
+
+    await db.from("projects").update({ status: "deployed" }).eq("id", project.id);
+    await db
+      .from("jobs")
+      .update({
+        status: "completed",
+        result: {
+          success: true,
+          message: result.summary,
+          artifacts: [],
+        },
+        completed_at: completedAt,
+      })
+      .eq("id", job.id);
+
+    await db
+      .from("deployment_runs")
+      .update({
+        status: "validated",
+        provider: result.steps.map((s) => s.provider).join(","),
+        provider_reference: providerRefs || null,
+        log_summary: result.summary,
+        payload_metadata: {
+          ...meta,
+          provider_execution: {
+            status: result.status,
+            summary: result.summary,
+            steps: result.steps,
+            executed_at: completedAt,
+          },
+        },
+        completed_at: completedAt,
+        updated_at: completedAt,
+      })
+      .eq("id", deploymentRun.id);
+
+    await db.from("project_events").insert({
+      project_id: project.id,
+      event_type: "deployment_completed",
+      from_status: project.status,
+      to_status: "deployed",
+      metadata: { job_id: job.id, deployment_run_id: deploymentRun.id, provider_references: providerRefs },
+    });
+    return;
+  }
+
+  // Failed
+  const failedSteps = result.steps.filter((s) => s.status === "failed");
+  const errorSummary = failedSteps.map((s) => `${s.provider}: ${s.message}`).join("; ");
+
+  await db.from("projects").update({ status: "deploy_failed" }).eq("id", project.id);
+  await db
+    .from("jobs")
+    .update({
+      status: "failed",
+      result: {
+        success: false,
+        message: result.summary,
+        error: errorSummary,
+      },
+      completed_at: completedAt,
+    })
+    .eq("id", job.id);
+
+  await db
+    .from("deployment_runs")
+    .update({
+      status: "failed",
+      error_summary: errorSummary,
+      payload_metadata: {
+        ...meta,
+        provider_execution: {
+          status: result.status,
+          summary: result.summary,
+          steps: result.steps,
+          executed_at: completedAt,
+        },
+      },
+      completed_at: completedAt,
+      updated_at: completedAt,
+    })
+    .eq("id", deploymentRun.id);
+
+  await db.from("project_events").insert({
+    project_id: project.id,
+    event_type: "deployment_provider_failed",
+    from_status: project.status,
+    to_status: "deploy_failed",
+    metadata: { job_id: job.id, deployment_run_id: deploymentRun.id, error: errorSummary, steps: result.steps },
   });
 }
 

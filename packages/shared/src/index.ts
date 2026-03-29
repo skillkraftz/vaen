@@ -31,6 +31,7 @@ export type {
   CaptureScreenshotsPayload,
   PrepareDeployPayloadPayload,
   DeployValidatePayload,
+  DeployExecutePayload,
 } from "./jobs.js";
 
 // Client/target lifecycle
@@ -46,6 +47,23 @@ export type {
   TargetStatus,
   StateTransition,
 } from "./state.js";
+
+// Deployment provider adapters
+export {
+  PROVIDER_LABELS,
+  PROVIDER_EXECUTION_ORDER,
+  isProviderExecutionSuccessful,
+  hasAnyConfiguredProvider,
+  summarizeProviderExecution,
+} from "./providers.js";
+export type {
+  DeploymentProviderType,
+  ProviderResultStatus,
+  ProviderStepResult,
+  ProviderExecutionResult,
+  DeploymentProviderAdapter,
+  ProviderExecutionContext,
+} from "./providers.js";
 
 // Artifact lifecycle
 export {

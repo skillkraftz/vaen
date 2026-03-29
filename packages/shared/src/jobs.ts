@@ -26,7 +26,8 @@ export type JobType =
   | "validate_build"
   | "capture_screenshots"
   | "prepare_deploy_payload"
-  | "deploy_validate";
+  | "deploy_validate"
+  | "deploy_execute";
 
 /** Human-readable labels for each job type. */
 export const JOB_LABELS: Record<JobType, string> = {
@@ -37,6 +38,7 @@ export const JOB_LABELS: Record<JobType, string> = {
   capture_screenshots: "Capture review screenshots",
   prepare_deploy_payload: "Prepare deployment payload",
   deploy_validate: "Validate deployment",
+  deploy_execute: "Execute provider deployment",
 };
 
 /**
@@ -100,6 +102,11 @@ export interface DeployValidatePayload {
   deploymentPayloadPath: string;
 }
 
+export interface DeployExecutePayload {
+  deploymentRunId: string;
+  deploymentPayloadPath: string;
+}
+
 export type JobPayload =
   | IntakeParsePayload
   | WorkspaceGeneratePayload
@@ -107,7 +114,8 @@ export type JobPayload =
   | ValidateBuildPayload
   | CaptureScreenshotsPayload
   | PrepareDeployPayloadPayload
-  | DeployValidatePayload;
+  | DeployValidatePayload
+  | DeployExecutePayload;
 
 /** Maps job type to its specific payload shape. */
 export interface JobPayloadMap {
@@ -118,6 +126,7 @@ export interface JobPayloadMap {
   capture_screenshots: CaptureScreenshotsPayload;
   prepare_deploy_payload: PrepareDeployPayloadPayload;
   deploy_validate: DeployValidatePayload;
+  deploy_execute: DeployExecutePayload;
 }
 
 // ── Job result ───────────────────────────────────────────────────────

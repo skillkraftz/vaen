@@ -1,5 +1,5 @@
 import type { DeploymentReadiness } from "./deployment-readiness";
-import type { Project } from "./types";
+import type { DeploymentRun, Project } from "./types";
 
 export interface DeploymentEligibility {
   allowed: boolean;
@@ -66,4 +66,19 @@ export function summarizeDeploymentPayloadMetadata(
   return [framework, subdomain, templateId, moduleCount != null ? `${moduleCount} modules` : null]
     .filter(Boolean)
     .join(" · ");
+}
+
+export function summarizeProviderExecutionFromRun(
+  run: Pick<DeploymentRun, "payload_metadata">,
+): string | null {
+  const meta = run.payload_metadata as Record<string, unknown> | null;
+  if (!meta) return null;
+
+  const execution = meta.provider_execution as Record<string, unknown> | undefined;
+  if (!execution) return null;
+
+  const summary = typeof execution.summary === "string" ? execution.summary : null;
+  if (!summary) return null;
+
+  return summary;
 }

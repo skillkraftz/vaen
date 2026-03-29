@@ -1158,7 +1158,7 @@ describe("deployment doc has clear implementation status labels", () => {
     const source = readFileSync(docPath, "utf-8");
     expect(source).toContain("Remaining Work For True VM Deployment");
     expect(source).toContain("persistent supervisor");
-    expect(source).toContain("provider adapters for GitHub/Vercel/domain wiring");
+    expect(source).toContain("Implement real GitHub provider");
   });
 
   it("has top-level status summary", () => {
