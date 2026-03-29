@@ -25,7 +25,7 @@ create policy prospect_reply_events_read_own on public.prospect_reply_events for
       select 1
       from public.prospects
       where prospects.id = prospect_reply_events.prospect_id
-        and prospects.user_id = auth.uid()
+        and prospects.user_id = auth.uid()::text
     )
   );
 
@@ -37,6 +37,6 @@ create policy prospect_reply_events_insert_own on public.prospect_reply_events f
       select 1
       from public.prospects
       where prospects.id = prospect_reply_events.prospect_id
-        and prospects.user_id = auth.uid()
+        and prospects.user_id = auth.uid()::text
     )
   );
