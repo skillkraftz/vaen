@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import type {
   Prospect,
   ProspectSiteAnalysis,
+  ProspectEnrichment,
   Client,
   Project,
   OutreachSend,
@@ -46,7 +47,7 @@ export default async function ProspectDetailPage({
   const analysisList = (analyses ?? []) as ProspectSiteAnalysis[];
   const latestAnalysis = analysisList[0] ?? null;
 
-  const [{ data: client }, { data: project }, { data: outreachPackages }, { data: sends }, { data: replies }] = await Promise.all([
+  const [{ data: client }, { data: project }, { data: outreachPackages }, { data: sends }, { data: replies }, { data: enrichments }] = await Promise.all([
     p.converted_client_id
       ? supabase.from("clients").select("id, name").eq("id", p.converted_client_id).single()
       : Promise.resolve({ data: null }),
@@ -75,6 +76,12 @@ export default async function ProspectDetailPage({
       .eq("prospect_id", id)
       .order("created_at", { ascending: false })
       .limit(10),
+    supabase
+      .from("prospect_enrichments")
+      .select("*")
+      .eq("prospect_id", id)
+      .order("created_at", { ascending: false })
+      .limit(1),
   ]);
 
   const linkedClient = client as Pick<Client, "id" | "name"> | null;
@@ -85,6 +92,7 @@ export default async function ProspectDetailPage({
   const latestPackage = ((outreachPackages ?? [])[0] ?? null) as ProspectOutreachPackage | null;
   const sendHistory = (sends ?? []) as OutreachSend[];
   const replyHistory = (replies ?? []) as ProspectReplyEvent[];
+  const latestEnrichment = ((enrichments ?? [])[0] ?? null) as ProspectEnrichment | null;
   const latestSend = sendHistory[0] ?? null;
   const latestReply = replyHistory[0] ?? null;
   const sequenceState = readProspectSequenceState(p.metadata);
@@ -236,6 +244,46 @@ export default async function ProspectDetailPage({
             </div>
           ) : (
             <p className="text-sm text-muted">Assign the prospect to a campaign with sequence steps to start follow-up tracking.</p>
+          )}
+        </div>
+      </div>
+
+      <div className="section">
+        <div className="card" data-testid="prospect-enrichment-panel">
+          <h2 style={{ fontSize: "1rem", fontWeight: 600, marginBottom: "0.75rem" }}>Sales Enrichment</h2>
+          {latestEnrichment ? (
+            <div style={{ display: "grid", gap: "0.75rem" }}>
+              <div>
+                <strong>Business Summary</strong>
+                <pre style={{ whiteSpace: "pre-wrap", marginTop: "0.35rem" }}>{latestEnrichment.business_summary ?? "Not generated yet"}</pre>
+              </div>
+              <div>
+                <strong>Recommended Package</strong>
+                <p className="text-sm text-muted">{latestEnrichment.recommended_package ?? "Not generated yet"}</p>
+              </div>
+              <div>
+                <strong>Opportunity Analysis</strong>
+                <pre style={{ whiteSpace: "pre-wrap", marginTop: "0.35rem" }}>{latestEnrichment.opportunity_summary ?? "Not generated yet"}</pre>
+              </div>
+              <div>
+                <strong>Missing Pieces</strong>
+                {latestEnrichment.missing_pieces.length > 0 ? (
+                  <ul className="text-sm text-muted" style={{ paddingLeft: "1rem", marginTop: "0.35rem" }}>
+                    {latestEnrichment.missing_pieces.map((item) => (
+                      <li key={item}>{item}</li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="text-sm text-muted">No obvious missing pieces flagged.</p>
+                )}
+              </div>
+              <div>
+                <strong>Offer Positioning</strong>
+                <pre style={{ whiteSpace: "pre-wrap", marginTop: "0.35rem" }}>{latestEnrichment.offer_positioning ?? "Not generated yet"}</pre>
+              </div>
+            </div>
+          ) : (
+            <p className="text-sm text-muted">Generate enrichment to turn raw site analysis into a sales-ready prospect summary.</p>
           )}
         </div>
       </div>

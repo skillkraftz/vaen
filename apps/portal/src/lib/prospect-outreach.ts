@@ -1,6 +1,7 @@
 import type {
   Prospect,
   ProspectAutomationLevel,
+  ProspectEnrichment,
   ProspectSiteAnalysis,
   ProspectOutreachPackage,
   Project,
@@ -55,16 +56,17 @@ export function inferRecommendedPackage(params: {
 
 export function buildOfferSummary(params: {
   prospect: Pick<Prospect, "company_name" | "website_url" | "outreach_summary">;
+  enrichment?: Pick<ProspectEnrichment, "business_summary" | "opportunity_summary" | "offer_positioning"> | null;
   analysis: Pick<ProspectSiteAnalysis, "site_title" | "primary_h1" | "content_excerpt"> | null;
   recommendedPackage: string;
   pricingSummary: string | null;
 }) {
   const bullets = [
-    `What we noticed: ${params.analysis?.site_title ?? params.prospect.website_url}`,
-    `What we can improve: ${params.analysis?.primary_h1 ?? params.prospect.outreach_summary ?? "Clarify the homepage value proposition and lead capture."}`,
+    `What we noticed: ${params.enrichment?.business_summary ?? params.analysis?.site_title ?? params.prospect.website_url}`,
+    `What we can improve: ${params.enrichment?.opportunity_summary ?? params.analysis?.primary_h1 ?? params.prospect.outreach_summary ?? "Clarify the homepage value proposition and lead capture."}`,
     `Recommended package: ${params.recommendedPackage}`,
     `Estimated pricing: ${params.pricingSummary ?? "Pricing estimate pending quote creation."}`,
-    "Why now: turning the current website into a stronger conversion asset improves outreach and close rates immediately.",
+    `Why now: ${params.enrichment?.offer_positioning ?? "turning the current website into a stronger conversion asset improves outreach and close rates immediately."}`,
     "Call to action: review the proposed direction, screenshots, and pricing, then approve outreach send prep.",
   ];
   return bullets.join("\n");
@@ -72,11 +74,13 @@ export function buildOfferSummary(params: {
 
 export function buildOutreachEmailDraft(params: {
   prospect: Pick<Prospect, "company_name" | "website_url">;
+  enrichment?: Pick<ProspectEnrichment, "offer_positioning" | "precreated_copy"> | null;
   analysis: Pick<ProspectSiteAnalysis, "primary_h1" | "content_excerpt"> | null;
   recommendedPackage: string;
   pricingSummary: string | null;
   screenshotCount: number;
 }) {
+  const precreatedCopy = (params.enrichment?.precreated_copy ?? {}) as Record<string, unknown>;
   const subject = `${params.prospect.company_name}: website improvement ideas`;
   const body = [
     `Hi ${params.prospect.company_name} team,`,
@@ -90,6 +94,9 @@ export function buildOutreachEmailDraft(params: {
       : null,
     "",
     `Our recommended starting point is the ${params.recommendedPackage} package${params.pricingSummary ? `, estimated at ${params.pricingSummary}` : ""}.`,
+    typeof precreatedCopy.what_we_can_improve === "string"
+      ? precreatedCopy.what_we_can_improve
+      : params.enrichment?.offer_positioning ?? null,
     params.screenshotCount > 0
       ? `We also have ${params.screenshotCount} review screenshot${params.screenshotCount === 1 ? "" : "s"} ready to reference in the outreach package.`
       : "We can attach a visual review package once the design review step is complete.",
@@ -112,6 +119,7 @@ export function summarizeQuote(
 
 export function buildOutreachPackageRecord(params: {
   prospect: Prospect;
+  enrichment?: ProspectEnrichment | null;
   analysis: ProspectSiteAnalysis | null;
   project: Project | null;
   quote: (Quote & { lines?: QuoteLine[] }) | null;
@@ -127,12 +135,14 @@ export function buildOutreachPackageRecord(params: {
   const pricingSummary = summarizeQuote(params.quote);
   const offerSummary = buildOfferSummary({
     prospect: params.prospect,
+    enrichment: params.enrichment ?? null,
     analysis: params.analysis,
     recommendedPackage,
     pricingSummary,
   });
   const emailDraft = buildOutreachEmailDraft({
     prospect: params.prospect,
+    enrichment: params.enrichment ?? null,
     analysis: params.analysis,
     recommendedPackage,
     pricingSummary,
@@ -151,6 +161,14 @@ export function buildOutreachPackageRecord(params: {
           site_title: params.analysis.site_title,
           primary_h1: params.analysis.primary_h1,
           content_excerpt: params.analysis.content_excerpt,
+        }
+      : null,
+    enrichment: params.enrichment
+      ? {
+          id: params.enrichment.id,
+          recommended_package: params.enrichment.recommended_package,
+          business_summary: params.enrichment.business_summary,
+          opportunity_summary: params.enrichment.opportunity_summary,
         }
       : null,
     project: params.project

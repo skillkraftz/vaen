@@ -6,6 +6,7 @@ import {
   analyzeProspectAction,
   continueProspectAutomationAction,
   convertProspectAction,
+  generateProspectEnrichmentAction,
   generateOutreachPackageAction,
   markProspectRepliedAction,
   pauseProspectSequenceAction,
@@ -78,6 +79,18 @@ export function ProspectDetailActions({
     setError(null);
     startTransition(async () => {
       const result = await generateOutreachPackageAction(prospect.id);
+      if (result.error) {
+        setError(result.error);
+        return;
+      }
+      router.refresh();
+    });
+  }
+
+  function generateEnrichment() {
+    setError(null);
+    startTransition(async () => {
+      const result = await generateProspectEnrichmentAction(prospect.id);
       if (result.error) {
         setError(result.error);
         return;
@@ -190,6 +203,15 @@ export function ProspectDetailActions({
           data-testid="prospect-continue-automation-button"
         >
           {isPending ? "Running..." : "Continue Automation"}
+        </button>
+        <button
+          type="button"
+          className="btn btn-sm"
+          onClick={generateEnrichment}
+          disabled={isPending}
+          data-testid="prospect-generate-enrichment-button"
+        >
+          {isPending ? "Preparing..." : "Generate Enrichment"}
         </button>
         <button
           type="button"

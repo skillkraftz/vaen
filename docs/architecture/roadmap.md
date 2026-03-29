@@ -233,6 +233,7 @@ Branch states:
 | Team settings scaffold (`/dashboard/settings/team`) | Complete |
 | Campaign-detail analytics row | Complete |
 | Manual reply workflow foundation | Complete |
+| AI prospect enrichment foundation | Complete |
 
 ## Assumptions
 - Templates use Next.js (App Router) with top-level `app/` directory for SSG/SSR flexibility

@@ -252,6 +252,21 @@ export interface ProspectSiteAnalysis {
   created_at: string;
 }
 
+export interface ProspectEnrichment {
+  id: string;
+  prospect_id: string;
+  source: "heuristic_v1" | "worker_job" | "manual";
+  business_summary: string | null;
+  recommended_package: string | null;
+  opportunity_summary: string | null;
+  missing_pieces: string[];
+  offer_positioning: string | null;
+  precreated_copy: Record<string, unknown>;
+  metadata: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
 export type ProspectAutomationLevel =
   | "convert_only"
   | "process_intake"

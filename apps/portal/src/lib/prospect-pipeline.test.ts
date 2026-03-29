@@ -37,12 +37,22 @@ describe("prospect schema", () => {
     expect(source).toContain("package_data jsonb");
   });
 
+  it("adds prospect enrichments", () => {
+    const migrationPath = join(REPO_ROOT, "supabase/migrations/20260329000021_create_prospect_enrichments.sql");
+    expect(existsSync(migrationPath)).toBe(true);
+    const source = readFileSync(migrationPath, "utf-8");
+    expect(source).toContain("create table if not exists public.prospect_enrichments");
+    expect(source).toContain("business_summary");
+    expect(source).toContain("recommended_package");
+  });
+
   it("adds Prospect and ProspectSiteAnalysis types", () => {
     const typesPath = join(__dirname, "types.ts");
     const source = readFileSync(typesPath, "utf-8");
     expect(source).toContain("export interface Campaign");
     expect(source).toContain("export interface Prospect");
     expect(source).toContain("export interface ProspectSiteAnalysis");
+    expect(source).toContain("export interface ProspectEnrichment");
     expect(source).toContain("export type ProspectAutomationLevel");
     expect(source).toContain("export interface ProspectOutreachPackage");
     expect(source).toContain("export interface OutreachSend");
@@ -179,6 +189,7 @@ describe("prospect actions and ui", () => {
     expect(source).toContain("export async function analyzeProspectAction");
     expect(source).toContain("export async function convertProspectAction");
     expect(source).toContain("export async function continueProspectAutomationAction");
+    expect(source).toContain("export async function generateProspectEnrichmentAction");
     expect(source).toContain("export async function generateOutreachPackageAction");
     expect(source).toContain("export async function prepareProspectEmailDraftAction");
     expect(source).toContain("export async function sendProspectOutreachAction");
@@ -324,6 +335,7 @@ describe("prospect actions and ui", () => {
     const importUiSource = readFileSync(importUiPath, "utf-8");
     expect(detailSource).toContain('data-testid="prospect-detail-page"');
     expect(detailSource).toContain('data-testid="prospect-analysis-panel"');
+    expect(detailSource).toContain('data-testid="prospect-enrichment-panel"');
     expect(detailSource).toContain('data-testid="prospect-readiness-panel"');
     expect(detailSource).toContain('data-testid="prospect-outreach-package"');
     expect(detailSource).toContain('data-testid="prospect-reply-history"');
@@ -337,6 +349,7 @@ describe("prospect actions and ui", () => {
     expect(actionsSource).toContain('data-testid="prospect-convert-button"');
     expect(actionsSource).toContain('data-testid="prospect-automation-level"');
     expect(actionsSource).toContain('data-testid="prospect-continue-automation-button"');
+    expect(actionsSource).toContain('data-testid="prospect-generate-enrichment-button"');
     expect(actionsSource).toContain('data-testid="prospect-generate-package-button"');
     expect(actionsSource).toContain('data-testid="prospect-preview-email-button"');
     expect(actionsSource).toContain('data-testid="prospect-send-confirm"');

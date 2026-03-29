@@ -131,6 +131,7 @@
 - [x] Team settings scaffold at `/dashboard/settings/team`
 - [x] Campaign-detail analytics card row
 - [x] Manual reply workflow foundation with reply history and sequence-safe pause behavior
+- [x] AI prospect enrichment foundation with persisted business summary, package recommendation, opportunity analysis, and reusable offer positioning
 
 ## Developer Commands
 

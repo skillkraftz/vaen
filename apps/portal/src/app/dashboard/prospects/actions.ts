@@ -10,6 +10,7 @@ import {
 } from "../projects/[id]/project-quote-helpers";
 import { getAuthoritativeSelectedModules } from "@/lib/module-selection";
 import { analyzeProspectWebsite, normalizeWebsiteUrl } from "@/lib/prospect-analysis";
+import { buildProspectEnrichmentRecord } from "@/lib/prospect-enrichment";
 import {
   buildOutreachPackageRecord,
 } from "@/lib/prospect-outreach";
@@ -18,6 +19,7 @@ import type {
   CampaignSequenceStep,
   Prospect,
   ProspectAutomationLevel,
+  ProspectEnrichment,
   ProspectOutreachPackage,
   ProspectSiteAnalysis,
   Project,
@@ -231,6 +233,20 @@ async function buildProspectPricingEstimate(
     setupTotalCents: totals.setupTotalCents,
     recurringTotalCents: totals.recurringTotalCents,
   };
+}
+
+async function loadLatestProspectEnrichment(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  prospectId: string,
+) {
+  const { data } = await supabase
+    .from("prospect_enrichments")
+    .select("*")
+    .eq("prospect_id", prospectId)
+    .order("created_at", { ascending: false })
+    .limit(1);
+
+  return ((data ?? [])[0] ?? null) as ProspectEnrichment | null;
 }
 
 export async function createProspectAction(
@@ -823,9 +839,9 @@ export async function markProspectRepliedAction(
   return { replyEventId: replyEvent.id };
 }
 
-export async function generateOutreachPackageAction(
+export async function generateProspectEnrichmentAction(
   prospectId: string,
-): Promise<{ error?: string; packageId?: string }> {
+): Promise<{ error?: string; enrichmentId?: string }> {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: "Not authenticated" };
@@ -833,6 +849,96 @@ export async function generateOutreachPackageAction(
   const [{ data: prospect }, { data: analyses }] = await Promise.all([
     supabase.from("prospects").select("*").eq("id", prospectId).single(),
     supabase.from("prospect_site_analyses").select("*").eq("prospect_id", prospectId).order("created_at", { ascending: false }).limit(1),
+  ]);
+  if (!prospect) return { error: "Prospect not found." };
+
+  const p = prospect as Prospect;
+  const analysis = ((analyses ?? [])[0] ?? null) as ProspectSiteAnalysis | null;
+
+  const project = p.converted_project_id
+    ? ((await supabase.from("projects").select("*").eq("id", p.converted_project_id).single()).data as Project | null)
+    : null;
+
+  const quoteResult = project ? await getQuotesForProjectAction(project.id) : { quotes: [] as Array<Quote & { lines: QuoteLine[] }> };
+  const latestQuote = quoteResult.quotes[0] ?? null;
+
+  let quoteForEnrichment = latestQuote;
+  if (!quoteForEnrichment && project) {
+    const estimate = await buildProspectPricingEstimate(supabase, project).catch(() => null);
+    if (estimate) {
+      quoteForEnrichment = {
+        id: "estimate",
+        project_id: project.id,
+        quote_number: 0,
+        revision_id: project.current_revision_id,
+        template_id: estimate.templateId,
+        selected_modules_snapshot: getAuthoritativeSelectedModules(project),
+        status: "draft",
+        setup_subtotal_cents: estimate.setupTotalCents,
+        recurring_subtotal_cents: estimate.recurringTotalCents,
+        discount_cents: 0,
+        discount_percent: null,
+        discount_reason: null,
+        discount_approved_by: null,
+        setup_total_cents: estimate.setupTotalCents,
+        recurring_total_cents: estimate.recurringTotalCents,
+        valid_days: 30,
+        valid_until: null,
+        client_name: p.company_name,
+        client_email: p.contact_email,
+        notes: null,
+        metadata: { estimated: true },
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        lines: [],
+      };
+    }
+  }
+
+  const enrichment = buildProspectEnrichmentRecord({
+    prospect: p,
+    analysis,
+    project,
+    quote: quoteForEnrichment,
+  });
+
+  const { data: createdEnrichment, error } = await supabase
+    .from("prospect_enrichments")
+    .insert(enrichment)
+    .select("id")
+    .single();
+
+  if (error || !createdEnrichment) {
+    return { error: error?.message ?? "Failed to generate prospect enrichment." };
+  }
+
+  await supabase
+    .from("prospects")
+    .update({
+      metadata: {
+        ...(p.metadata ?? {}),
+        latest_enrichment_id: createdEnrichment.id,
+      },
+    })
+    .eq("id", prospectId);
+
+  revalidatePath("/dashboard");
+  revalidatePath("/dashboard/prospects");
+  revalidatePath(`/dashboard/prospects/${prospectId}`);
+  return { enrichmentId: createdEnrichment.id };
+}
+
+export async function generateOutreachPackageAction(
+  prospectId: string,
+): Promise<{ error?: string; packageId?: string }> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated" };
+
+  const [{ data: prospect }, { data: analyses }, latestEnrichment] = await Promise.all([
+    supabase.from("prospects").select("*").eq("id", prospectId).single(),
+    supabase.from("prospect_site_analyses").select("*").eq("prospect_id", prospectId).order("created_at", { ascending: false }).limit(1),
+    loadLatestProspectEnrichment(supabase, prospectId),
   ]);
   if (!prospect) return { error: "Prospect not found." };
 
@@ -903,6 +1009,7 @@ export async function generateOutreachPackageAction(
 
   const packageRecord = buildOutreachPackageRecord({
     prospect: p,
+    enrichment: latestEnrichment,
     analysis,
     project,
     quote: quoteForPackage,
