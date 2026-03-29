@@ -64,10 +64,12 @@ export async function executeProviderAdapters(
     }
   }
 
-  const configuredSteps = steps.filter((s) => s.status !== "not_configured");
-  const allNotConfigured = configuredSteps.length === 0;
+  const actionableSteps = steps.filter((s) => s.status !== "not_configured");
+  const allNotConfigured = actionableSteps.length === 0;
   const anyFailed = steps.some((s) => s.status === "failed");
-  const allSucceeded = configuredSteps.length > 0 && configuredSteps.every((s) => s.status === "succeeded");
+  const anyNotImplemented = steps.some((s) => s.status === "not_implemented");
+  const anyUnsupported = steps.some((s) => s.status === "unsupported");
+  const allSucceeded = actionableSteps.length > 0 && actionableSteps.every((s) => s.status === "succeeded");
 
   let overallStatus: ProviderExecutionResult["status"];
   let summary: string;
@@ -75,9 +77,17 @@ export async function executeProviderAdapters(
   if (allNotConfigured) {
     overallStatus = "not_configured";
     summary = "No deployment providers are configured. Deployment payload is validated and ready for provider automation.";
+  } else if (anyNotImplemented) {
+    overallStatus = "not_implemented";
+    const pendingNames = steps.filter((s) => s.status === "not_implemented").map((s) => s.provider);
+    summary = `Provider adapters are configured but not implemented yet: ${pendingNames.join(", ")}.`;
+  } else if (anyUnsupported) {
+    overallStatus = "unsupported";
+    const unsupportedNames = steps.filter((s) => s.status === "unsupported").map((s) => s.provider);
+    summary = `Provider execution is unsupported for: ${unsupportedNames.join(", ")}.`;
   } else if (allSucceeded) {
     overallStatus = "succeeded";
-    summary = `All ${configuredSteps.length} configured provider(s) completed successfully.`;
+    summary = `All ${actionableSteps.length} actionable provider(s) completed successfully.`;
   } else if (anyFailed) {
     overallStatus = "failed";
     const failedNames = steps.filter((s) => s.status === "failed").map((s) => s.provider);

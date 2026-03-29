@@ -79,13 +79,17 @@ describe("provider execution shared helpers", () => {
     expect(source).toContain("export function summarizeProviderExecution");
     expect(source).toContain("No provider steps executed");
     expect(source).toContain("No providers are configured");
+    expect(source).toContain("not implemented");
+    expect(source).toContain("unsupported");
     expect(source).toContain("succeeded");
     expect(source).toContain("failed");
   });
 
-  it("defines not_configured, succeeded, failed, and skipped as result statuses", () => {
+  it("defines explicit provider result statuses for unconfigured and stubbed execution", () => {
     const source = readFileSync(join(REPO_ROOT, "packages/shared/src/providers.ts"), "utf-8");
     expect(source).toContain('"not_configured"');
+    expect(source).toContain('"not_implemented"');
+    expect(source).toContain('"unsupported"');
     expect(source).toContain('"succeeded"');
     expect(source).toContain('"failed"');
     expect(source).toContain('"skipped"');
@@ -131,7 +135,7 @@ describe("worker provider adapter stubs", () => {
     expect(source).toContain("isConfigured()");
     expect(source).toContain("GITHUB_TOKEN");
     expect(source).toContain("GITHUB_ORG");
-    expect(source).toContain('"not_configured"');
+    expect(source).toContain('"not_implemented"');
   });
 
   it("has Vercel adapter stub", () => {
@@ -142,7 +146,7 @@ describe("worker provider adapter stubs", () => {
     expect(source).toContain("implements DeploymentProviderAdapter");
     expect(source).toContain('type = "vercel"');
     expect(source).toContain("VERCEL_TOKEN");
-    expect(source).toContain('"not_configured"');
+    expect(source).toContain('"not_implemented"');
   });
 
   it("has Domain adapter stub", () => {
@@ -154,7 +158,7 @@ describe("worker provider adapter stubs", () => {
     expect(source).toContain('type = "domain"');
     expect(source).toContain("DNS_PROVIDER_TOKEN");
     expect(source).toContain("VAEN_BASE_DOMAIN");
-    expect(source).toContain('"not_configured"');
+    expect(source).toContain('"not_implemented"');
   });
 
   it("has provider registry with execution function", () => {
@@ -194,6 +198,8 @@ describe("worker deploy_execute integration", () => {
     const source = readFileSync(workerPath, "utf-8");
     expect(source).toContain("provider_execution");
     expect(source).toContain("deployment_providers_not_configured");
+    expect(source).toContain("deployment_providers_not_implemented");
+    expect(source).toContain("deployment_providers_unsupported");
     expect(source).toContain("deployment_completed");
     expect(source).toContain("deployment_provider_failed");
   });
@@ -214,6 +220,7 @@ describe("deployment panel provider display", () => {
     const source = readFileSync(panelPath, "utf-8");
     expect(source).toContain("summarizeProviderExecutionFromRun");
     expect(source).toContain("deployment-run-provider-summary");
+    expect(source).toContain("Execute Providers");
   });
 });
 
@@ -229,6 +236,7 @@ describe("deployment docs", () => {
     expect(source).toContain("VercelProviderAdapter");
     expect(source).toContain("DomainProviderAdapter");
     expect(source).toContain("not_configured");
+    expect(source).toContain("not_implemented");
     expect(source).toContain("GITHUB_TOKEN");
     expect(source).toContain("VERCEL_TOKEN");
     expect(source).toContain("DNS_PROVIDER_TOKEN");

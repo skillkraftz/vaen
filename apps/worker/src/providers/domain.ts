@@ -13,7 +13,7 @@ import type {
  * 3. Verify DNS propagation
  * 4. Return the live domain as provider reference
  *
- * Currently: returns not_configured. This adapter runs last in the
+ * Currently: returns not_implemented when configured. This adapter runs last in the
  * provider execution sequence since it depends on the hosting target
  * being live first.
  */
@@ -56,10 +56,10 @@ export class DomainProviderAdapter implements DeploymentProviderAdapter {
     // 4. Verify propagation or schedule async check
     // 5. Return domain as providerReference
     //
-    // For now, return not_configured to avoid faking success.
+    // For now, return not_implemented to avoid faking success.
     return {
       provider: "domain",
-      status: "not_configured",
+      status: "not_implemented",
       message: "Domain provider adapter is registered but execution is not yet implemented.",
       providerReference: null,
       executedAt: now,

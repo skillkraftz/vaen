@@ -24,6 +24,8 @@ export const PROVIDER_LABELS: Record<DeploymentProviderType, string> = {
 
 export type ProviderResultStatus =
   | "not_configured"
+  | "not_implemented"
+  | "unsupported"
   | "succeeded"
   | "failed"
   | "skipped";
@@ -115,12 +117,23 @@ export function hasAnyConfiguredProvider(adapters: DeploymentProviderAdapter[]):
 export function summarizeProviderExecution(result: ProviderExecutionResult): string {
   if (result.steps.length === 0) return "No provider steps executed.";
 
-  const configured = result.steps.filter((s) => s.status !== "not_configured");
-  if (configured.length === 0) {
+  const actionable = result.steps.filter((s) => s.status !== "not_configured");
+  if (actionable.length === 0) {
     return "No providers are configured. Configure GitHub, Vercel, or domain settings to enable deployment.";
   }
 
-  const succeeded = configured.filter((s) => s.status === "succeeded").length;
-  const failed = configured.filter((s) => s.status === "failed").length;
-  return `${succeeded} succeeded, ${failed} failed out of ${configured.length} configured provider(s).`;
+  const succeeded = actionable.filter((s) => s.status === "succeeded").length;
+  const failed = actionable.filter((s) => s.status === "failed").length;
+  const notImplemented = actionable.filter((s) => s.status === "not_implemented").length;
+  const unsupported = actionable.filter((s) => s.status === "unsupported").length;
+
+  return [
+    `${succeeded} succeeded`,
+    `${failed} failed`,
+    notImplemented > 0 ? `${notImplemented} not implemented` : null,
+    unsupported > 0 ? `${unsupported} unsupported` : null,
+    `out of ${actionable.length} actionable provider(s)`,
+  ]
+    .filter(Boolean)
+    .join(", ");
 }

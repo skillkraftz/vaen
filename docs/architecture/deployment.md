@@ -192,13 +192,16 @@ Each adapter implements `DeploymentProviderAdapter` from `@vaen/shared`:
 1. Adapters run in order: github → vercel → domain
 2. If a required adapter fails, subsequent adapters are skipped
 3. Results are recorded in `deployment_run.payload_metadata.provider_execution`
-4. No adapter fakes success — unconfigured adapters return `{ status: "not_configured" }`
+4. Portal can queue a `deploy_execute` job from a validated deployment run
+5. No adapter fakes success — unconfigured adapters return `{ status: "not_configured" }`, and configured-but-stubbed adapters return `{ status: "not_implemented" }`
 
 ### Result Statuses
 
 | Status | Meaning |
 |--------|---------|
 | `not_configured` | Adapter lacks required env vars (e.g. `GITHUB_TOKEN`) |
+| `not_implemented` | Adapter is configured but the real provider execution code is not built yet |
+| `unsupported` | Deployment payload or target is not supported by this adapter |
 | `succeeded` | Provider step completed successfully |
 | `failed` | Provider step returned an error |
 | `skipped` | Skipped due to earlier provider failure |
@@ -216,7 +219,8 @@ Each adapter implements `DeploymentProviderAdapter` from `@vaen/shared`:
 - `DeploymentProviderAdapter` interface in `@vaen/shared`
 - `ProviderStepResult` / `ProviderExecutionResult` structured result model
 - Provider registry with execution ordering
-- GitHub / Vercel / Domain adapter stubs (return `not_configured`)
+- Portal action to queue provider execution from a validated deployment run
+- GitHub / Vercel / Domain adapter stubs (return `not_configured` or `not_implemented` honestly)
 - Worker `deploy_execute` job handler that routes through adapters
 - `deploy_execute` job type added to shared pipeline definitions
 - Results stored in deployment run metadata for audit

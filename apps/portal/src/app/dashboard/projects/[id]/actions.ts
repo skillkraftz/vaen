@@ -1220,6 +1220,97 @@ export async function createDeploymentRunAction(
   return { jobId: job.id, deploymentRunId: deploymentRun.id };
 }
 
+/**
+ * Queue provider execution for an already validated deployment run.
+ * This uses the adapter boundary in the worker and records honest
+ * not-configured / not-implemented outcomes instead of faking deployment.
+ */
+export async function executeDeploymentProvidersAction(
+  projectId: string,
+  deploymentRunId: string,
+): Promise<{ error?: string; jobId?: string }> {
+  const supabase = await createClient();
+
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated" };
+
+  const { data: project } = await supabase
+    .from("projects")
+    .select("id, slug")
+    .eq("id", projectId)
+    .single();
+
+  if (!project) return { error: "Project not found" };
+
+  const { data: deploymentRun } = await supabase
+    .from("deployment_runs")
+    .select("id, project_id, status, payload_metadata")
+    .eq("id", deploymentRunId)
+    .single();
+
+  if (!deploymentRun || deploymentRun.project_id !== projectId) {
+    return { error: "Deployment run not found" };
+  }
+
+  if (deploymentRun.status !== "validated") {
+    return { error: `Deployment run must be validated before provider execution. Current status: "${deploymentRun.status}"` };
+  }
+
+  const payloadMeta = (deploymentRun.payload_metadata as Record<string, unknown> | null) ?? {};
+  const payloadPath = typeof payloadMeta.payload_path === "string"
+    ? payloadMeta.payload_path
+    : `generated/${project.slug}/deployment-payload.json`;
+
+  const { data: job, error: jobError } = await supabase
+    .from("jobs")
+    .insert({
+      project_id: projectId,
+      job_type: "deploy_execute",
+      status: "pending",
+      payload: {
+        triggered_by: user.id,
+        target_slug: project.slug,
+        deployment_run_id: deploymentRunId,
+        deployment_payload_path: payloadPath,
+      },
+    })
+    .select("id")
+    .single();
+
+  if (jobError || !job) {
+    return { error: `Failed to create provider execution job: ${jobError?.message}` };
+  }
+
+  await supabase
+    .from("deployment_runs")
+    .update({
+      job_id: job.id,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", deploymentRunId);
+
+  await supabase.from("project_events").insert({
+    project_id: projectId,
+    event_type: "deployment_provider_execution_queued",
+    from_status: null,
+    to_status: null,
+    metadata: {
+      deployment_run_id: deploymentRunId,
+      job_id: job.id,
+      payload_path: payloadPath,
+      triggered_by: user.id,
+    },
+  });
+
+  if (shouldUseLocalWorkerSpawn()) {
+    spawnWorker(job.id);
+  }
+
+  revalidatePath(`/dashboard/projects/${projectId}`);
+  revalidatePath("/dashboard/settings/deployment");
+  return { jobId: job.id };
+}
+
 // ── Job status queries ───────────────────────────────────────────────
 
 /**

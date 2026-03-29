@@ -13,7 +13,7 @@ import type {
  * 3. Wait for deployment to complete or record the deployment URL
  * 4. Return the Vercel deployment URL as provider reference
  *
- * Currently: returns not_configured. The adapter boundary exists so that
+ * Currently: returns not_implemented when configured. The adapter boundary exists so that
  * real Vercel API integration has an obvious place to plug in.
  */
 export class VercelProviderAdapter implements DeploymentProviderAdapter {
@@ -55,10 +55,10 @@ export class VercelProviderAdapter implements DeploymentProviderAdapter {
     // 4. Trigger deployment or wait for auto-deploy
     // 5. Return deployment URL as providerReference
     //
-    // For now, return not_configured to avoid faking success.
+    // For now, return not_implemented to avoid faking success.
     return {
       provider: "vercel",
-      status: "not_configured",
+      status: "not_implemented",
       message: "Vercel provider adapter is registered but execution is not yet implemented.",
       providerReference: null,
       executedAt: now,

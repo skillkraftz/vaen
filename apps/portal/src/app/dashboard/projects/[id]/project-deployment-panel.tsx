@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import type { DeploymentRun, Project } from "@/lib/types";
-import { createDeploymentRunAction } from "./actions";
+import { createDeploymentRunAction, executeDeploymentProvidersAction } from "./actions";
 import { summarizeDeploymentPayloadMetadata, summarizeProviderExecutionFromRun } from "@/lib/deployment-control-plane";
 
 function formatDate(iso: string | null) {
@@ -68,6 +68,22 @@ export function DeploymentRunsSection({
           ? `Deployment run queued (${result.deploymentRunId.slice(0, 8)}).`
           : "Deployment run queued.",
       );
+      router.refresh();
+    });
+  }
+
+  function executeProviders(runId: string) {
+    setError(null);
+    setNotice(null);
+
+    startTransition(async () => {
+      const result = await executeDeploymentProvidersAction(projectId, runId);
+      if (result.error) {
+        setError(result.error);
+        return;
+      }
+
+      setNotice(result.jobId ? `Provider execution queued (${result.jobId.slice(0, 8)}).` : "Provider execution queued.");
       router.refresh();
     });
   }
@@ -172,6 +188,20 @@ export function DeploymentRunsSection({
                     <div><strong>Started:</strong> {formatDate(run.started_at ?? run.created_at)}</div>
                     <div><strong>Completed:</strong> {formatDate(run.completed_at)}</div>
                   </div>
+
+                  {run.status === "validated" && (
+                    <div style={{ marginTop: "0.75rem" }}>
+                      <button
+                        type="button"
+                        className="btn btn-sm"
+                        disabled={isPending}
+                        onClick={() => executeProviders(run.id)}
+                        data-testid={`execute-deployment-providers-${run.id}`}
+                      >
+                        {isPending ? "Queueing..." : "Execute Providers"}
+                      </button>
+                    </div>
+                  )}
 
                   {summarizeDeploymentPayloadMetadata(run.payload_metadata) && (
                     <p className="text-sm text-muted" style={{ marginTop: "0.5rem" }}>

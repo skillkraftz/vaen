@@ -132,6 +132,19 @@ describe("deployment control plane integration", () => {
     expect(fn).toContain('status: "deploying"');
   });
 
+  it("queues provider execution from a validated deployment run", () => {
+    const actionsPath = join(__dirname, "../app/dashboard/projects/[id]/actions.ts");
+    const source = readFileSync(actionsPath, "utf-8");
+    const fnStart = source.indexOf("export async function executeDeploymentProvidersAction");
+    const fnEnd = source.indexOf("export async function getProjectJobsAction");
+    const fn = source.slice(fnStart, fnEnd);
+
+    expect(fn).toContain('job_type: "deploy_execute"');
+    expect(fn).toContain('deploymentRun.status !== "validated"');
+    expect(fn).toContain('from("deployment_runs")');
+    expect(fn).toContain("deployment_provider_execution_queued");
+  });
+
   it("worker validates deployment payloads and records structured deployment run results", () => {
     const workerPath = join(REPO_ROOT, "apps/worker/src/run-job.ts");
     const source = readFileSync(workerPath, "utf-8");

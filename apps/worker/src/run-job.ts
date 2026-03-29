@@ -1837,8 +1837,13 @@ async function executeDeploymentProviders(
 
   const completedAt = new Date().toISOString();
 
-  if (result.status === "not_configured") {
-    // No providers configured — record clearly, do not fake success
+  if (
+    result.status === "not_configured" ||
+    result.status === "not_implemented" ||
+    result.status === "unsupported"
+  ) {
+    // Provider boundary reached, but no live provider deployment occurred.
+    // Record clearly and keep the run in validated state rather than faking deploy success.
     await db
       .from("jobs")
       .update({
@@ -1856,6 +1861,7 @@ async function executeDeploymentProviders(
       .from("deployment_runs")
       .update({
         status: "validated",
+        provider: result.steps.map((s) => s.provider).join(",") || "unconfigured",
         log_summary: result.summary,
         payload_metadata: {
           ...meta,
@@ -1873,7 +1879,12 @@ async function executeDeploymentProviders(
 
     await db.from("project_events").insert({
       project_id: project.id,
-      event_type: "deployment_providers_not_configured",
+      event_type:
+        result.status === "not_configured"
+          ? "deployment_providers_not_configured"
+          : result.status === "not_implemented"
+            ? "deployment_providers_not_implemented"
+            : "deployment_providers_unsupported",
       from_status: project.status,
       to_status: project.status,
       metadata: { job_id: job.id, deployment_run_id: deploymentRun.id, summary: result.summary },

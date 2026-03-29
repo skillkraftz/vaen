@@ -12,7 +12,7 @@ import type {
  * 2. Push the generated site source to the repository
  * 3. Return the repo URL as provider reference
  *
- * Currently: returns not_configured. The adapter boundary exists so that
+ * Currently: returns not_implemented when configured. The adapter boundary exists so that
  * real GitHub API integration has an obvious place to plug in.
  */
 export class GitHubProviderAdapter implements DeploymentProviderAdapter {
@@ -53,10 +53,10 @@ export class GitHubProviderAdapter implements DeploymentProviderAdapter {
     // 3. Push site source from generated/<slug>/site/
     // 4. Return repo URL as providerReference
     //
-    // For now, return not_configured to avoid faking success.
+    // For now, return not_implemented to avoid faking success.
     return {
       provider: "github",
-      status: "not_configured",
+      status: "not_implemented",
       message: "GitHub provider adapter is registered but execution is not yet implemented.",
       providerReference: null,
       executedAt: now,
