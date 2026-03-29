@@ -60,6 +60,7 @@ Authenticated operations portal for the vaen website factory. It now covers inta
 | `RESEND_FROM_EMAIL` | No | Preferred From address for outreach sends |
 | `RESEND_FROM_NAME` | No | Display name for outreach sends (defaults to `Skillkraftz Support`) |
 | `RESEND_REPLY_TO` | No | Optional reply-to address for outreach sends |
+| `RESEND_WEBHOOK_SECRET` | No | Required only for signed Resend webhook ingestion at `/api/webhooks/resend` |
 | `OUTREACH_FROM_EMAIL` | No | Legacy fallback From address if `RESEND_FROM_EMAIL` is unset |
 
 Outbound outreach readiness is visible in the portal at `/dashboard/settings/outreach`. Missing config blocks send attempts before they reach Resend.

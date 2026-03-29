@@ -294,6 +294,18 @@ export interface OutreachSend {
   created_at: string;
 }
 
+export interface EmailProviderEvent {
+  id: string;
+  provider: "resend";
+  provider_event_id: string;
+  outreach_send_id: string | null;
+  event_type: string;
+  provider_message_id: string | null;
+  payload: Record<string, unknown>;
+  processed_at: string;
+  created_at: string;
+}
+
 export interface Quote {
   id: string;
   project_id: string;

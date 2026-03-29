@@ -156,6 +156,7 @@ describe("outreach execution helpers", () => {
     expect(helperSource).toContain("provider_message_id");
     expect(helperSource).toContain("sendType");
     expect(helperSource).toContain("sequenceStep");
-    expect(webhookSource).toContain("Resend webhook scaffold");
+    expect(webhookSource).toContain("verifyResendWebhookSignature");
+    expect(webhookSource).toContain('from("email_provider_events")');
   });
 });

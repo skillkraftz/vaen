@@ -101,6 +101,7 @@ pnpm build
 | `RESEND_FROM_EMAIL` | No | Preferred From address for outreach emails (for production: `support@skillkraftz.com`) |
 | `RESEND_FROM_NAME` | No | Display name for outbound outreach emails (defaults to `Skillkraftz Support`) |
 | `RESEND_REPLY_TO` | No | Optional reply-to address for outreach emails |
+| `RESEND_WEBHOOK_SECRET` | No | Required only when receiving Resend webhook events at `/api/webhooks/resend` |
 | `OUTREACH_FROM_EMAIL` | No | Legacy fallback From address if `RESEND_FROM_EMAIL` is unset |
 
 **Worker** (`apps/worker/.env`) — loaded automatically by `run-job.ts` via dotenv:
@@ -124,6 +125,7 @@ Required portal env vars for outreach:
 - `RESEND_FROM_EMAIL` or `OUTREACH_FROM_EMAIL`
 - `RESEND_FROM_NAME` is optional and defaults to `Skillkraftz Support`
 - `RESEND_REPLY_TO` is optional
+- `RESEND_WEBHOOK_SECRET` is required for signed webhook ingestion once deployed
 - `NEXT_PUBLIC_PORTAL_URL`
 
 Operators can review current readiness in the portal at `/dashboard/settings/outreach`.
