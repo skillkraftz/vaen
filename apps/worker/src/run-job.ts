@@ -59,6 +59,7 @@ interface ProjectRow {
   id: string;
   slug: string;
   status: string;
+  selected_modules?: Array<{ id: string }> | null;
   recommendations: { modules?: Array<{ id: string }> } | null;
 }
 
@@ -302,7 +303,7 @@ async function main() {
   // Load the project
   const { data: project, error: projErr } = await db
     .from("projects")
-    .select("id, slug, status, recommendations")
+    .select("id, slug, status, selected_modules, recommendations")
     .eq("id", j.project_id)
     .single();
 
@@ -841,8 +842,13 @@ async function executeGenerate(
   }
 
   // Determine modules
+  const selectedModules = Array.isArray(project.selected_modules)
+    ? project.selected_modules
+    : [];
   const rec = project.recommendations;
-  const moduleIds = rec?.modules?.map((m) => m.id) ?? ["maps-embed"];
+  const moduleIds = selectedModules.length > 0
+    ? selectedModules.map((m) => m.id)
+    : rec?.modules?.map((m) => m.id) ?? ["maps-embed"];
   const modulesArg = moduleIds.join(",");
 
   // Build the exact command the same way the portal would

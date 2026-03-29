@@ -36,6 +36,9 @@ importers:
       '@supabase/supabase-js':
         specifier: ^2.49.1
         version: 2.100.1
+      '@vaen/module-registry':
+        specifier: workspace:*
+        version: link:../../packages/module-registry
       '@vaen/shared':
         specifier: workspace:*
         version: link:../../packages/shared

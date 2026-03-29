@@ -38,10 +38,11 @@ describe("duplicate project action", () => {
     );
 
     expect(duplicateFn).toContain("loadCurrentDraft");
+    expect(duplicateFn).toContain("syncDraftWithSelectedModules");
     expect(duplicateFn).toContain('status: "intake_draft_ready"');
     expect(duplicateFn).toContain("client_id: sourceProject.client_id");
     expect(duplicateFn).toContain("variant_of: identity.lineageRootId");
-    expect(duplicateFn).toContain("draft_request: draft");
+    expect(duplicateFn).toContain("draft_request: syncedDraft");
     expect(duplicateFn).toContain("final_request: null");
     expect(duplicateFn).toContain("last_exported_revision_id: null");
     expect(duplicateFn).toContain("last_generated_revision_id: null");

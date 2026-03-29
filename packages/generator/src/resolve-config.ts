@@ -36,6 +36,8 @@ export function resolveConfig(
   const raw = clientRequest as unknown as Record<string, unknown>;
   const intake = (raw._intake ?? {}) as Record<string, string>;
   const prefNotes = clientRequest.preferences?.notes;
+  const rawPreferences = (clientRequest.preferences ?? {}) as Record<string, unknown>;
+  const operatorModuleConfig = (rawPreferences.moduleConfig ?? {}) as Record<string, Record<string, unknown>>;
 
   const resolvedBranding = {
     primaryColor: branding?.primaryColor ?? defaults.primaryColor,
@@ -127,15 +129,14 @@ export function resolveConfig(
   };
 
   const moduleConfigs = moduleIds.map((id) => {
-    const config: Record<string, unknown> = {};
-    if (id === "maps-embed" && formattedAddress) {
+    const config: Record<string, unknown> = { ...(operatorModuleConfig[id] ?? {}) };
+    if (id === "maps-embed" && formattedAddress && !config.address) {
       config.address = formattedAddress;
-      config.enabled = true;
     }
-    if (id === "manual-testimonials") {
+    if (id === "manual-testimonials" && !config.testimonials) {
       config.testimonials = siteConfig.testimonials;
-      config.enabled = true;
     }
+    config.enabled = true;
     return {
       id,
       version: "0.1.0",

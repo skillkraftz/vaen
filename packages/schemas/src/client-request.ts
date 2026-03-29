@@ -57,6 +57,7 @@ export interface ClientRequest {
   preferences?: {
     template?: string;
     modules?: string[];
+    moduleConfig?: Record<string, Record<string, unknown>>;
     domain?: string;
     notes?: string;
   };
@@ -171,6 +172,13 @@ export const clientRequestSchema = {
       properties: {
         template: { type: "string" },
         modules: { type: "array", items: { type: "string" } },
+        moduleConfig: {
+          type: "object",
+          additionalProperties: {
+            type: "object",
+            additionalProperties: true,
+          },
+        },
         domain: { type: "string" },
         notes: { type: "string" },
       },

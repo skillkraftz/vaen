@@ -29,6 +29,7 @@ export interface PromptInput {
     template: { id: string; name: string; reasoning: string };
     modules: Array<{ id: string; name: string; reasoning: string }>;
   } | null;
+  selectedModules?: Array<{ id: string }> | null;
   /** Client summary markdown from intake processing */
   clientSummary: string | null;
   /** Missing info items detected during intake */
@@ -171,12 +172,23 @@ const MODULE_DESCRIPTIONS: Record<string, string> = {
 // ── Prompt generation ─────────────────────────────────────────────────
 
 export function generatePrompt(input: PromptInput): string {
-  const { project, draftRequest, recommendations, clientSummary, missingInfo } =
+  const { project, draftRequest, recommendations, selectedModules, clientSummary, missingInfo } =
     input;
 
   const templateId = recommendations?.template.id ?? "service-core";
   const guidance = TEMPLATE_GUIDANCE[templateId] ?? DEFAULT_GUIDANCE;
-  const modules = recommendations?.modules ?? [];
+  const selectedModuleIds = selectedModules?.map((module) => module.id) ?? [];
+  const recommendedModules = recommendations?.modules ?? [];
+  const modules = selectedModuleIds.length > 0
+    ? selectedModuleIds.map((id) => {
+      const rec = recommendedModules.find((module) => module.id === id);
+      return {
+        id,
+        name: rec?.name ?? id,
+        reasoning: rec?.reasoning ?? rec?.name ?? "Operator-selected module",
+      };
+    })
+    : recommendedModules;
 
   const sections: string[] = [];
 

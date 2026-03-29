@@ -461,8 +461,10 @@ describe("revision-driven pipeline correctness", () => {
     expect(fn).not.toContain("final_request: parsed");
     // Must create revision
     expect(fn).toContain("createRevisionAndSetCurrent");
+    // Must sync authoritative selected_modules into the imported draft
+    expect(fn).toContain("syncDraftWithSelectedModules");
     // Must sync to draft_request for legacy
-    expect(fn).toContain("draft_request: parsed");
+    expect(fn).toContain("draft_request: syncedParsed");
   });
 
   it("approveIntakeAction validates from active revision", () => {

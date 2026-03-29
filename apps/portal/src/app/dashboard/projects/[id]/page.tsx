@@ -14,6 +14,7 @@ import { WorkflowPanel } from "./intake-actions";
 import { WorkflowStepIndicator } from "./workflow-steps";
 import { RevisionList } from "./revision-list";
 import { ProjectLifecyclePanel } from "./project-lifecycle-panel";
+import { ModuleManager } from "./module-manager";
 import {
   BuildInputsEditor,
   SummaryEditor,
@@ -119,6 +120,7 @@ export default async function ProjectDetailPage({
   const eventList = (events ?? []) as ProjectEvent[];
   const missingInfo = detectMissingInfo(p, assetList);
   const recommendations = p.recommendations as IntakeRecommendations | null;
+  const selectedModules = Array.isArray(p.selected_modules) ? p.selected_modules : [];
 
   // Load request data from active revision (single source of truth)
   let requestData: Record<string, unknown> | null = null;
@@ -133,6 +135,11 @@ export default async function ProjectDetailPage({
   if (!requestData) {
     requestData = (p.draft_request ?? null) as Record<string, unknown> | null;
   }
+
+  const requestPreferences = (requestData?.preferences as Record<string, unknown> | undefined) ?? {};
+  const templateId = typeof requestPreferences.template === "string"
+    ? requestPreferences.template
+    : recommendations?.template.id ?? "service-core";
 
   const uploadedAssets = assetList.filter(
     (a) => (a as { asset_type?: string }).asset_type !== "review_screenshot",
@@ -280,45 +287,14 @@ export default async function ProjectDetailPage({
             </div>
           )}
 
-          {/* Recommendations */}
-          {recommendations && (
-            <div className="section">
-              <h2 className="mb-1" style={{ fontSize: "1rem", fontWeight: 600 }}>
-                Recommendations
-              </h2>
-              <div className="card">
-                <table className="info-table">
-                  <tbody>
-                    <tr>
-                      <th>Template</th>
-                      <td>
-                        <span className="text-mono">{recommendations.template.id}</span>
-                        <span className="text-sm text-muted" style={{ marginLeft: "0.5rem" }}>
-                          {recommendations.template.reason}
-                        </span>
-                      </td>
-                    </tr>
-                    {recommendations.modules.map((mod, i) => (
-                      <tr key={i}>
-                        <th>{i === 0 ? "Modules" : ""}</th>
-                        <td>
-                          <span className="text-mono">{mod.id}</span>
-                          <span className="text-sm text-muted" style={{ marginLeft: "0.5rem" }}>
-                            {mod.reason}
-                          </span>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-                {recommendations.notes && (
-                  <div style={{ marginTop: "0.75rem", paddingTop: "0.75rem", borderTop: "1px solid var(--color-border)" }}>
-                    <p className="text-sm text-muted">{recommendations.notes}</p>
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
+          <div className="section">
+            <ModuleManager
+              projectId={id}
+              templateId={templateId}
+              selectedModules={selectedModules}
+              recommendations={recommendations}
+            />
+          </div>
         </>
       )}
 

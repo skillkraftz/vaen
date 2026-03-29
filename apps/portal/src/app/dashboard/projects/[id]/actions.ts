@@ -6,7 +6,7 @@ import { notifyDiscord } from "@/lib/discord";
 import { revalidatePath } from "next/cache";
 import { writeFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
-import type { Project, Asset, JobRecord, RequestRevision } from "@/lib/types";
+import type { Project, Asset, JobRecord, RequestRevision, SelectedModule } from "@/lib/types";
 import {
   REQUIRED_DRAFT_KEYS,
   deepMergeDraft,
@@ -40,8 +40,27 @@ import {
   purgeProjectStorageAssets,
 } from "./project-lifecycle-helpers";
 import { allocateVariantIdentity } from "./project-variant-helpers";
+import {
+  getAuthoritativeSelectedModules,
+  listCompatibleModules,
+  normalizeSelectedModules,
+  seedSelectedModulesFromRecommendations,
+  selectedModulesEqual,
+  syncDraftWithSelectedModules,
+  validateSelectedModules,
+} from "@/lib/module-selection";
+import type { ModuleManifest } from "@vaen/module-registry";
 
 export type { ProjectDiagnostics } from "./project-diagnostics-types";
+
+function getProjectTemplateId(
+  project: Pick<Project, "recommendations">,
+  draft: Record<string, unknown> | null,
+) {
+  const preferences = (draft?.preferences as Record<string, unknown> | undefined) ?? {};
+  const draftTemplate = typeof preferences.template === "string" ? preferences.template : null;
+  return draftTemplate ?? project.recommendations?.template.id ?? "service-core";
+}
 
 // ── Process intake ───────────────────────────────────────────────────
 
@@ -78,6 +97,8 @@ export async function processIntakeAction(projectId: string): Promise<{ error?: 
 
   // Run processing
   const result = processIntake(p, assetList);
+  const selectedModules = seedSelectedModulesFromRecommendations(result.recommendations);
+  const draftWithModules = syncDraftWithSelectedModules(result.draftRequest, selectedModules);
 
   // Transition: intake_received → intake_processing → intake_draft_ready
   // (processing is synchronous here, so we go straight to draft_ready)
@@ -86,9 +107,10 @@ export async function processIntakeAction(projectId: string): Promise<{ error?: 
     .update({
       status: "intake_draft_ready",
       client_summary: result.clientSummary,
-      draft_request: result.draftRequest,
+      draft_request: draftWithModules,
       missing_info: result.missingInfo,
       recommendations: result.recommendations,
+      selected_modules: selectedModules,
     })
     .eq("id", projectId);
 
@@ -96,7 +118,7 @@ export async function processIntakeAction(projectId: string): Promise<{ error?: 
 
   // Create revision from the processed draft
   await createRevisionAndSetCurrent(
-    supabase, projectId, "intake_processor", result.draftRequest,
+    supabase, projectId, "intake_processor", draftWithModules,
     null, "Initial intake processing",
   );
 
@@ -112,6 +134,7 @@ export async function processIntakeAction(projectId: string): Promise<{ error?: 
         required_missing: result.missingInfo.filter((m) => m.severity === "required").length,
         template: result.recommendations.template.id,
         modules: result.recommendations.modules.map((m) => m.id),
+        selected_modules: selectedModules.map((m) => m.id),
       },
     },
   ]);
@@ -454,11 +477,24 @@ export async function patchDraftFieldAction(
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: "Not authenticated" };
 
+  const { data: project } = await supabase
+    .from("projects")
+    .select("selected_modules, recommendations")
+    .eq("id", projectId)
+    .single();
+
   const { draft: current, revisionId: currentRevId, error: loadError } = await loadCurrentDraft(supabase, projectId);
   if (loadError) return { error: loadError };
 
   // Apply patch
-  const merged = deepSetServer(current, path, value);
+  const patched = deepSetServer(current, path, value);
+  const merged = syncDraftWithSelectedModules(
+    patched,
+    getAuthoritativeSelectedModules((project as Pick<Project, "selected_modules" | "recommendations"> | null) ?? {
+      selected_modules: [],
+      recommendations: null,
+    }),
+  );
 
   // Validate
   const validationError = validateDraftRequired(merged);
@@ -515,12 +551,24 @@ export async function updateDraftRequestAction(
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: "Not authenticated" };
 
+  const { data: project } = await supabase
+    .from("projects")
+    .select("selected_modules, recommendations")
+    .eq("id", projectId)
+    .single();
+
   // Load current from revision to merge with (preserves fields not in the incoming object)
   const { draft: current, revisionId: currentRevId, error: loadError } = await loadCurrentDraft(supabase, projectId);
   if (loadError) return { error: loadError };
 
   // Merge: incoming overrides current, but current fills gaps
-  const merged = deepMergeDraft(current, draftRequest);
+  const merged = syncDraftWithSelectedModules(
+    deepMergeDraft(current, draftRequest),
+    getAuthoritativeSelectedModules((project as Pick<Project, "selected_modules" | "recommendations"> | null) ?? {
+      selected_modules: [],
+      recommendations: null,
+    }),
+  );
 
   // Validate
   const validationError = validateDraftRequired(merged);
@@ -846,7 +894,10 @@ export async function generateSiteAction(
     return { error: "Active version has no request data. Re-process the intake." };
   }
 
-  const revisionData = { ...(rev.request_data as Record<string, unknown>) };
+  const revisionData = syncDraftWithSelectedModules(
+    { ...(rev.request_data as Record<string, unknown>) },
+    getAuthoritativeSelectedModules(p),
+  );
   const repoRoot = join(process.cwd(), "../..");
   const targetDir = join(repoRoot, "generated", p.slug);
   const clientRequestPath = join(targetDir, "client-request.json");
@@ -1025,6 +1076,115 @@ export async function getProjectWorkflowSnapshotAction(
   };
 }
 
+export async function listModulesForTemplateAction(
+  templateId: string,
+): Promise<{ modules: Array<Pick<ModuleManifest, "id" | "name" | "description" | "status" | "configSchema">>; error?: string }> {
+  try {
+    const modules = listCompatibleModules(templateId).map((module) => ({
+      id: module.id,
+      name: module.name,
+      description: module.description,
+      status: module.status,
+      configSchema: module.configSchema,
+    }));
+    return { modules };
+  } catch (error) {
+    return { modules: [], error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+export async function updateModulesAction(
+  projectId: string,
+  modules: SelectedModule[],
+): Promise<{ error?: string }> {
+  const supabase = await createClient();
+
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated" };
+
+  const { data: project } = await supabase
+    .from("projects")
+    .select("*")
+    .eq("id", projectId)
+    .single();
+
+  if (!project) return { error: "Project not found" };
+
+  const p = project as Project;
+  if (p.status === "intake_received" || p.status === "intake_processing") {
+    return { error: "Modules can be changed after intake processing completes." };
+  }
+
+  const { draft: currentDraft, revisionId: currentRevisionId, error: loadError } = await loadCurrentDraft(supabase, projectId);
+  if (loadError) return { error: loadError };
+
+  const templateId = getProjectTemplateId(p, currentDraft);
+  const normalizedModules = normalizeSelectedModules(modules);
+  const validationError = validateSelectedModules(templateId, normalizedModules);
+  if (validationError) return { error: validationError };
+
+  const previousModules = getAuthoritativeSelectedModules(p);
+  if (selectedModulesEqual(previousModules, normalizedModules)) {
+    return {};
+  }
+
+  const syncedDraft = syncDraftWithSelectedModules(currentDraft, normalizedModules);
+
+  const revisionId = await createRevisionAndSetCurrent(
+    supabase,
+    projectId,
+    "user_edit",
+    syncedDraft,
+    currentRevisionId,
+    "Updated module selection",
+  );
+
+  const previousIds = previousModules.map((module) => module.id);
+  const nextIds = normalizedModules.map((module) => module.id);
+  const removed = previousIds.filter((id) => !nextIds.includes(id));
+  const added = nextIds.filter((id) => !previousIds.includes(id));
+
+  const { error: updateError } = await supabase
+    .from("projects")
+    .update({
+      selected_modules: normalizedModules,
+      draft_request: syncedDraft,
+      last_exported_revision_id: null,
+      last_generated_revision_id: null,
+      last_reviewed_revision_id: null,
+    })
+    .eq("id", projectId);
+
+  if (updateError) return { error: updateError.message };
+
+  await removeGeneratedTargets(p.slug, [
+    ["client-request.json"],
+    ["artifacts", "prompt.txt"],
+    ["artifacts", "screenshots"],
+  ]);
+  await deleteReviewScreenshotAssets(supabase, projectId);
+
+  await supabase.from("project_events").insert({
+    project_id: projectId,
+    event_type: "modules_updated",
+    from_status: p.status,
+    to_status: p.status,
+    metadata: {
+      triggered_by: user.id,
+      template_id: templateId,
+      previous_modules: previousIds,
+      selected_modules: nextIds,
+      added_modules: added,
+      removed_modules: removed,
+      revision_id: revisionId,
+      invalidated: ["export", "generate", "review", "screenshots"],
+    },
+  });
+
+  revalidatePath(`/dashboard/projects/${projectId}`);
+  return {};
+}
+
 /**
  * Get a single job by ID.
  */
@@ -1119,7 +1279,10 @@ export async function reExportAction(
     return { error: "Active version has no request data. Re-process the intake." };
   }
 
-  const request = { ...(rev.request_data as Record<string, unknown>) };
+  const request = syncDraftWithSelectedModules(
+    { ...(rev.request_data as Record<string, unknown>) },
+    getAuthoritativeSelectedModules(p),
+  );
 
   // Validate request integrity
   const missingFields = REQUIRED_DRAFT_KEYS.filter((key) => !(key in request));
@@ -1229,7 +1392,12 @@ export async function reprocessIntakeAction(
   const merged = deepMergeDraft(result.draftRequest, existingDraft);
 
   // Ensure safe defaults are present
-  const finalDraft = ensureDraftDefaults(merged);
+  const seededModules = getAuthoritativeSelectedModules({
+    selected_modules: p.selected_modules,
+    recommendations: p.recommendations ?? result.recommendations,
+  });
+  const fallbackSeed = seededModules.length > 0 ? seededModules : seedSelectedModulesFromRecommendations(result.recommendations);
+  const finalDraft = syncDraftWithSelectedModules(ensureDraftDefaults(merged), fallbackSeed);
 
   console.log(`[reprocess] project=${projectId} status=${p.status}`,
     `\n  fresh keys: [${Object.keys(result.draftRequest).join(", ")}]`,
@@ -1244,6 +1412,7 @@ export async function reprocessIntakeAction(
       draft_request: finalDraft, // legacy sync
       missing_info: result.missingInfo,
       recommendations: result.recommendations,
+      selected_modules: fallbackSeed,
       // Invalidate downstream pointers — the new revision hasn't been
       // exported/generated/reviewed yet, so those artifacts are stale
       last_exported_revision_id: null,
@@ -1279,6 +1448,7 @@ export async function reprocessIntakeAction(
       reason: "manual recovery",
       merged_keys: Object.keys(finalDraft),
       services_count: Array.isArray(finalDraft.services) ? (finalDraft.services as unknown[]).length : 0,
+      selected_modules: fallbackSeed.map((m) => m.id),
       invalidated: ["export", "generate", "review", "screenshots"],
     },
   });
@@ -1465,6 +1635,7 @@ export async function exportPromptAction(
       template: { id: string; name: string; reasoning: string };
       modules: Array<{ id: string; name: string; reasoning: string }>;
     } | null,
+    selectedModules: getAuthoritativeSelectedModules(p),
     clientSummary: p.client_summary,
     missingInfo: p.missing_info as Array<{ field: string; severity: string; hint: string }> | null,
   });
@@ -1562,16 +1733,18 @@ export async function importFinalRequestAction(
     return { error: "Validation failed", validationErrors: errors };
   }
 
+  const syncedParsed = syncDraftWithSelectedModules(parsed, getAuthoritativeSelectedModules(p));
+
   // Create revision as the primary store (revision is the source of truth)
   await createRevisionAndSetCurrent(
-    supabase, projectId, "ai_import", parsed,
+    supabase, projectId, "ai_import", syncedParsed,
     p.current_revision_id, "AI-improved import from Codex/OpenClaw",
   );
 
   // Sync to legacy draft_request column (final_request no longer used)
   await supabase
     .from("projects")
-    .update({ draft_request: parsed })
+    .update({ draft_request: syncedParsed })
     .eq("id", projectId);
 
   // Also write to disk as the canonical client-request.json for the generator
@@ -1581,7 +1754,7 @@ export async function importFinalRequestAction(
 
   try {
     await mkdir(targetDir, { recursive: true });
-    await writeFile(targetPath, JSON.stringify(parsed, null, 2) + "\n", "utf-8");
+    await writeFile(targetPath, JSON.stringify(syncedParsed, null, 2) + "\n", "utf-8");
   } catch (err) {
     return { error: `Saved to DB but failed to write to disk: ${err instanceof Error ? err.message : String(err)}` };
   }
@@ -1594,7 +1767,8 @@ export async function importFinalRequestAction(
     metadata: {
       triggered_by: user.id,
       output_path: targetPath,
-      services_count: (parsed.services as unknown[]).length,
+      services_count: (syncedParsed.services as unknown[]).length,
+      selected_modules: getAuthoritativeSelectedModules(p).map((m) => m.id),
     },
   });
 
@@ -1721,6 +1895,8 @@ export async function duplicateProjectAction(
   const sourceProject = project as Project;
   const { draft, revisionId, error: draftError } = await loadCurrentDraft(supabase, projectId);
   if (draftError) return { error: draftError };
+  const selectedModules = getAuthoritativeSelectedModules(sourceProject);
+  const syncedDraft = syncDraftWithSelectedModules(draft, selectedModules);
 
   const identity = await allocateVariantIdentity(supabase, {
     id: sourceProject.id,
@@ -1745,7 +1921,8 @@ export async function duplicateProjectAction(
       business_type: sourceProject.business_type,
       notes: sourceProject.notes,
       client_summary: sourceProject.client_summary,
-      draft_request: draft,
+      draft_request: syncedDraft,
+      selected_modules: selectedModules,
       missing_info: sourceProject.missing_info,
       recommendations: sourceProject.recommendations,
       final_request: null,
@@ -1765,7 +1942,7 @@ export async function duplicateProjectAction(
     supabase,
     duplicatedProject.id,
     "manual",
-    draft,
+    syncedDraft,
     null,
     `Duplicated from ${sourceProject.slug}`,
   );
@@ -1781,6 +1958,7 @@ export async function duplicateProjectAction(
         created_slug: duplicatedProject.slug,
         variant_label: identity.variantLabel,
         source_revision_id: revisionId,
+        selected_modules: selectedModules.map((module) => module.id),
         triggered_by: user.id,
       },
     },
@@ -1795,6 +1973,7 @@ export async function duplicateProjectAction(
         source_revision_id: revisionId,
         variant_of: identity.lineageRootId,
         variant_label: identity.variantLabel,
+        selected_modules: selectedModules.map((module) => module.id),
         duplicated_revision_id: duplicatedRevisionId,
         triggered_by: user.id,
       },

@@ -31,6 +31,7 @@ export interface Project {
   business_type: string | null;
   notes: string | null;
   metadata: Record<string, unknown>;
+  selected_modules?: SelectedModule[] | null;
   client_summary: string | null;
   draft_request: Record<string, unknown> | null;
   final_request: Record<string, unknown> | null;
@@ -43,6 +44,11 @@ export interface Project {
   last_reviewed_revision_id: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface SelectedModule {
+  id: string;
+  config?: Record<string, unknown>;
 }
 
 export interface RequestRevision {
