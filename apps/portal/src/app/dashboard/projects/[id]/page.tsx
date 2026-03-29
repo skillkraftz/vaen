@@ -20,6 +20,7 @@ import {
   RevisionAssetManager,
   DraftRequestEditor,
 } from "./project-editor";
+import { CollapsibleSection } from "./collapsible-section";
 import { formatStatusLabel } from "@/lib/workflow-steps";
 
 function statusBadge(status: string) {
@@ -145,10 +146,10 @@ export default async function ProjectDetailPage({
         <WorkflowPanel projectId={id} slug={p.slug} status={p.status} lastReviewedRevisionId={p.last_reviewed_revision_id} />
       </div>
 
-      {/* ── Website Content ───────────────────────────────────────── */}
+      {/* ── Website Plan ────────────────────────────────────────── */}
       {(hasDraft || recommendations || missingInfo.length > 0) && (
         <>
-          <div className="section-label" style={{ marginTop: "0.5rem" }}>Website Content</div>
+          <div className="section-label" style={{ marginTop: "0.5rem" }}>Website Plan</div>
 
           {/* Missing info */}
           {missingInfo.length > 0 && (
@@ -187,11 +188,11 @@ export default async function ProjectDetailPage({
             </div>
           )}
 
-          {/* Client Summary */}
+          {/* Summary */}
           {hasDraft && (
             <div className="section">
               <h2 className="mb-1" style={{ fontSize: "1rem", fontWeight: 600 }}>
-                Client Summary
+                Summary
               </h2>
               <SummaryEditor projectId={id} summary={p.client_summary ?? ""} />
             </div>
@@ -239,10 +240,10 @@ export default async function ProjectDetailPage({
         </>
       )}
 
-      {/* ── Project Details ─────────────────────────────────────────── */}
+      {/* ── Business Details ───────────────────────────────────────── */}
       <div className="section">
         <h2 className="mb-1" style={{ fontSize: "1rem", fontWeight: 600 }}>
-          Project Details
+          Business Details
         </h2>
         <BuildInputsEditor projectId={id} project={p} draftRequest={requestData} />
       </div>
@@ -273,93 +274,98 @@ export default async function ProjectDetailPage({
         </div>
       )}
 
-      {/* ── Request Data (power user) ──────────────────────────────── */}
-      {requestData && (
-        <div className="section">
-          <h2 className="mb-1" style={{ fontSize: "1rem", fontWeight: 600 }}>
-            Request Data (JSON)
-          </h2>
-          <DraftRequestEditor projectId={id} draftRequest={requestData} />
-        </div>
-      )}
-
-      {/* ── Version History ─────────────────────────────────────────── */}
-      <div className="section" data-testid="version-tracking">
-        <h2 className="mb-1" style={{ fontSize: "1rem", fontWeight: 600 }}>
-          Version History
-        </h2>
-        <div className="card" style={{ padding: "0.75rem 1rem" }}>
-          <div style={{ display: "flex", flexDirection: "column", gap: "0.35rem", fontSize: "0.85rem" }}>
-            <div>
-              <strong>Active Version:</strong>{" "}
-              {p.current_revision_id
-                ? <span className="text-mono" style={{ fontSize: "0.8rem" }}>{p.current_revision_id.slice(0, 8)}</span>
-                : <span className="text-muted">None yet</span>}
-            </div>
-            <div>
-              <strong>Content Prepared:</strong>{" "}
-              {p.last_exported_revision_id
-                ? (p.last_exported_revision_id === p.current_revision_id
-                    ? <span style={{ color: "var(--color-success)" }}>Up to date</span>
-                    : <span style={{ color: "var(--color-warning, #b45309)" }}>Outdated</span>)
-                : <span className="text-muted">Not yet</span>}
-            </div>
-            <div>
-              <strong>Website Built:</strong>{" "}
-              {p.last_generated_revision_id
-                ? (p.last_generated_revision_id === p.current_revision_id
-                    ? <span style={{ color: "var(--color-success)" }}>Up to date</span>
-                    : <span style={{ color: "var(--color-warning, #b45309)" }}>Outdated — rebuild needed</span>)
-                : <span className="text-muted">Not yet</span>}
-            </div>
-            <div>
-              <strong>Preview Created:</strong>{" "}
-              {p.last_reviewed_revision_id
-                ? (p.last_reviewed_revision_id === p.current_revision_id
-                    ? <span style={{ color: "var(--color-success)" }}>Up to date</span>
-                    : <span style={{ color: "var(--color-warning, #b45309)" }}>Outdated — screenshots may not match</span>)
-                : <span className="text-muted">Not yet</span>}
-            </div>
-          </div>
-        </div>
-        <div style={{ marginTop: "0.75rem" }}>
-          <RevisionList projectId={id} project={p} />
-        </div>
-      </div>
-
-      {/* ── Activity ───────────────────────────────────────────────── */}
-      <div className="section" data-testid="activity-log">
-        <h2 className="mb-1" style={{ fontSize: "1rem", fontWeight: 600 }}>
-          Activity
-        </h2>
-        {eventList.length === 0 ? (
-          <p className="text-sm text-muted">No events recorded.</p>
-        ) : (
-          <div className="flex flex-col gap-1">
-            {eventList.map((event) => (
-              <div
-                key={event.id}
-                style={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  padding: "0.5rem 0",
-                  borderBottom: "1px solid var(--color-border)",
-                  fontSize: "0.85rem",
-                }}
-              >
-                <span>
-                  <strong>{event.event_type.replace(/_/g, " ")}</strong>
-                  {event.to_status && (
-                    <span className="text-muted">
-                      {" "}&rarr; {formatStatusLabel(event.to_status)}
-                    </span>
-                  )}
-                </span>
-                <span className="text-muted">{fmtDate(event.created_at)}</span>
+      {/* ── History & Diagnostics (collapsible) ──────────────────── */}
+      <div className="section">
+        <CollapsibleSection title="History & Diagnostics" testId="history-diagnostics-section">
+          {/* Version Tracking */}
+          <div data-testid="version-tracking" style={{ marginBottom: "1.5rem" }}>
+            <h3 className="mb-1" style={{ fontSize: "0.95rem", fontWeight: 600 }}>
+              Version Tracking
+            </h3>
+            <div className="card" style={{ padding: "0.75rem 1rem" }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: "0.35rem", fontSize: "0.85rem" }}>
+                <div>
+                  <strong>Active Version:</strong>{" "}
+                  {p.current_revision_id
+                    ? <span className="text-mono" style={{ fontSize: "0.8rem" }}>{p.current_revision_id.slice(0, 8)}</span>
+                    : <span className="text-muted">None yet</span>}
+                </div>
+                <div>
+                  <strong>Content Prepared:</strong>{" "}
+                  {p.last_exported_revision_id
+                    ? (p.last_exported_revision_id === p.current_revision_id
+                        ? <span style={{ color: "var(--color-success)" }}>Up to date</span>
+                        : <span style={{ color: "var(--color-warning, #b45309)" }}>Outdated</span>)
+                    : <span className="text-muted">Not yet</span>}
+                </div>
+                <div>
+                  <strong>Website Built:</strong>{" "}
+                  {p.last_generated_revision_id
+                    ? (p.last_generated_revision_id === p.current_revision_id
+                        ? <span style={{ color: "var(--color-success)" }}>Up to date</span>
+                        : <span style={{ color: "var(--color-warning, #b45309)" }}>Outdated — rebuild needed</span>)
+                    : <span className="text-muted">Not yet</span>}
+                </div>
+                <div>
+                  <strong>Preview Created:</strong>{" "}
+                  {p.last_reviewed_revision_id
+                    ? (p.last_reviewed_revision_id === p.current_revision_id
+                        ? <span style={{ color: "var(--color-success)" }}>Up to date</span>
+                        : <span style={{ color: "var(--color-warning, #b45309)" }}>Outdated — screenshots may not match</span>)
+                    : <span className="text-muted">Not yet</span>}
+                </div>
               </div>
-            ))}
+            </div>
+            <div style={{ marginTop: "0.75rem" }}>
+              <RevisionList projectId={id} project={p} />
+            </div>
           </div>
-        )}
+
+          {/* Request Data */}
+          {requestData && (
+            <div style={{ marginBottom: "1.5rem" }}>
+              <h3 className="mb-1" style={{ fontSize: "0.95rem", fontWeight: 600 }}>
+                Request Data (JSON)
+              </h3>
+              <DraftRequestEditor projectId={id} draftRequest={requestData} />
+            </div>
+          )}
+
+          {/* Activity Log */}
+          <div data-testid="activity-log">
+            <h3 className="mb-1" style={{ fontSize: "0.95rem", fontWeight: 600 }}>
+              Activity Log
+            </h3>
+            {eventList.length === 0 ? (
+              <p className="text-sm text-muted">No events recorded.</p>
+            ) : (
+              <div className="flex flex-col gap-1">
+                {eventList.map((event) => (
+                  <div
+                    key={event.id}
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      padding: "0.5rem 0",
+                      borderBottom: "1px solid var(--color-border)",
+                      fontSize: "0.85rem",
+                    }}
+                  >
+                    <span>
+                      <strong>{event.event_type.replace(/_/g, " ")}</strong>
+                      {event.to_status && (
+                        <span className="text-muted">
+                          {" "}&rarr; {formatStatusLabel(event.to_status)}
+                        </span>
+                      )}
+                    </span>
+                    <span className="text-muted">{fmtDate(event.created_at)}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </CollapsibleSection>
       </div>
     </>
   );

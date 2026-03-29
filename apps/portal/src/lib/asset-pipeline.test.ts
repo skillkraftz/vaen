@@ -392,10 +392,10 @@ describe("UI uses plain-language labels", () => {
     expect(source).toContain("Active Version");
   });
 
-  it("screenshots are labeled 'Latest Screenshots'", () => {
+  it("screenshots are labeled 'Screenshots'", () => {
     const uiPath = join(__dirname, "../app/dashboard/projects/[id]/intake-actions.tsx");
     const source = readFileSync(uiPath, "utf-8");
-    expect(source).toContain("Latest Screenshots");
+    expect(source).toContain("Screenshots ({screenshotItems.length})");
   });
 
   it("dashboard uses Step N format", () => {

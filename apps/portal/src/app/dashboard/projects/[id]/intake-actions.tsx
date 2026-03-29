@@ -1025,95 +1025,29 @@ function ScreenshotViewer({
       data-manifest-path={manifest?.manifest_path ?? ""}
       data-verification-state={verificationState}
     >
-      <span
-        className="text-sm"
-        style={{
-          color: "var(--color-text-muted)",
-          fontWeight: 500,
-          fontSize: "0.75rem",
-          textTransform: "uppercase",
-          letterSpacing: "0.05em",
-          display: "block",
-          marginBottom: "0.25rem",
-        }}
-      >
-        Latest Screenshots ({screenshotItems.length})
-        {hasSupabase && (
-          <span style={{ fontWeight: 400, textTransform: "none", marginLeft: "0.5rem" }}>
-            from Supabase
+      {/* ── Screenshots header + date ─────────────────────────────── */}
+      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: "0.5rem" }}>
+        <span
+          className="text-sm"
+          style={{
+            color: "var(--color-text-muted)",
+            fontWeight: 500,
+            fontSize: "0.75rem",
+            textTransform: "uppercase",
+            letterSpacing: "0.05em",
+          }}
+        >
+          Screenshots ({screenshotItems.length})
+        </span>
+        {batchDate && (
+          <span className="text-sm text-muted" style={{ fontSize: "0.75rem" }}>
+            {new Date(batchDate).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
           </span>
         )}
-      </span>
-      {/* Provenance: show which revision/job produced these screenshots */}
-      {hasSupabase && (batchRevisionId || batchJobId) && (
-        <p className="text-mono" data-testid="screenshot-provenance" style={{ fontSize: "0.6rem", color: "var(--color-text-muted)", marginBottom: "0.5rem" }}>
-          {batchRevisionId && <>rev {batchRevisionId.slice(0, 8)}</>}
-          {batchJobId && <>{batchRevisionId ? " · " : ""}job {batchJobId.slice(0, 8)}</>}
-          {batchDate && <> · {new Date(batchDate).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</>}
-        </p>
-      )}
-      {manifest && (
-        <p className="text-mono" data-testid="screenshot-manifest-path" style={{ fontSize: "0.6rem", color: "var(--color-text-muted)", marginBottom: "0.5rem" }}>
-          manifest {manifest.manifest_path}
-          {manifest.review_probe_path ? ` · probe ${manifest.review_probe_path}` : ""}
-          {manifest.runtime_config_probe_path ? ` · runtime ${manifest.runtime_config_probe_path}` : ""}
-          {manifest.site_config_snapshot_path ? ` · config ${manifest.site_config_snapshot_path}` : ""}
-          {manifest.site_source_summary_path ? ` · source ${manifest.site_source_summary_path}` : ""}
-          {manifest.site_identity_scan_path ? ` · scan ${manifest.site_identity_scan_path}` : ""}
-          {manifest.served_title ? ` · title ${manifest.served_title}` : ""}
-          {manifest.served_url ? ` · ${manifest.served_url}` : ""}
-        </p>
-      )}
-      <p
-        className="text-mono"
-        data-testid="screenshot-verification"
-        data-verification-state={verificationState}
-        style={{ fontSize: "0.6rem", color: verificationState === "matched" ? "var(--color-success)" : "var(--color-text-muted)", marginBottom: "0.5rem" }}
-      >
-        {verificationSummary}
-      </p>
-      {manifest?.content_verification && (
-        <p
-          className="text-mono"
-          data-testid="screenshot-content-verification"
-          data-content-verification-state={manifest.content_verification.status}
-          style={{ fontSize: "0.6rem", color: manifest.content_verification.status === "matched" ? "var(--color-success)" : "var(--color-text-muted)", marginBottom: "0.5rem", whiteSpace: "pre-wrap" }}
-        >
-          content {manifest.content_verification.status}
-          {manifest.review_identity_status
-            ? ` · identity ${manifest.review_identity_status}${manifest.mismatch_stage ? `:${manifest.mismatch_stage}` : ""}`
-            : ""}
-          {manifest.content_verification.expected_business_name
-            ? ` · expected ${manifest.content_verification.expected_business_name}`
-            : ""}
-          {manifest.content_verification.observed_home_title
-            ? ` · home title ${manifest.content_verification.observed_home_title}`
-            : ""}
-          {manifest.content_verification.observed_home_h1
-            ? ` · home h1 ${manifest.content_verification.observed_home_h1}`
-            : ""}
-          {manifest.content_verification.mismatches.length > 0
-            ? ` · ${manifest.content_verification.mismatches.join(" | ")}`
-            : ""}
-        </p>
-      )}
-      {manifest?.runtime_config_status && (
-        <p
-          className="text-mono"
-          data-testid="screenshot-runtime-config"
-          data-runtime-config-state={manifest.runtime_config_status}
-          style={{ fontSize: "0.6rem", color: manifest.runtime_config_status === "matched" ? "var(--color-success)" : "var(--color-text-muted)", marginBottom: "0.5rem", whiteSpace: "pre-wrap" }}
-        >
-          runtime {manifest.runtime_config_status}
-          {manifest.expected_business_name ? ` · expected ${manifest.expected_business_name}` : ""}
-          {manifest.runtime_business_name ? ` · business ${manifest.runtime_business_name}` : ""}
-          {manifest.runtime_config_path ? ` · path ${manifest.runtime_config_path}` : ""}
-          {manifest.runtime_cwd ? ` · cwd ${manifest.runtime_cwd}` : ""}
-        </p>
-      )}
+      </div>
 
-      {/* Thumbnail buttons */}
-      <div data-testid="screenshot-thumbnails" style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
+      {/* ── Thumbnail buttons (promoted to top) ──────────────────── */}
+      <div data-testid="screenshot-thumbnails" style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", marginBottom: "0.5rem" }}>
         {screenshotItems.map((item) => (
           <button
             key={item.key}
@@ -1136,6 +1070,17 @@ function ScreenshotViewer({
           </button>
         ))}
       </div>
+
+      {/* ── Verification summary (one-liner) ─────────────────────── */}
+      <PreviewDiagnostics
+        verificationState={verificationState}
+        verificationSummary={verificationSummary}
+        hasSupabase={hasSupabase}
+        batchRevisionId={batchRevisionId}
+        batchJobId={batchJobId}
+        batchDate={batchDate}
+        manifest={manifest}
+      />
 
       {/* Selected image */}
       {selectedImage && imageData[selectedImage] && (
@@ -1177,6 +1122,138 @@ function ScreenshotViewer({
               borderRadius: "4px",
             }}
           />
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Preview diagnostics (collapsible) ────────────────────────────────
+
+function PreviewDiagnostics({
+  verificationState,
+  verificationSummary,
+  hasSupabase,
+  batchRevisionId,
+  batchJobId,
+  batchDate,
+  manifest,
+}: {
+  verificationState: string;
+  verificationSummary: string;
+  hasSupabase: boolean;
+  batchRevisionId: string | null;
+  batchJobId: string | null;
+  batchDate: string | null;
+  manifest: ReviewManifest | null;
+}) {
+  const [detailsOpen, setDetailsOpen] = useState(false);
+
+  // Show a brief status line + toggle for full diagnostics
+  const hasDetails =
+    (hasSupabase && (batchRevisionId || batchJobId)) ||
+    manifest != null;
+
+  return (
+    <div style={{ marginTop: "0.25rem" }}>
+      {/* One-line verification status */}
+      <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+        <p
+          className="text-mono"
+          data-testid="screenshot-verification"
+          data-verification-state={verificationState}
+          style={{
+            fontSize: "0.6rem",
+            color: verificationState === "matched" ? "var(--color-success)" : "var(--color-text-muted)",
+            margin: 0,
+          }}
+        >
+          {verificationState === "matched" ? "Verified" : verificationState === "mismatch" ? "Mismatch detected" : "No manifest"}
+        </p>
+        {hasDetails && (
+          <button
+            className="btn btn-sm"
+            data-testid="preview-details-toggle"
+            style={{ fontSize: "0.6rem", padding: "0.05rem 0.35rem", lineHeight: 1.4 }}
+            onClick={() => setDetailsOpen(!detailsOpen)}
+          >
+            {detailsOpen ? "Hide details" : "Details"}
+          </button>
+        )}
+      </div>
+
+      {/* Full diagnostics (hidden by default) */}
+      {detailsOpen && (
+        <div data-testid="preview-diagnostics-detail" style={{ marginTop: "0.5rem", padding: "0.5rem", background: "var(--color-bg)", borderRadius: "4px" }}>
+          {/* Provenance */}
+          {hasSupabase && (batchRevisionId || batchJobId) && (
+            <p className="text-mono" data-testid="screenshot-provenance" style={{ fontSize: "0.6rem", color: "var(--color-text-muted)", marginBottom: "0.35rem" }}>
+              {batchRevisionId && <>rev {batchRevisionId.slice(0, 8)}</>}
+              {batchJobId && <>{batchRevisionId ? " · " : ""}job {batchJobId.slice(0, 8)}</>}
+              {batchDate && <> · {new Date(batchDate).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</>}
+            </p>
+          )}
+          {/* Manifest paths */}
+          {manifest && (
+            <p className="text-mono" data-testid="screenshot-manifest-path" style={{ fontSize: "0.6rem", color: "var(--color-text-muted)", marginBottom: "0.35rem" }}>
+              manifest {manifest.manifest_path}
+              {manifest.review_probe_path ? ` · probe ${manifest.review_probe_path}` : ""}
+              {manifest.runtime_config_probe_path ? ` · runtime ${manifest.runtime_config_probe_path}` : ""}
+              {manifest.site_config_snapshot_path ? ` · config ${manifest.site_config_snapshot_path}` : ""}
+              {manifest.site_source_summary_path ? ` · source ${manifest.site_source_summary_path}` : ""}
+              {manifest.site_identity_scan_path ? ` · scan ${manifest.site_identity_scan_path}` : ""}
+              {manifest.served_title ? ` · title ${manifest.served_title}` : ""}
+              {manifest.served_url ? ` · ${manifest.served_url}` : ""}
+            </p>
+          )}
+          {/* Full verification */}
+          <p
+            className="text-mono"
+            style={{ fontSize: "0.6rem", color: verificationState === "matched" ? "var(--color-success)" : "var(--color-text-muted)", marginBottom: "0.35rem" }}
+          >
+            {verificationSummary}
+          </p>
+          {/* Content verification */}
+          {manifest?.content_verification && (
+            <p
+              className="text-mono"
+              data-testid="screenshot-content-verification"
+              data-content-verification-state={manifest.content_verification.status}
+              style={{ fontSize: "0.6rem", color: manifest.content_verification.status === "matched" ? "var(--color-success)" : "var(--color-text-muted)", marginBottom: "0.35rem", whiteSpace: "pre-wrap" }}
+            >
+              content {manifest.content_verification.status}
+              {manifest.review_identity_status
+                ? ` · identity ${manifest.review_identity_status}${manifest.mismatch_stage ? `:${manifest.mismatch_stage}` : ""}`
+                : ""}
+              {manifest.content_verification.expected_business_name
+                ? ` · expected ${manifest.content_verification.expected_business_name}`
+                : ""}
+              {manifest.content_verification.observed_home_title
+                ? ` · home title ${manifest.content_verification.observed_home_title}`
+                : ""}
+              {manifest.content_verification.observed_home_h1
+                ? ` · home h1 ${manifest.content_verification.observed_home_h1}`
+                : ""}
+              {manifest.content_verification.mismatches.length > 0
+                ? ` · ${manifest.content_verification.mismatches.join(" | ")}`
+                : ""}
+            </p>
+          )}
+          {/* Runtime config */}
+          {manifest?.runtime_config_status && (
+            <p
+              className="text-mono"
+              data-testid="screenshot-runtime-config"
+              data-runtime-config-state={manifest.runtime_config_status}
+              style={{ fontSize: "0.6rem", color: manifest.runtime_config_status === "matched" ? "var(--color-success)" : "var(--color-text-muted)", marginBottom: "0.35rem", whiteSpace: "pre-wrap" }}
+            >
+              runtime {manifest.runtime_config_status}
+              {manifest.expected_business_name ? ` · expected ${manifest.expected_business_name}` : ""}
+              {manifest.runtime_business_name ? ` · business ${manifest.runtime_business_name}` : ""}
+              {manifest.runtime_config_path ? ` · path ${manifest.runtime_config_path}` : ""}
+              {manifest.runtime_cwd ? ` · cwd ${manifest.runtime_cwd}` : ""}
+            </p>
+          )}
         </div>
       )}
     </div>

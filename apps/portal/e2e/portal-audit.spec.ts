@@ -170,12 +170,13 @@ test("04 — initial project state", async ({ shared: page }) => {
     note: "Full page at intake_received",
   });
 
-  // Wait for revisions to load before capturing version tracking
+  // Open History & Diagnostics section, then capture version tracking
+  await openHistorySection(page);
   await waitForRevisionsLoaded(page);
   await page.getByTestId("version-tracking").scrollIntoViewIfNeeded();
   await snap(page, outputDir, "version-tracking-initial", {
     status,
-    note: "Version tracking with revisions loaded",
+    note: "Version tracking with revisions loaded (inside History & Diagnostics)",
   });
 });
 
@@ -477,6 +478,12 @@ test("11 — screenshot viewer", async ({ shared: page }) => {
   const screenshotCount = await viewer.getAttribute("data-screenshot-count");
   const status = await getStatusText(page);
 
+  // Open preview details toggle if present (diagnostics hidden by default)
+  const detailsToggle = page.getByTestId("preview-details-toggle");
+  if (await detailsToggle.isVisible().catch(() => false)) {
+    await detailsToggle.click();
+  }
+
   // Read provenance metadata if present
   const provenance = page.getByTestId("screenshot-provenance");
   const provenanceText = await provenance.isVisible().catch(() => false)
@@ -585,6 +592,7 @@ test("11 — screenshot viewer", async ({ shared: page }) => {
 
 test("12 — post-review version tracking", async ({ shared: page }) => {
   await goToProject(page);
+  await openHistorySection(page);
   await waitForRevisionsLoaded(page);
 
   const vt = page.getByTestId("version-tracking");
@@ -660,6 +668,7 @@ test("14 — recovery", async ({ shared: page }) => {
 
 test("15 — activity log", async ({ shared: page }) => {
   await goToProject(page);
+  await openHistorySection(page);
 
   const log = page.getByTestId("activity-log");
   await log.scrollIntoViewIfNeeded();
@@ -707,6 +716,16 @@ test("16 — final state", async ({ shared: page }) => {
 });
 
 // ── Helpers ───────────────────────────────────────────────────────────
+
+async function openHistorySection(page: Page) {
+  const toggle = page.getByTestId("history-diagnostics-section-toggle");
+  await toggle.scrollIntoViewIfNeeded();
+  // Only click if the section is currently collapsed
+  const body = page.getByTestId("history-diagnostics-section").locator(".collapsible-body");
+  if (!(await body.isVisible().catch(() => false))) {
+    await toggle.click();
+  }
+}
 
 async function goToProject(page: Page) {
   await page.goto("/dashboard");
