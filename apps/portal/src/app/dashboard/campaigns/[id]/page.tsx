@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { computeCampaignDetailAnalytics } from "@/lib/campaign-detail-analytics";
 import { getLockedCampaignStepCounts } from "@/lib/campaign-sequences";
 import type { ApprovalRequest, Campaign, CampaignSequenceStep, ContinuationRequest, Prospect, ProspectOutreachPackage } from "@/lib/types";
 import { CampaignDetailManager } from "./campaign-detail-manager";
@@ -63,14 +64,21 @@ export default async function CampaignDetailPage({
     campaignId: id,
     status: "pending",
   });
+  const rows = prospectItems.map((prospect) => ({
+    prospect,
+    latestPackage: latestPackageByProspect.get(prospect.id) ?? null,
+  }));
+  const analytics = computeCampaignDetailAnalytics({
+    campaign: campaign as Campaign,
+    rows,
+    pendingContinuations: pendingContinuations as ContinuationRequest[],
+  });
 
   return (
     <CampaignDetailManager
       campaign={campaign as Campaign}
-      rows={prospectItems.map((prospect) => ({
-        prospect,
-        latestPackage: latestPackageByProspect.get(prospect.id) ?? null,
-      }))}
+      rows={rows}
+      analytics={analytics}
       approvalRequest={latestApproval}
       sequenceSteps={(sequenceSteps ?? []) as CampaignSequenceStep[]}
       lockedStepCounts={lockedStepCounts}

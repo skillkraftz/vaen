@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import type { CampaignDetailAnalytics } from "@/lib/campaign-detail-analytics";
 import {
   getAvailableStepNumbers,
   isCampaignStepLocked,
@@ -39,6 +40,26 @@ interface CampaignProspectRow {
   latestPackage: ProspectOutreachPackage | null;
 }
 
+function AnalyticsMetricCard({
+  label,
+  value,
+  testId,
+  sub,
+}: {
+  label: string;
+  value: string | number;
+  testId?: string;
+  sub?: string;
+}) {
+  return (
+    <div className="card" style={{ padding: "0.75rem", textAlign: "center" }} data-testid={testId}>
+      <div style={{ fontSize: "1.5rem", fontWeight: 700 }}>{value}</div>
+      <div className="text-sm text-muted">{label}</div>
+      {sub ? <div className="text-sm text-muted" style={{ marginTop: "0.25rem" }}>{sub}</div> : null}
+    </div>
+  );
+}
+
 function computedReadiness(row: CampaignProspectRow) {
   const readiness = getProspectSendReadiness({
     prospect: row.prospect,
@@ -50,6 +71,7 @@ function computedReadiness(row: CampaignProspectRow) {
 export function CampaignDetailManager({
   campaign,
   rows,
+  analytics,
   approvalRequest,
   sequenceSteps,
   lockedStepCounts,
@@ -57,6 +79,7 @@ export function CampaignDetailManager({
 }: {
   campaign: Campaign;
   rows: CampaignProspectRow[];
+  analytics: CampaignDetailAnalytics;
   approvalRequest: ApprovalRequest | null;
   sequenceSteps: CampaignSequenceStep[];
   lockedStepCounts: Record<number, number>;
@@ -287,6 +310,76 @@ export function CampaignDetailManager({
           <p className="text-sm text-muted">{campaign.description ?? "No description provided."}</p>
         </div>
         <span className="badge">{campaign.status}</span>
+      </div>
+
+      <div
+        style={{
+          display: "grid",
+          gap: "0.75rem",
+          gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))",
+          marginBottom: "1rem",
+        }}
+        data-testid="campaign-analytics-row"
+      >
+        <AnalyticsMetricCard label="Total Prospects" value={analytics.totalProspects} testId="campaign-analytics-total-prospects" />
+        <AnalyticsMetricCard label="Analyzed" value={analytics.analyzed} />
+        <AnalyticsMetricCard label="Package Ready" value={analytics.outreachPackageReady} />
+        <AnalyticsMetricCard label="Sent Outreach" value={analytics.sentOutreach} />
+        <AnalyticsMetricCard label="Replied" value={analytics.replied} />
+        <AnalyticsMetricCard
+          label="Follow-ups Due"
+          value={analytics.followUpsDue}
+          testId="campaign-analytics-followups-due"
+        />
+        <AnalyticsMetricCard label="Paused in Sequence" value={analytics.pausedInSequence} />
+        <AnalyticsMetricCard
+          label="Pending Continuations"
+          value={analytics.pendingContinuations}
+          testId="campaign-analytics-pending-continuations"
+        />
+        <AnalyticsMetricCard label="Converted" value={analytics.converted} />
+      </div>
+
+      <div
+        className="card"
+        style={{ marginBottom: "1rem", padding: "0.75rem" }}
+        data-testid="campaign-analytics-needs-attention"
+      >
+        <div className="section-header" style={{ marginBottom: "0.5rem" }}>
+          <div>
+            <h2 style={{ fontSize: "1rem", fontWeight: 600 }}>Needs Attention</h2>
+            <p className="text-sm text-muted">
+              Keep follow-ups, blocked outreach, and review continuations moving without leaving the campaign page.
+            </p>
+          </div>
+          <span className={`badge ${analytics.followUpsDue + analytics.pendingContinuations + analytics.blockedOrPaused > 0 ? "badge-yellow" : ""}`}>
+            {analytics.followUpsDue + analytics.pendingContinuations + analytics.blockedOrPaused} open
+          </span>
+        </div>
+        <div style={{ display: "flex", gap: "1rem", flexWrap: "wrap", fontSize: "0.9rem" }}>
+          <span>
+            Follow-ups due: <strong>{analytics.followUpsDue}</strong>
+          </span>
+          <span>
+            Pending continuations: <strong>{analytics.pendingContinuations}</strong>
+          </span>
+          <span>
+            Blocked or paused: <strong>{analytics.blockedOrPaused}</strong>
+          </span>
+        </div>
+        {analytics.totalProspects === 0 ? (
+          <p className="text-sm text-muted" style={{ marginTop: "0.5rem" }}>
+            Add prospects to this campaign to start generating outreach, follow-up, and continuation signals.
+          </p>
+        ) : analytics.followUpsDue + analytics.pendingContinuations + analytics.blockedOrPaused === 0 ? (
+          <p className="text-sm text-muted" style={{ marginTop: "0.5rem" }}>
+            Nothing urgent right now. This campaign has no due follow-ups, pending continuations, or blocked sends.
+          </p>
+        ) : (
+          <p className="text-sm text-muted" style={{ marginTop: "0.5rem" }}>
+            Prioritize due follow-ups first, then pending continuations, then prospects blocked on package, contact, or project readiness.
+          </p>
+        )}
       </div>
 
       <div className="card" style={{ marginBottom: "1rem" }}>

@@ -17,7 +17,7 @@ What exists today:
 | Approvals | Lightweight approval queue implemented for large discounts, batch outreach, and project purge |
 | Campaigns | Container for prospects. Status: draft/active/paused/completed/archived. Batch import/analyze/convert/automation exist. |
 | Sequencing | Per-campaign sequence builder and explicit “advance due follow-ups” execution are implemented |
-| Analytics | System analytics dashboard at `/dashboard/analytics` is implemented; campaign-detail analytics row is still pending |
+| Analytics | System analytics dashboard at `/dashboard/analytics` and the campaign-detail analytics row are implemented |
 | Automation | 5 tiers (convert_only through review_site). Stops at async job boundaries. Manual continuation via `continueProspectAutomationAction`. |
 | Worker comms | DB-mediated: worker writes project status + job status. Portal polls every 3s when job active. No webhooks. |
 

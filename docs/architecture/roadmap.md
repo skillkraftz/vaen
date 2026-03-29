@@ -231,7 +231,7 @@ Branch states:
 | Campaign sequence execution | Complete |
 | Analytics dashboard (`/dashboard/analytics`) | Complete |
 | Team settings scaffold (`/dashboard/settings/team`) | Complete |
-| Campaign-detail analytics row | Planned |
+| Campaign-detail analytics row | Complete |
 
 ## Assumptions
 - Templates use Next.js (App Router) with top-level `app/` directory for SSG/SSR flexibility
