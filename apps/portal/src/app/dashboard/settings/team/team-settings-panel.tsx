@@ -1,0 +1,193 @@
+"use client";
+
+import { useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
+import type { UserRole } from "@/lib/types";
+import type { TeamMemberSummary } from "@/lib/team-settings";
+import { updateUserRoleAction } from "./actions";
+
+const ROLE_OPTIONS: UserRole[] = ["viewer", "sales", "operator", "admin"];
+
+function RoleRow({
+  member,
+  canManage,
+  lastAdminProtected,
+}: {
+  member: TeamMemberSummary;
+  canManage: boolean;
+  lastAdminProtected: boolean;
+}) {
+  const router = useRouter();
+  const [draftRole, setDraftRole] = useState<UserRole>(member.role);
+  const [error, setError] = useState<string | null>(null);
+  const [isPending, startTransition] = useTransition();
+
+  function save() {
+    setError(null);
+    startTransition(async () => {
+      const result = await updateUserRoleAction(member.userId, draftRole);
+      if (result.error) {
+        setError(result.error);
+        return;
+      }
+      router.refresh();
+    });
+  }
+
+  return (
+    <tr data-testid={`team-member-row-${member.userId}`}>
+      <td>
+        <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>
+          <strong>{member.email ?? member.userId}</strong>
+          <span className="text-sm text-muted">
+            {member.isCurrentUser ? "Current user" : "Team member"}
+            {!member.hasExplicitRole && " · default operator"}
+          </span>
+        </div>
+      </td>
+      <td>
+        {canManage ? (
+          <select
+            className="form-input"
+            value={draftRole}
+            onChange={(event) => setDraftRole(event.target.value as UserRole)}
+            disabled={isPending || lastAdminProtected}
+            data-testid={`team-role-select-${member.userId}`}
+          >
+            {ROLE_OPTIONS.map((role) => (
+              <option key={role} value={role}>{role}</option>
+            ))}
+          </select>
+        ) : (
+          <span className="badge" data-testid={`team-role-badge-${member.userId}`}>{member.role}</span>
+        )}
+      </td>
+      <td className="text-sm text-muted">
+        {member.grantedAt ? new Date(member.grantedAt).toLocaleString("en-US") : "Bootstrap/default"}
+      </td>
+      <td className="text-sm text-muted">
+        {lastAdminProtected ? "Last admin protected" : member.grantedBy ?? "system"}
+      </td>
+      <td style={{ whiteSpace: "nowrap" }}>
+        {canManage ? (
+          <>
+            <button
+              type="button"
+              className="btn btn-sm"
+              onClick={save}
+              disabled={isPending || draftRole === member.role || lastAdminProtected}
+              data-testid={`team-role-save-${member.userId}`}
+            >
+              {isPending ? "Saving..." : "Save"}
+            </button>
+            {lastAdminProtected && (
+              <p className="text-sm text-muted" style={{ marginTop: "0.35rem", maxWidth: "14rem" }}>
+                Promote another admin before changing this role.
+              </p>
+            )}
+            {error && (
+              <p className="text-sm" style={{ color: "var(--color-error)", marginTop: "0.35rem", maxWidth: "14rem" }}>
+                {error}
+              </p>
+            )}
+          </>
+        ) : (
+          <span className="text-sm text-muted">Read only</span>
+        )}
+      </td>
+    </tr>
+  );
+}
+
+export function TeamSettingsPanel({
+  members,
+  canManage,
+  currentRole,
+  error,
+  inviteAvailable,
+}: {
+  members: TeamMemberSummary[];
+  canManage: boolean;
+  currentRole: UserRole | null;
+  error?: string;
+  inviteAvailable: boolean;
+}) {
+  const adminCount = members.filter((member) => member.role === "admin").length;
+
+  return (
+    <div className="section" data-testid="team-settings-page">
+      <div className="section-header" style={{ marginBottom: "0.75rem" }}>
+        <div>
+          <h1 style={{ marginBottom: "0.25rem" }}>Team Settings</h1>
+          <p className="text-sm text-muted">
+            Manage human access to the existing role model. Roles inherit permissions: viewer &lt; sales &lt; operator &lt; admin.
+          </p>
+        </div>
+        {currentRole && <span className="badge" data-testid="team-current-role">{currentRole}</span>}
+      </div>
+
+      <div className="card" style={{ marginBottom: "1rem" }} data-testid="team-settings-summary">
+        <p className="text-sm text-muted">
+          {canManage
+            ? "Admins can update roles here. Changes take effect immediately on the server-side permission checks."
+            : "You can review your current role here. Team role changes require an admin."}
+        </p>
+        {canManage && (
+          <p className="text-sm text-muted" style={{ marginTop: "0.5rem" }}>
+            Last-admin protection is enforced in the UI and server action layer.
+          </p>
+        )}
+      </div>
+
+      {error && (
+        <div className="card" style={{ marginBottom: "1rem" }}>
+          <p className="text-sm" style={{ color: "var(--color-error)" }}>{error}</p>
+        </div>
+      )}
+
+      <div className="card" style={{ marginBottom: "1rem" }} data-testid="team-member-list">
+        {members.length === 0 ? (
+          <p className="text-sm text-muted">No team members found yet.</p>
+        ) : (
+          <table className="info-table">
+            <thead>
+              <tr>
+                <th>User</th>
+                <th>Role</th>
+                <th>Granted</th>
+                <th>Granted By</th>
+                <th />
+              </tr>
+            </thead>
+            <tbody>
+              {members.map((member) => (
+                <RoleRow
+                  key={member.userId}
+                  member={member}
+                  canManage={canManage}
+                  lastAdminProtected={adminCount === 1 && member.role === "admin"}
+                />
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+
+      <div className="card" data-testid="team-invite-stub">
+        <h2 style={{ fontSize: "1rem", fontWeight: 600, marginBottom: "0.5rem" }}>Invite User</h2>
+        {inviteAvailable ? (
+          <p className="text-sm text-muted">Invite support is available.</p>
+        ) : (
+          <>
+            <p className="text-sm text-muted">
+              Invite-by-email is not wired yet. The current auth model supports email/password sign-in, but there is no clean in-app onboarding flow for invited users yet.
+            </p>
+            <p className="text-sm text-muted" style={{ marginTop: "0.5rem" }}>
+              For now, have the new user create an account through the existing auth flow, then assign their role here.
+            </p>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}

@@ -46,6 +46,11 @@ export default async function DashboardLayout({
           <Link href="/dashboard/settings/outreach" className="text-sm text-muted">
             Outreach
           </Link>
+          {roleState.role === "admin" && (
+            <Link href="/dashboard/settings/team" className="text-sm text-muted">
+              Team
+            </Link>
+          )}
           {roleState.role && roleSatisfies(roleState.role, "sales") && (
             <Link href="/dashboard/analytics" className="text-sm text-muted">
               Analytics

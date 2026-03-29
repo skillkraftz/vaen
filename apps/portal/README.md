@@ -23,6 +23,7 @@ Authenticated operations portal for the vaen website factory. It now covers inta
 | `/dashboard/campaigns` | Campaign list and campaign detail operations |
 | `/dashboard/settings/pricing` | Admin pricing settings |
 | `/dashboard/settings/outreach` | Outreach readiness and config status |
+| `/dashboard/settings/team` | Admin team role management scaffold |
 | `/dashboard/approvals` | Admin approval queue |
 | `/dashboard/analytics` | Sales and campaign analytics dashboard |
 

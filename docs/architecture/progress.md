@@ -128,6 +128,7 @@
 - [x] Campaign sequence builder (S1)
 - [x] Campaign sequence execution with explicit “advance due follow-ups” (S2)
 - [x] Analytics dashboard at `/dashboard/analytics`
+- [x] Team settings scaffold at `/dashboard/settings/team`
 - [ ] Campaign-detail analytics card row
 
 ## Developer Commands

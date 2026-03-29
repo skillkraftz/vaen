@@ -230,6 +230,7 @@ Branch states:
 | Campaign sequence builder | Complete |
 | Campaign sequence execution | Complete |
 | Analytics dashboard (`/dashboard/analytics`) | Complete |
+| Team settings scaffold (`/dashboard/settings/team`) | Complete |
 | Campaign-detail analytics row | Planned |
 
 ## Assumptions
