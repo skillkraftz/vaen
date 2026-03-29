@@ -1,7 +1,16 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import type { Prospect, ProspectSiteAnalysis, Client, Project } from "@/lib/types";
+import type {
+  Prospect,
+  ProspectSiteAnalysis,
+  Client,
+  Project,
+  Quote,
+  QuoteLine,
+  ProspectOutreachPackage,
+  JobRecord,
+} from "@/lib/types";
 import { ProspectDetailActions } from "../prospect-detail-actions";
 
 function formatProspectStatus(status: Prospect["status"]) {
@@ -27,17 +36,62 @@ export default async function ProspectDetailPage({
   const analysisList = (analyses ?? []) as ProspectSiteAnalysis[];
   const latestAnalysis = analysisList[0] ?? null;
 
-  const [{ data: client }, { data: project }] = await Promise.all([
+  const [{ data: client }, { data: project }, { data: outreachPackages }] = await Promise.all([
     p.converted_client_id
       ? supabase.from("clients").select("id, name").eq("id", p.converted_client_id).single()
       : Promise.resolve({ data: null }),
     p.converted_project_id
-      ? supabase.from("projects").select("id, name, slug").eq("id", p.converted_project_id).single()
+      ? supabase
+          .from("projects")
+          .select("id, name, slug, status, last_reviewed_revision_id")
+          .eq("id", p.converted_project_id)
+          .single()
       : Promise.resolve({ data: null }),
+    supabase
+      .from("prospect_outreach_packages")
+      .select("*")
+      .eq("prospect_id", id)
+      .order("created_at", { ascending: false })
+      .limit(1),
   ]);
 
   const linkedClient = client as Pick<Client, "id" | "name"> | null;
-  const linkedProject = project as Pick<Project, "id" | "name" | "slug"> | null;
+  const linkedProject = project as Pick<Project, "id" | "name" | "slug" | "status" | "last_reviewed_revision_id"> | null;
+  const latestPackage = ((outreachPackages ?? [])[0] ?? null) as ProspectOutreachPackage | null;
+
+  const [{ data: jobs }, { data: quotes }, { data: screenshots }] = await Promise.all([
+    linkedProject
+      ? supabase.from("jobs").select("*").eq("project_id", linkedProject.id).order("created_at", { ascending: false }).limit(5)
+      : Promise.resolve({ data: [] }),
+    linkedProject
+      ? supabase.from("quotes").select("*, lines:quote_lines(*)").eq("project_id", linkedProject.id).order("created_at", { ascending: false }).limit(1)
+      : Promise.resolve({ data: [] }),
+    linkedProject
+      ? supabase
+          .from("assets")
+          .select("id, file_name, storage_path, created_at")
+          .eq("project_id", linkedProject.id)
+          .eq("asset_type", "review_screenshot")
+          .order("created_at", { ascending: false })
+      : Promise.resolve({ data: [] }),
+  ]);
+
+  const latestJob = ((jobs ?? [])[0] ?? null) as JobRecord | null;
+  const latestQuote = ((quotes ?? [])[0] ?? null) as (Quote & { lines: QuoteLine[] }) | null;
+  const screenshotItems = (screenshots ?? []) as Array<{ id: string; file_name: string; storage_path: string; created_at: string }>;
+  const automationLevel = typeof p.metadata?.automation_level === "string"
+    ? p.metadata.automation_level
+    : "convert_only";
+  const automationBlockedReason = typeof p.metadata?.automation_blocked_reason === "string"
+    ? p.metadata.automation_blocked_reason
+    : null;
+  const readiness = {
+    analyzed: latestAnalysis?.status === "completed",
+    converted: !!linkedProject,
+    screenshotsReady: screenshotItems.length > 0,
+    quoteReady: !!latestQuote,
+    outreachPackageReady: !!latestPackage,
+  };
 
   return (
     <>
@@ -72,6 +126,10 @@ export default async function ProspectDetailPage({
             <div><strong>Campaign:</strong> {p.campaign ?? "None"}</div>
             <div><strong>Outreach Summary:</strong> {p.outreach_summary ?? "Not generated yet"}</div>
             <div><strong>Notes:</strong> {p.notes ?? "None"}</div>
+            <div><strong>Automation Level:</strong> {automationLevel}</div>
+            {automationBlockedReason && (
+              <div><strong>Automation Note:</strong> {automationBlockedReason}</div>
+            )}
           </div>
         </div>
       </div>
@@ -111,7 +169,60 @@ export default async function ProspectDetailPage({
               <strong>Project:</strong>{" "}
               {linkedProject ? <Link href={`/dashboard/projects/${linkedProject.id}`}>{linkedProject.name}</Link> : "Not created yet"}
             </div>
+            {linkedProject && (
+              <>
+                <div><strong>Latest Project Status:</strong> {linkedProject.status}</div>
+                <div><strong>Latest Job:</strong> {latestJob ? `${latestJob.job_type} · ${latestJob.status}` : "No jobs yet"}</div>
+                <div><strong>Review Screenshots:</strong> {screenshotItems.length > 0 ? `${screenshotItems.length} available` : "Not available yet"}</div>
+                <div><strong>Latest Quote:</strong> {latestQuote ? `${latestQuote.status} · #${latestQuote.quote_number}` : "No quote yet"}</div>
+              </>
+            )}
           </div>
+        </div>
+      </div>
+
+      <div className="section">
+        <div className="card" data-testid="prospect-readiness-panel">
+          <h2 style={{ fontSize: "1rem", fontWeight: 600, marginBottom: "0.75rem" }}>Readiness</h2>
+          <div style={{ display: "grid", gap: "0.5rem" }}>
+            <div><strong>Analysis:</strong> {readiness.analyzed ? "ready" : "pending"}</div>
+            <div><strong>Project Conversion:</strong> {readiness.converted ? "ready" : "pending"}</div>
+            <div><strong>Screenshots:</strong> {readiness.screenshotsReady ? "ready" : "pending"}</div>
+            <div><strong>Quote:</strong> {readiness.quoteReady ? "ready" : "pending"}</div>
+            <div><strong>Outreach Package:</strong> {readiness.outreachPackageReady ? "ready" : "pending"}</div>
+          </div>
+        </div>
+      </div>
+
+      <div className="section">
+        <div className="card" data-testid="prospect-outreach-package">
+          <h2 style={{ fontSize: "1rem", fontWeight: 600, marginBottom: "0.75rem" }}>Outreach Package</h2>
+          {latestPackage ? (
+            <div style={{ display: "grid", gap: "0.75rem" }}>
+              <div>
+                <strong>Offer Summary</strong>
+                <pre style={{ whiteSpace: "pre-wrap", marginTop: "0.35rem" }}>{latestPackage.offer_summary}</pre>
+              </div>
+              <div>
+                <strong>Email Subject</strong>
+                <p className="text-sm text-muted" data-testid="prospect-email-subject">{latestPackage.email_subject ?? "Not prepared yet"}</p>
+              </div>
+              <div>
+                <strong>Email Body</strong>
+                <pre style={{ whiteSpace: "pre-wrap", marginTop: "0.35rem" }} data-testid="prospect-email-body">{latestPackage.email_body ?? "Not prepared yet"}</pre>
+              </div>
+              <div>
+                <strong>Attachment Hooks</strong>
+                <p className="text-sm text-muted">
+                  {screenshotItems.length > 0
+                    ? `${screenshotItems.length} review screenshots available to link or attach later`
+                    : "No review screenshots available yet"}
+                </p>
+              </div>
+            </div>
+          ) : (
+            <p className="text-sm text-muted">Generate an outreach package to prepare the offer summary and email draft.</p>
+          )}
         </div>
       </div>
     </>

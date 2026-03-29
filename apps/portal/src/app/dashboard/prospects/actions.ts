@@ -3,16 +3,37 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
-import { processIntake } from "@/lib/intake-processor";
 import {
-  getAuthoritativeSelectedModules,
-  seedSelectedModulesFromRecommendations,
-  syncDraftWithSelectedModules,
-} from "@/lib/module-selection";
+  buildQuoteLineDrafts,
+  getTemplateIdForQuote,
+  loadPricingRows,
+} from "../projects/[id]/project-quote-helpers";
+import { getAuthoritativeSelectedModules } from "@/lib/module-selection";
 import { analyzeProspectWebsite, normalizeWebsiteUrl } from "@/lib/prospect-analysis";
-import type { Prospect, ProspectSiteAnalysis, Project } from "@/lib/types";
+import {
+  buildOutreachPackageRecord,
+} from "@/lib/prospect-outreach";
+import { calculateQuoteTotals } from "@/lib/quote-helpers";
+import type {
+  Prospect,
+  ProspectAutomationLevel,
+  ProspectOutreachPackage,
+  ProspectSiteAnalysis,
+  Project,
+  Quote,
+  QuoteLine,
+} from "@/lib/types";
 import { asNullableString, buildInitialRequestSnapshot } from "../new/client-intake-helpers";
 import { createRevisionAndSetCurrent } from "../projects/[id]/project-revision-helpers";
+import {
+  approveIntakeAction,
+  exportToGeneratorAction,
+  generateSiteAction,
+  getQuotesForProjectAction,
+  processIntakeAction,
+  runReviewAction,
+} from "../projects/[id]/actions";
+import { loadCurrentDraft } from "../projects/[id]/project-revision-helpers";
 
 function slugify(value: string) {
   return value
@@ -42,6 +63,146 @@ async function allocateProspectProjectSlug(
   }
 
   throw new Error("Unable to allocate a unique project slug for this prospect.");
+}
+
+async function updateProspectAutomationMetadata(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  prospect: Prospect,
+  updates: Record<string, unknown>,
+) {
+  await supabase
+    .from("prospects")
+    .update({
+      metadata: {
+        ...(prospect.metadata ?? {}),
+        ...updates,
+      },
+    })
+    .eq("id", prospect.id);
+}
+
+async function runProspectAutomationLevel(params: {
+  prospect: Prospect;
+  projectId: string;
+  level: ProspectAutomationLevel;
+}) {
+  const supabase = await createClient();
+  const progress: Array<{ step: string; ok: boolean; error?: string; jobId?: string }> = [];
+  let blockedReason: string | null = null;
+  let latestJobId: string | null = null;
+
+  if (params.level === "convert_only") {
+    return { progress, blockedReason, latestJobId };
+  }
+
+  const { data: project } = await supabase
+    .from("projects")
+    .select("status")
+    .eq("id", params.projectId)
+    .single();
+
+  let currentStatus = project?.status ?? null;
+  if (!currentStatus) {
+    return { progress, blockedReason: "Project not found for automation.", latestJobId };
+  }
+
+  if (currentStatus === "intake_received" || currentStatus === "intake_needs_revision") {
+    const processResult = await processIntakeAction(params.projectId);
+    progress.push({ step: "process_intake", ok: !processResult.error, error: processResult.error });
+    if (processResult.error) {
+      return { progress, blockedReason: processResult.error, latestJobId };
+    }
+    currentStatus = "intake_draft_ready";
+  }
+
+  if (params.level === "process_intake") {
+    return { progress, blockedReason, latestJobId };
+  }
+
+  if (currentStatus === "intake_draft_ready" || currentStatus === "custom_quote_required") {
+    const approveResult = await approveIntakeAction(params.projectId);
+    progress.push({ step: "approve_intake", ok: !approveResult.error, error: approveResult.error });
+    if (approveResult.error) {
+      return {
+        progress,
+        blockedReason: `Automation stopped before export: ${approveResult.error}`,
+        latestJobId,
+      };
+    }
+    currentStatus = "intake_approved";
+  }
+
+  if (currentStatus === "intake_approved") {
+    const exportResult = await exportToGeneratorAction(params.projectId);
+    progress.push({ step: "export_to_generator", ok: !exportResult.error, error: exportResult.error });
+    if (exportResult.error) {
+      return { progress, blockedReason: exportResult.error, latestJobId };
+    }
+    currentStatus = "intake_parsed";
+  }
+
+  if (params.level === "export_to_generator") {
+    return { progress, blockedReason, latestJobId };
+  }
+
+  if (["intake_parsed", "awaiting_review", "template_selected", "workspace_generated", "build_failed", "review_ready"].includes(currentStatus)) {
+    if (["intake_parsed", "awaiting_review", "template_selected"].includes(currentStatus)) {
+      const generateResult = await generateSiteAction(params.projectId);
+      progress.push({
+        step: "generate_site",
+        ok: !generateResult.error,
+        error: generateResult.error,
+        jobId: generateResult.jobId,
+      });
+      if (generateResult.error) {
+        return { progress, blockedReason: generateResult.error, latestJobId };
+      }
+      latestJobId = generateResult.jobId ?? null;
+      currentStatus = "build_in_progress";
+    }
+  } else {
+    return { progress, blockedReason: `Current project status "${currentStatus}" cannot continue automation.`, latestJobId };
+  }
+
+  if (params.level === "generate_site") {
+    return { progress, blockedReason, latestJobId };
+  }
+
+  if (currentStatus === "workspace_generated" || currentStatus === "build_failed" || currentStatus === "review_ready") {
+    const reviewResult = await runReviewAction(params.projectId);
+    progress.push({
+      step: "review_site",
+      ok: !reviewResult.error,
+      error: reviewResult.error,
+      jobId: reviewResult.jobId,
+    });
+    if (reviewResult.error) {
+      return { progress, blockedReason: reviewResult.error, latestJobId };
+    }
+    latestJobId = reviewResult.jobId ?? latestJobId;
+    return { progress, blockedReason, latestJobId };
+  }
+
+  blockedReason = "Generate job dispatched. Review automation is waiting for site generation to complete.";
+  return { progress, blockedReason, latestJobId };
+}
+
+async function buildProspectPricingEstimate(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  project: Project,
+) {
+  const { draft, error } = await loadCurrentDraft(supabase, project.id);
+  if (error) return null;
+  const templateId = getTemplateIdForQuote(project, draft);
+  const selectedModules = getAuthoritativeSelectedModules(project);
+  const pricing = await loadPricingRows(supabase, [templateId, ...selectedModules.map((module) => module.id)]);
+  const lines = buildQuoteLineDrafts({ templateId, selectedModules, pricing });
+  const totals = calculateQuoteTotals({ lines, discountCents: 0 });
+  return {
+    templateId,
+    setupTotalCents: totals.setupTotalCents,
+    recurringTotalCents: totals.recurringTotalCents,
+  };
 }
 
 export async function createProspectAction(
@@ -157,7 +318,7 @@ export async function analyzeProspectAction(
 
 export async function convertProspectAction(
   prospectId: string,
-  options?: { autoProcess?: boolean },
+  options?: { automationLevel?: ProspectAutomationLevel },
 ): Promise<{ error?: string; projectId?: string; clientId?: string }> {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -171,6 +332,8 @@ export async function convertProspectAction(
 
   if (!prospect) return { error: "Prospect not found." };
   const p = prospect as Prospect;
+
+  const automationLevel = options?.automationLevel ?? "convert_only";
 
   if (p.converted_project_id) {
     return { error: "Prospect has already been converted into a project." };
@@ -251,52 +414,19 @@ export async function convertProspectAction(
     "Initial prospect conversion snapshot",
   );
 
-  let finalProject = createdProject as Project;
+  const automation = await runProspectAutomationLevel({
+    prospect: p,
+    projectId: createdProject.id,
+    level: automationLevel,
+  });
 
-  if (options?.autoProcess) {
-    const processed = processIntake(finalProject, []);
-    const selectedModules = seedSelectedModulesFromRecommendations(processed.recommendations);
-    const syncedDraft = syncDraftWithSelectedModules(processed.draftRequest, selectedModules);
+  const { data: refreshedProject } = await supabase
+    .from("projects")
+    .select("*")
+    .eq("id", createdProject.id)
+    .single();
 
-    await supabase
-      .from("projects")
-      .update({
-        status: "intake_draft_ready",
-        client_summary: processed.clientSummary,
-        draft_request: syncedDraft,
-        missing_info: processed.missingInfo,
-        recommendations: processed.recommendations,
-        selected_modules: selectedModules,
-      })
-      .eq("id", createdProject.id);
-
-    await createRevisionAndSetCurrent(
-      supabase,
-      createdProject.id,
-      "intake_processor",
-      syncedDraft,
-      null,
-      "Prospect auto-processing snapshot",
-    );
-
-    finalProject = {
-      ...finalProject,
-      status: "intake_draft_ready",
-      selected_modules: selectedModules,
-    };
-
-    await supabase.from("project_events").insert({
-      project_id: createdProject.id,
-      event_type: "intake_processed",
-      from_status: "intake_received",
-      to_status: "intake_draft_ready",
-      metadata: {
-        source: "prospect_auto_process",
-        prospect_id: p.id,
-        selected_modules: selectedModules.map((module) => module.id),
-      },
-    });
-  }
+  const finalProject = (refreshedProject ?? createdProject) as Project;
 
   await supabase
     .from("prospects")
@@ -306,7 +436,10 @@ export async function convertProspectAction(
       converted_project_id: createdProject.id,
       metadata: {
         ...(p.metadata ?? {}),
-        auto_processed: !!options?.autoProcess,
+        automation_level: automationLevel,
+        automation_progress: automation.progress,
+        automation_blocked_reason: automation.blockedReason,
+        automation_latest_job_id: automation.latestJobId,
       },
     })
     .eq("id", prospectId);
@@ -319,7 +452,7 @@ export async function convertProspectAction(
     metadata: {
       prospect_id: p.id,
       converted_by: user.id,
-      auto_processed: !!options?.autoProcess,
+      automation_level: automationLevel,
       current_modules: getAuthoritativeSelectedModules(finalProject).map((module) => module.id),
     },
   });
@@ -328,4 +461,205 @@ export async function convertProspectAction(
   revalidatePath("/dashboard/prospects");
   revalidatePath(`/dashboard/prospects/${prospectId}`);
   return { projectId: createdProject.id, clientId };
+}
+
+export async function continueProspectAutomationAction(
+  prospectId: string,
+  level: ProspectAutomationLevel,
+): Promise<{ error?: string; latestJobId?: string | null }> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated" };
+
+  const { data: prospect } = await supabase
+    .from("prospects")
+    .select("*")
+    .eq("id", prospectId)
+    .single();
+  if (!prospect) return { error: "Prospect not found." };
+  const p = prospect as Prospect;
+  if (!p.converted_project_id) return { error: "Convert the prospect before running automation." };
+
+  const automation = await runProspectAutomationLevel({
+    prospect: p,
+    projectId: p.converted_project_id,
+    level,
+  });
+
+  await updateProspectAutomationMetadata(supabase, p, {
+    automation_level: level,
+    automation_progress: automation.progress,
+    automation_blocked_reason: automation.blockedReason,
+    automation_latest_job_id: automation.latestJobId,
+  });
+
+  revalidatePath("/dashboard");
+  revalidatePath("/dashboard/prospects");
+  revalidatePath(`/dashboard/prospects/${prospectId}`);
+  return { latestJobId: automation.latestJobId };
+}
+
+export async function generateOutreachPackageAction(
+  prospectId: string,
+): Promise<{ error?: string; packageId?: string }> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated" };
+
+  const [{ data: prospect }, { data: analyses }] = await Promise.all([
+    supabase.from("prospects").select("*").eq("id", prospectId).single(),
+    supabase.from("prospect_site_analyses").select("*").eq("prospect_id", prospectId).order("created_at", { ascending: false }).limit(1),
+  ]);
+  if (!prospect) return { error: "Prospect not found." };
+
+  const p = prospect as Prospect;
+  const analysis = ((analyses ?? [])[0] ?? null) as ProspectSiteAnalysis | null;
+
+  const project = p.converted_project_id
+    ? ((await supabase.from("projects").select("*").eq("id", p.converted_project_id).single()).data as Project | null)
+    : null;
+
+  const quoteResult = project ? await getQuotesForProjectAction(project.id) : { quotes: [] as Array<Quote & { lines: QuoteLine[] }> };
+  const latestQuote = quoteResult.quotes[0] ?? null;
+
+  const screenshots = project
+    ? (
+        await supabase
+          .from("assets")
+          .select("storage_path")
+          .eq("project_id", project.id)
+          .eq("asset_type", "review_screenshot")
+          .order("created_at", { ascending: false })
+      ).data ?? []
+    : [];
+
+  const jobs = project
+    ? (
+        await supabase
+          .from("jobs")
+          .select("status")
+          .eq("project_id", project.id)
+          .order("created_at", { ascending: false })
+          .limit(1)
+      ).data ?? []
+    : [];
+
+  let quoteForPackage = latestQuote;
+  if (!quoteForPackage && project) {
+    const estimate = await buildProspectPricingEstimate(supabase, project).catch(() => null);
+    if (estimate) {
+      quoteForPackage = {
+        id: "estimate",
+        project_id: project.id,
+        quote_number: 0,
+        revision_id: project.current_revision_id,
+        template_id: estimate.templateId,
+        selected_modules_snapshot: getAuthoritativeSelectedModules(project),
+        status: "draft",
+        setup_subtotal_cents: estimate.setupTotalCents,
+        recurring_subtotal_cents: estimate.recurringTotalCents,
+        discount_cents: 0,
+        discount_percent: null,
+        discount_reason: null,
+        discount_approved_by: null,
+        setup_total_cents: estimate.setupTotalCents,
+        recurring_total_cents: estimate.recurringTotalCents,
+        valid_days: 30,
+        valid_until: null,
+        client_name: p.company_name,
+        client_email: p.contact_email,
+        notes: null,
+        metadata: { estimated: true },
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        lines: [],
+      };
+    }
+  }
+
+  const packageRecord = buildOutreachPackageRecord({
+    prospect: p,
+    analysis,
+    project,
+    quote: quoteForPackage,
+    screenshotCount: screenshots.length,
+    screenshotPaths: screenshots.map((item) => item.storage_path),
+    latestJobStatus: jobs[0]?.status ?? null,
+    automationLevel: (p.metadata?.automation_level as ProspectAutomationLevel | undefined) ?? "convert_only",
+  });
+
+  const { data: createdPackage, error } = await supabase
+    .from("prospect_outreach_packages")
+    .insert({
+      prospect_id: p.id,
+      client_id: p.converted_client_id,
+      project_id: p.converted_project_id,
+      quote_id: latestQuote?.id ?? null,
+      status: packageRecord.status,
+      package_data: packageRecord.packageData,
+      offer_summary: packageRecord.offerSummary,
+      email_subject: packageRecord.emailSubject,
+      email_body: packageRecord.emailBody,
+    })
+    .select("id")
+    .single();
+
+  if (error || !createdPackage) {
+    return { error: error?.message ?? "Failed to generate outreach package." };
+  }
+
+  await supabase
+    .from("prospects")
+    .update({
+      outreach_summary: packageRecord.offerSummary,
+      metadata: {
+        ...(p.metadata ?? {}),
+        latest_outreach_package_id: createdPackage.id,
+        outreach_package_ready: true,
+      },
+    })
+    .eq("id", prospectId);
+
+  revalidatePath("/dashboard");
+  revalidatePath("/dashboard/prospects");
+  revalidatePath(`/dashboard/prospects/${prospectId}`);
+  return { packageId: createdPackage.id };
+}
+
+export async function prepareProspectEmailDraftAction(
+  prospectId: string,
+): Promise<{ error?: string; subject?: string; body?: string; attachmentPaths?: string[] }> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated" };
+
+  let { data: packages } = await supabase
+    .from("prospect_outreach_packages")
+    .select("*")
+    .eq("prospect_id", prospectId)
+    .order("created_at", { ascending: false })
+    .limit(1);
+
+  if (!packages || packages.length === 0) {
+    const generated = await generateOutreachPackageAction(prospectId);
+    if (generated.error) return { error: generated.error };
+    ({ data: packages } = await supabase
+      .from("prospect_outreach_packages")
+      .select("*")
+      .eq("prospect_id", prospectId)
+      .order("created_at", { ascending: false })
+      .limit(1));
+  }
+
+  const latestPackage = ((packages ?? [])[0] ?? null) as ProspectOutreachPackage | null;
+  if (!latestPackage) return { error: "No outreach package available yet." };
+
+  const resendReady = (latestPackage.package_data?.resend_ready as Record<string, unknown> | undefined) ?? {};
+  return {
+    subject: latestPackage.email_subject ?? (typeof resendReady.subject === "string" ? resendReady.subject : undefined),
+    body: latestPackage.email_body ?? (typeof resendReady.body === "string" ? resendReady.body : undefined),
+    attachmentPaths: Array.isArray(resendReady.attachment_paths)
+      ? resendReady.attachment_paths.filter((item): item is string => typeof item === "string")
+      : [],
+  };
 }

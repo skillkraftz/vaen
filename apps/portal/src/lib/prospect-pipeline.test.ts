@@ -6,6 +6,11 @@ import {
   extractProspectWebsiteSignals,
   normalizeWebsiteUrl,
 } from "./prospect-analysis";
+import {
+  buildOutreachEmailDraft,
+  buildOutreachPackageRecord,
+  PROSPECT_AUTOMATION_LEVELS,
+} from "./prospect-outreach";
 
 const REPO_ROOT = resolve(__dirname, "../../../..");
 
@@ -22,11 +27,23 @@ describe("prospect schema", () => {
     expect(source).toContain("source_prospect_id");
   });
 
+  it("adds prospect outreach packages", () => {
+    const migrationPath = join(REPO_ROOT, "supabase/migrations/20260329000010_add_prospect_outreach_packages.sql");
+    expect(existsSync(migrationPath)).toBe(true);
+    const source = readFileSync(migrationPath, "utf-8");
+    expect(source).toContain("create table if not exists public.prospect_outreach_packages");
+    expect(source).toContain("email_subject");
+    expect(source).toContain("email_body");
+    expect(source).toContain("package_data jsonb");
+  });
+
   it("adds Prospect and ProspectSiteAnalysis types", () => {
     const typesPath = join(__dirname, "types.ts");
     const source = readFileSync(typesPath, "utf-8");
     expect(source).toContain("export interface Prospect");
     expect(source).toContain("export interface ProspectSiteAnalysis");
+    expect(source).toContain("export type ProspectAutomationLevel");
+    expect(source).toContain("export interface ProspectOutreachPackage");
     expect(source).toContain('status: "new" | "researching" | "analyzed" | "ready_for_outreach" | "converted" | "disqualified"');
   });
 });
@@ -64,16 +81,105 @@ describe("prospect analysis helpers", () => {
   });
 });
 
+describe("prospect outreach helpers", () => {
+  it("defines explicit automation levels", () => {
+    expect(PROSPECT_AUTOMATION_LEVELS.map((level) => level.id)).toEqual([
+      "convert_only",
+      "process_intake",
+      "export_to_generator",
+      "generate_site",
+      "review_site",
+    ]);
+  });
+
+  it("builds resend-ready email drafts", () => {
+    const draft = buildOutreachEmailDraft({
+      prospect: {
+        company_name: "Acme Painting",
+        website_url: "https://acme.test",
+      },
+      analysis: {
+        primary_h1: "Refresh your home exterior",
+        content_excerpt: "Exterior painting specialists with a dated call to action.",
+      },
+      recommendedPackage: "service-core",
+      pricingSummary: "$1,500 setup / $99 mo",
+      screenshotCount: 2,
+    });
+
+    expect(draft.subject).toContain("Acme Painting");
+    expect(draft.body).toContain("service-core");
+    expect(draft.body).toContain("2 review screenshots");
+  });
+
+  it("builds outreach packages with quote and screenshot hooks", () => {
+    const record = buildOutreachPackageRecord({
+      prospect: {
+        id: "pros-1",
+        user_id: "user-1",
+        company_name: "Acme Painting",
+        website_url: "https://acme.test",
+        contact_name: null,
+        contact_email: null,
+        contact_phone: null,
+        notes: null,
+        status: "ready_for_outreach",
+        source: null,
+        campaign: null,
+        outreach_summary: null,
+        metadata: {},
+        converted_client_id: null,
+        converted_project_id: null,
+        created_at: "",
+        updated_at: "",
+      },
+      analysis: {
+        id: "analysis-1",
+        prospect_id: "pros-1",
+        status: "completed",
+        analysis_source: "server_fetch",
+        site_title: "Acme Painting",
+        meta_description: null,
+        primary_h1: "Refresh your home exterior",
+        content_excerpt: "Exterior painting specialists",
+        structured_output: {},
+        raw_html_excerpt: null,
+        error_message: null,
+        created_at: "",
+      },
+      project: null,
+      quote: null,
+      screenshotCount: 1,
+      screenshotPaths: ["review-screenshots/path/homepage.png"],
+      latestJobStatus: "completed",
+      automationLevel: "review_site",
+    });
+
+    expect(record.status).toBe("ready");
+    expect(record.packageData.screenshots).toEqual({
+      count: 1,
+      paths: ["review-screenshots/path/homepage.png"],
+      available: true,
+    });
+    expect(record.emailSubject).toContain("Acme Painting");
+  });
+});
+
 describe("prospect actions and ui", () => {
-  it("exports create, analyze, and convert actions", () => {
+  it("exports create, analyze, convert, automation, and email prep actions", () => {
     const actionsPath = join(__dirname, "../app/dashboard/prospects/actions.ts");
     const source = readFileSync(actionsPath, "utf-8");
     expect(source).toContain("export async function createProspectAction");
     expect(source).toContain("export async function analyzeProspectAction");
     expect(source).toContain("export async function convertProspectAction");
+    expect(source).toContain("export async function continueProspectAutomationAction");
+    expect(source).toContain("export async function generateOutreachPackageAction");
+    expect(source).toContain("export async function prepareProspectEmailDraftAction");
     expect(source).toContain("analyzeProspectWebsite");
     expect(source).toContain("createRevisionAndSetCurrent");
-    expect(source).toContain("processIntake");
+    expect(source).toContain("processIntakeAction");
+    expect(source).toContain("generateSiteAction");
+    expect(source).toContain("runReviewAction");
   });
 
   it("conversion reuses client/project models and records source_prospect_id", () => {
@@ -86,8 +192,18 @@ describe("prospect actions and ui", () => {
     expect(convertFn).toContain('from("projects")');
     expect(convertFn).toContain("source_prospect_id: p.id");
     expect(convertFn).toContain('status: "intake_received"');
-    expect(convertFn).toContain('status: "intake_draft_ready"');
     expect(convertFn).toContain('event_type: "prospect_converted"');
+    expect(convertFn).toContain("runProspectAutomationLevel");
+  });
+
+  it("supports explicit automation levels and stops cleanly at async job boundaries", () => {
+    const actionsPath = join(__dirname, "../app/dashboard/prospects/actions.ts");
+    const source = readFileSync(actionsPath, "utf-8");
+    expect(source).toContain('params.level === "convert_only"');
+    expect(source).toContain('params.level === "process_intake"');
+    expect(source).toContain('params.level === "export_to_generator"');
+    expect(source).toContain('params.level === "generate_site"');
+    expect(source).toContain("Generate job dispatched. Review automation is waiting for site generation to complete.");
   });
 
   it("adds a dedicated prospects area in the dashboard", () => {
@@ -106,15 +222,22 @@ describe("prospect actions and ui", () => {
     expect(newProspectSource).toContain("ProspectForm");
   });
 
-  it("renders prospect detail actions and analysis panel", () => {
+  it("renders prospect detail actions, readiness, and outreach package panels", () => {
     const detailPath = join(__dirname, "../app/dashboard/prospects/[id]/page.tsx");
     const actionsUiPath = join(__dirname, "../app/dashboard/prospects/prospect-detail-actions.tsx");
     const detailSource = readFileSync(detailPath, "utf-8");
     const actionsSource = readFileSync(actionsUiPath, "utf-8");
     expect(detailSource).toContain('data-testid="prospect-detail-page"');
     expect(detailSource).toContain('data-testid="prospect-analysis-panel"');
+    expect(detailSource).toContain('data-testid="prospect-readiness-panel"');
+    expect(detailSource).toContain('data-testid="prospect-outreach-package"');
+    expect(detailSource).toContain('data-testid="prospect-email-subject"');
+    expect(detailSource).toContain('data-testid="prospect-email-body"');
     expect(actionsSource).toContain('data-testid="prospect-actions"');
     expect(actionsSource).toContain('data-testid="prospect-analyze-button"');
     expect(actionsSource).toContain('data-testid="prospect-convert-button"');
+    expect(actionsSource).toContain('data-testid="prospect-automation-level"');
+    expect(actionsSource).toContain('data-testid="prospect-continue-automation-button"');
+    expect(actionsSource).toContain('data-testid="prospect-generate-package-button"');
   });
 });

@@ -182,6 +182,28 @@ export interface ProspectSiteAnalysis {
   created_at: string;
 }
 
+export type ProspectAutomationLevel =
+  | "convert_only"
+  | "process_intake"
+  | "export_to_generator"
+  | "generate_site"
+  | "review_site";
+
+export interface ProspectOutreachPackage {
+  id: string;
+  prospect_id: string;
+  client_id: string | null;
+  project_id: string | null;
+  quote_id: string | null;
+  status: "draft" | "ready";
+  package_data: Record<string, unknown>;
+  offer_summary: string | null;
+  email_subject: string | null;
+  email_body: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface Quote {
   id: string;
   project_id: string;
