@@ -33,6 +33,9 @@ export default async function DashboardLayout({
           <Link href="/dashboard/prospects" className="text-sm text-muted">
             Prospects
           </Link>
+          <Link href="/dashboard/campaigns" className="text-sm text-muted">
+            Campaigns
+          </Link>
           <Link href="/dashboard/settings/pricing" className="text-sm text-muted">
             Pricing
           </Link>

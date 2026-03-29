@@ -66,6 +66,9 @@ export default async function ProspectDetailPage({
 
   const linkedClient = client as Pick<Client, "id" | "name"> | null;
   const linkedProject = project as Pick<Project, "id" | "name" | "slug" | "status" | "last_reviewed_revision_id"> | null;
+  const linkedCampaign = p.campaign_id
+    ? ((await supabase.from("campaigns").select("id, name").eq("id", p.campaign_id).maybeSingle()).data as { id: string; name: string } | null)
+    : null;
   const latestPackage = ((outreachPackages ?? [])[0] ?? null) as ProspectOutreachPackage | null;
   const sendHistory = (sends ?? []) as OutreachSend[];
   const latestSend = sendHistory[0] ?? null;
@@ -140,7 +143,10 @@ export default async function ProspectDetailPage({
             <div><strong>Email:</strong> {p.contact_email ?? "Unknown"}</div>
             <div><strong>Phone:</strong> {p.contact_phone ?? "Unknown"}</div>
             <div><strong>Source:</strong> {p.source ?? "Manual"}</div>
-            <div><strong>Campaign:</strong> {p.campaign ?? "None"}</div>
+            <div>
+              <strong>Campaign:</strong>{" "}
+              {linkedCampaign ? <Link href={`/dashboard/campaigns/${linkedCampaign.id}`}>{linkedCampaign.name}</Link> : (p.campaign ?? "None")}
+            </div>
             <div><strong>Outreach Summary:</strong> {p.outreach_summary ?? "Not generated yet"}</div>
             <div><strong>Outreach Status:</strong> {p.outreach_status ?? "draft"}</div>
             <div><strong>Outreach Config:</strong> {configReadiness.ready ? "ready" : "blocked"}</div>

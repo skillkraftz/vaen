@@ -150,6 +150,7 @@ export interface PricingChangeEvent {
 export interface Prospect {
   id: string;
   user_id: string;
+  campaign_id?: string | null;
   company_name: string;
   website_url: string;
   contact_name: string | null;
@@ -167,6 +168,18 @@ export interface Prospect {
   metadata: Record<string, unknown>;
   converted_client_id: string | null;
   converted_project_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Campaign {
+  id: string;
+  user_id: string;
+  name: string;
+  description: string | null;
+  status: "draft" | "active" | "paused" | "completed" | "archived";
+  metadata: Record<string, unknown>;
+  last_activity_at: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -214,6 +227,7 @@ export interface OutreachSend {
   outreach_package_id: string | null;
   client_id: string | null;
   project_id: string | null;
+  campaign_id?: string | null;
   recipient_email: string;
   subject: string;
   body: string;

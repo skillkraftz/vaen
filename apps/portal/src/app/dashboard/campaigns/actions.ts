@@ -1,0 +1,402 @@
+"use server";
+
+import { revalidatePath } from "next/cache";
+import { createClient } from "@/lib/supabase/server";
+import { CAMPAIGN_STATUSES, previewProspectImportRows } from "@/lib/prospect-campaigns";
+import type { Campaign, OutreachSend, Prospect } from "@/lib/types";
+import {
+  generateOutreachPackageAction,
+  sendProspectOutreachAction,
+} from "../prospects/actions";
+
+async function requireCampaignOwner(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  campaignId: string,
+  userId: string,
+) {
+  const { data } = await supabase
+    .from("campaigns")
+    .select("*")
+    .eq("id", campaignId)
+    .eq("user_id", userId)
+    .single();
+
+  return data as Campaign | null;
+}
+
+async function touchCampaign(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  campaignId: string,
+  metadataUpdates?: Record<string, unknown>,
+) {
+  if (!campaignId) return;
+  const { data: existing } = await supabase
+    .from("campaigns")
+    .select("metadata")
+    .eq("id", campaignId)
+    .single();
+
+  await supabase
+    .from("campaigns")
+    .update({
+      last_activity_at: new Date().toISOString(),
+      metadata: {
+        ...(((existing?.metadata ?? {}) as Record<string, unknown>)),
+        ...(metadataUpdates ?? {}),
+      },
+    })
+    .eq("id", campaignId);
+}
+
+export async function createCampaignAction(input: {
+  name: string;
+  description?: string | null;
+  status?: Campaign["status"];
+}): Promise<{ error?: string; campaignId?: string }> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated" };
+
+  const name = input.name.trim();
+  if (!name) return { error: "Campaign name is required." };
+
+  const status = input.status && CAMPAIGN_STATUSES.includes(input.status)
+    ? input.status
+    : "draft";
+
+  const { data, error } = await supabase
+    .from("campaigns")
+    .insert({
+      user_id: user.id,
+      name,
+      description: input.description?.trim() || null,
+      status,
+      metadata: {},
+    })
+    .select("id")
+    .single();
+
+  if (error || !data) {
+    return { error: error?.message ?? "Failed to create campaign." };
+  }
+
+  revalidatePath("/dashboard");
+  revalidatePath("/dashboard/prospects");
+  revalidatePath("/dashboard/campaigns");
+  return { campaignId: data.id };
+}
+
+export async function updateCampaignStatusAction(
+  campaignId: string,
+  status: Campaign["status"],
+): Promise<{ error?: string }> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated" };
+  if (!CAMPAIGN_STATUSES.includes(status)) return { error: "Invalid campaign status." };
+
+  const campaign = await requireCampaignOwner(supabase, campaignId, user.id);
+  if (!campaign) return { error: "Campaign not found." };
+
+  const { error } = await supabase
+    .from("campaigns")
+    .update({
+      status,
+      last_activity_at: new Date().toISOString(),
+      metadata: {
+        ...(campaign.metadata ?? {}),
+        last_status_change_to: status,
+      },
+    })
+    .eq("id", campaignId);
+
+  if (error) return { error: error.message };
+
+  revalidatePath("/dashboard/campaigns");
+  revalidatePath(`/dashboard/campaigns/${campaignId}`);
+  return {};
+}
+
+export async function assignProspectsToCampaignAction(params: {
+  prospectIds: string[];
+  campaignId: string | null;
+}): Promise<{ error?: string; assignedCount?: number }> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated" };
+  if (params.prospectIds.length === 0) return { error: "Select at least one prospect." };
+
+  let campaign: Campaign | null = null;
+  if (params.campaignId) {
+    campaign = await requireCampaignOwner(supabase, params.campaignId, user.id);
+    if (!campaign) return { error: "Campaign not found." };
+  }
+
+  const { error } = await supabase
+    .from("prospects")
+    .update({
+      campaign_id: campaign?.id ?? null,
+      campaign: campaign?.name ?? null,
+    })
+    .in("id", params.prospectIds)
+    .eq("user_id", user.id);
+
+  if (error) return { error: error.message };
+
+  if (campaign) {
+    await touchCampaign(supabase, campaign.id, {
+      last_assignment_count: params.prospectIds.length,
+    });
+  }
+
+  revalidatePath("/dashboard/prospects");
+  if (campaign) revalidatePath(`/dashboard/campaigns/${campaign.id}`);
+  return { assignedCount: params.prospectIds.length };
+}
+
+export async function importProspectsAction(params: {
+  rawText: string;
+  campaignId?: string | null;
+  createCampaignName?: string | null;
+  defaultSource?: string | null;
+}): Promise<{
+  error?: string;
+  campaignId?: string | null;
+  summary?: {
+    total: number;
+    imported: number;
+    invalid: number;
+    duplicates: number;
+  };
+  rows?: Array<{
+    rowNumber: number;
+    companyName: string;
+    websiteUrl: string;
+    status: "imported" | "invalid" | "duplicate";
+    message: string;
+  }>;
+}> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated" };
+
+  let campaignId = params.campaignId ?? null;
+  if (!campaignId && params.createCampaignName?.trim()) {
+    const created = await createCampaignAction({
+      name: params.createCampaignName.trim(),
+      status: "draft",
+    });
+    if (created.error) return { error: created.error };
+    campaignId = created.campaignId ?? null;
+  }
+
+  let selectedCampaign: Campaign | null = null;
+  if (campaignId) {
+    selectedCampaign = await requireCampaignOwner(supabase, campaignId, user.id);
+    if (!selectedCampaign) return { error: "Campaign not found." };
+  }
+
+  const [{ data: existingProspects }, { data: campaigns }] = await Promise.all([
+    supabase.from("prospects").select("website_url").eq("user_id", user.id),
+    supabase.from("campaigns").select("id, name").eq("user_id", user.id),
+  ]);
+
+  const preview = previewProspectImportRows({
+    rawText: params.rawText,
+    existingProspects: ((existingProspects ?? []) as Array<Pick<Prospect, "website_url">>),
+  });
+
+  const campaignByName = new Map(
+    ((campaigns ?? []) as Array<Pick<Campaign, "id" | "name">>)
+      .map((campaign) => [campaign.name.trim().toLowerCase(), campaign]),
+  );
+
+  const rows = preview.rows.map((row) => {
+    if (!row.valid) {
+      return {
+        rowNumber: row.rowNumber,
+        companyName: row.company_name,
+        websiteUrl: row.website_url,
+        status: row.duplicate_reason ? "duplicate" as const : "invalid" as const,
+        message: row.duplicate_reason ?? row.errors.join(" "),
+      };
+    }
+
+    return {
+      rowNumber: row.rowNumber,
+      companyName: row.company_name,
+      websiteUrl: row.normalized_website_url ?? row.website_url,
+      status: "imported" as const,
+      message: "Ready to import",
+    };
+  });
+
+  const validRows = preview.rows.filter((row) => row.valid);
+  if (validRows.length === 0) {
+    return {
+      error: "No valid rows to import.",
+      campaignId,
+      summary: {
+        total: preview.summary.total,
+        imported: 0,
+        invalid: preview.summary.invalid,
+        duplicates: preview.summary.duplicates,
+      },
+      rows,
+    };
+  }
+
+  const insertRows = validRows.map((row) => {
+    const matchedCampaign = selectedCampaign
+      ?? (row.campaign ? campaignByName.get(row.campaign.trim().toLowerCase()) ?? null : null);
+
+    return {
+      user_id: user.id,
+      company_name: row.company_name,
+      website_url: row.normalized_website_url ?? row.website_url,
+      contact_name: row.contact_name,
+      contact_email: row.contact_email,
+      contact_phone: row.contact_phone,
+      notes: row.notes,
+      source: row.source ?? params.defaultSource?.trim() ?? "bulk_import",
+      campaign: matchedCampaign?.name ?? row.campaign,
+      campaign_id: matchedCampaign?.id ?? null,
+      status: "new",
+      metadata: {
+        import_row_number: row.rowNumber,
+        import_source: "bulk_import",
+      },
+    };
+  });
+
+  const { error } = await supabase.from("prospects").insert(insertRows);
+  if (error) return { error: error.message };
+
+  const resolvedCampaignIds = Array.from(new Set(insertRows.map((row) => row.campaign_id).filter((value): value is string => !!value)));
+  for (const resolvedCampaignId of resolvedCampaignIds) {
+    await touchCampaign(supabase, resolvedCampaignId, {
+      last_import_count: insertRows.filter((row) => row.campaign_id === resolvedCampaignId).length,
+    });
+  }
+
+  revalidatePath("/dashboard");
+  revalidatePath("/dashboard/prospects");
+  revalidatePath("/dashboard/campaigns");
+  resolvedCampaignIds.forEach((resolvedCampaignId) => revalidatePath(`/dashboard/campaigns/${resolvedCampaignId}`));
+
+  return {
+    campaignId,
+    summary: {
+      total: preview.summary.total,
+      imported: validRows.length,
+      invalid: preview.summary.invalid,
+      duplicates: preview.summary.duplicates,
+    },
+    rows,
+  };
+}
+
+export async function batchGenerateCampaignPackagesAction(params: {
+  prospectIds: string[];
+}): Promise<{
+  error?: string;
+  results?: Array<{ prospectId: string; status: "ready" | "failed"; message: string }>;
+}> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated" };
+  if (params.prospectIds.length === 0) return { error: "Select at least one prospect." };
+
+  const results: Array<{ prospectId: string; status: "ready" | "failed"; message: string }> = [];
+  const { data: prospects } = await supabase
+    .from("prospects")
+    .select("id, campaign_id")
+    .in("id", params.prospectIds)
+    .eq("user_id", user.id);
+
+  for (const prospect of (prospects ?? []) as Array<Pick<Prospect, "id" | "campaign_id">>) {
+    const generated = await generateOutreachPackageAction(prospect.id);
+    results.push({
+      prospectId: prospect.id,
+      status: generated.error ? "failed" : "ready",
+      message: generated.error ?? "Outreach package prepared.",
+    });
+
+    if (prospect.campaign_id) {
+      await touchCampaign(supabase, prospect.campaign_id, {
+        last_batch_package_run_at: new Date().toISOString(),
+      });
+    }
+  }
+
+  revalidatePath("/dashboard/prospects");
+  revalidatePath("/dashboard/campaigns");
+  return { results };
+}
+
+export async function batchSendCampaignOutreachAction(params: {
+  prospectIds: string[];
+  confirmPhrase: string;
+}): Promise<{
+  error?: string;
+  summary?: { sent: number; blocked: number; failed: number };
+  results?: Array<{ prospectId: string; status: "sent" | "blocked" | "failed"; message: string }>;
+}> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated" };
+  if (params.prospectIds.length === 0) return { error: "Select at least one prospect." };
+
+  const expectedPhrase = `SEND ${params.prospectIds.length} EMAIL${params.prospectIds.length === 1 ? "" : "S"}`;
+  if (params.confirmPhrase.trim() !== expectedPhrase) {
+    return { error: `Confirmation phrase must match "${expectedPhrase}".` };
+  }
+
+  const results: Array<{ prospectId: string; status: "sent" | "blocked" | "failed"; message: string }> = [];
+  const campaignIds = new Set<string>();
+
+  for (const prospectId of params.prospectIds) {
+    const send = await sendProspectOutreachAction(prospectId, { confirm: true });
+    let status: "sent" | "blocked" | "failed" = "sent";
+    let message = send.error ?? "Outreach sent.";
+
+    if (send.sendId) {
+      const { data: sendRow } = await supabase
+        .from("outreach_sends")
+        .select("status, error_message, campaign_id")
+        .eq("id", send.sendId)
+        .single();
+
+      if (sendRow) {
+        status = sendRow.status as "sent" | "blocked" | "failed";
+        message = sendRow.error_message ?? message;
+        if (sendRow.campaign_id) campaignIds.add(sendRow.campaign_id);
+      } else if (send.error) {
+        status = "failed";
+      }
+    } else if (send.error) {
+      status = "failed";
+    }
+
+    results.push({ prospectId, status, message });
+  }
+
+  for (const campaignId of campaignIds) {
+    await touchCampaign(supabase, campaignId, {
+      last_batch_send_at: new Date().toISOString(),
+    });
+    revalidatePath(`/dashboard/campaigns/${campaignId}`);
+  }
+
+  revalidatePath("/dashboard/prospects");
+  revalidatePath("/dashboard/campaigns");
+
+  return {
+    summary: {
+      sent: results.filter((result) => result.status === "sent").length,
+      blocked: results.filter((result) => result.status === "blocked").length,
+      failed: results.filter((result) => result.status === "failed").length,
+    },
+    results,
+  };
+}

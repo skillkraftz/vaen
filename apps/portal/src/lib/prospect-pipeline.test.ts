@@ -40,11 +40,13 @@ describe("prospect schema", () => {
   it("adds Prospect and ProspectSiteAnalysis types", () => {
     const typesPath = join(__dirname, "types.ts");
     const source = readFileSync(typesPath, "utf-8");
+    expect(source).toContain("export interface Campaign");
     expect(source).toContain("export interface Prospect");
     expect(source).toContain("export interface ProspectSiteAnalysis");
     expect(source).toContain("export type ProspectAutomationLevel");
     expect(source).toContain("export interface ProspectOutreachPackage");
     expect(source).toContain("export interface OutreachSend");
+    expect(source).toContain("campaign_id?: string | null");
     expect(source).toContain('status: "new" | "researching" | "analyzed" | "ready_for_outreach" | "converted" | "disqualified"');
     expect(source).toContain('outreach_status?: "draft" | "ready" | "sent" | "followup_due" | "replied" | "do_not_contact"');
   });
@@ -170,7 +172,9 @@ describe("prospect outreach helpers", () => {
 describe("prospect actions and ui", () => {
   it("exports create, analyze, convert, automation, outreach package, and send actions", () => {
     const actionsPath = join(__dirname, "../app/dashboard/prospects/actions.ts");
+    const campaignActionsPath = join(__dirname, "../app/dashboard/campaigns/actions.ts");
     const source = readFileSync(actionsPath, "utf-8");
+    const campaignSource = readFileSync(campaignActionsPath, "utf-8");
     expect(source).toContain("export async function createProspectAction");
     expect(source).toContain("export async function analyzeProspectAction");
     expect(source).toContain("export async function convertProspectAction");
@@ -184,6 +188,11 @@ describe("prospect actions and ui", () => {
     expect(source).toContain("generateSiteAction");
     expect(source).toContain("runReviewAction");
     expect(source).toContain("sendEmailViaResend");
+    expect(campaignSource).toContain("export async function createCampaignAction");
+    expect(campaignSource).toContain("export async function assignProspectsToCampaignAction");
+    expect(campaignSource).toContain("export async function importProspectsAction");
+    expect(campaignSource).toContain("export async function batchGenerateCampaignPackagesAction");
+    expect(campaignSource).toContain("export async function batchSendCampaignOutreachAction");
   });
 
   it("conversion reuses client/project models and records source_prospect_id", () => {
@@ -218,6 +227,7 @@ describe("prospect actions and ui", () => {
     );
     expect(sendFn).toContain('from("prospect_outreach_packages")');
     expect(sendFn).toContain('from("outreach_sends")');
+    expect(sendFn).toContain("campaign_id: p.campaign_id ?? null");
     expect(sendFn).toContain("getProspectSendReadiness");
     expect(sendFn).toContain("getOutreachConfigReadiness");
     expect(sendFn).toContain("isDuplicateSendBlocked");
@@ -230,29 +240,54 @@ describe("prospect actions and ui", () => {
   it("adds a dedicated prospects area in the dashboard", () => {
     const dashboardPath = join(__dirname, "../app/dashboard/page.tsx");
     const layoutPath = join(__dirname, "../app/dashboard/layout.tsx");
+    const campaignsPagePath = join(__dirname, "../app/dashboard/campaigns/page.tsx");
+    const campaignsDetailPath = join(__dirname, "../app/dashboard/campaigns/[id]/page.tsx");
+    const campaignsListUiPath = join(__dirname, "../app/dashboard/campaigns/campaign-list-manager.tsx");
+    const campaignsDetailUiPath = join(__dirname, "../app/dashboard/campaigns/[id]/campaign-detail-manager.tsx");
     const outreachSettingsPath = join(__dirname, "../app/dashboard/settings/outreach/page.tsx");
     const prospectsPath = join(__dirname, "../app/dashboard/prospects/page.tsx");
+    const prospectsListUiPath = join(__dirname, "../app/dashboard/prospects/prospect-list-manager.tsx");
+    const importPagePath = join(__dirname, "../app/dashboard/prospects/import/page.tsx");
     const newProspectPath = join(__dirname, "../app/dashboard/prospects/new/page.tsx");
     const source = readFileSync(dashboardPath, "utf-8");
     const layoutSource = readFileSync(layoutPath, "utf-8");
+    const campaignsPageSource = readFileSync(campaignsPagePath, "utf-8");
+    const campaignsDetailSource = readFileSync(campaignsDetailPath, "utf-8");
+    const campaignsListUiSource = readFileSync(campaignsListUiPath, "utf-8");
+    const campaignsDetailUiSource = readFileSync(campaignsDetailUiPath, "utf-8");
     const outreachSettingsSource = readFileSync(outreachSettingsPath, "utf-8");
     const prospectsSource = readFileSync(prospectsPath, "utf-8");
+    const prospectsListUiSource = readFileSync(prospectsListUiPath, "utf-8");
+    const importPageSource = readFileSync(importPagePath, "utf-8");
     const newProspectSource = readFileSync(newProspectPath, "utf-8");
     expect(layoutSource).toContain("/dashboard/prospects");
+    expect(layoutSource).toContain("/dashboard/campaigns");
     expect(layoutSource).toContain("/dashboard/settings/outreach");
+    expect(campaignsPageSource).toContain("CampaignListManager");
+    expect(campaignsListUiSource).toContain('data-testid="campaign-list-page"');
+    expect(campaignsDetailSource).toContain("CampaignDetailManager");
+    expect(campaignsDetailUiSource).toContain('data-testid="campaign-detail-page"');
     expect(outreachSettingsSource).toContain('data-testid="outreach-settings-page"');
     expect(outreachSettingsSource).toContain('data-testid="outreach-readiness-badge"');
     expect(source).toContain("dashboard-prospect-section");
-    expect(prospectsSource).toContain('data-testid="prospect-list-page"');
-    expect(prospectsSource).toContain('data-testid="new-prospect-link"');
+    expect(prospectsSource).toContain("ProspectListManager");
+    expect(prospectsListUiSource).toContain('data-testid="prospect-list-page"');
+    expect(prospectsListUiSource).toContain('data-testid="new-prospect-link"');
+    expect(importPageSource).toContain("ProspectImportForm");
     expect(newProspectSource).toContain("ProspectForm");
   });
 
   it("renders prospect detail actions, readiness, outreach package, and send history panels", () => {
     const detailPath = join(__dirname, "../app/dashboard/prospects/[id]/page.tsx");
     const actionsUiPath = join(__dirname, "../app/dashboard/prospects/prospect-detail-actions.tsx");
+    const campaignDetailUiPath = join(__dirname, "../app/dashboard/campaigns/[id]/campaign-detail-manager.tsx");
+    const listUiPath = join(__dirname, "../app/dashboard/prospects/prospect-list-manager.tsx");
+    const importUiPath = join(__dirname, "../app/dashboard/prospects/import/prospect-import-form.tsx");
     const detailSource = readFileSync(detailPath, "utf-8");
     const actionsSource = readFileSync(actionsUiPath, "utf-8");
+    const campaignDetailUiSource = readFileSync(campaignDetailUiPath, "utf-8");
+    const listUiSource = readFileSync(listUiPath, "utf-8");
+    const importUiSource = readFileSync(importUiPath, "utf-8");
     expect(detailSource).toContain('data-testid="prospect-detail-page"');
     expect(detailSource).toContain('data-testid="prospect-analysis-panel"');
     expect(detailSource).toContain('data-testid="prospect-readiness-panel"');
@@ -270,5 +305,15 @@ describe("prospect actions and ui", () => {
     expect(actionsSource).toContain('data-testid="prospect-preview-email-button"');
     expect(actionsSource).toContain('data-testid="prospect-send-confirm"');
     expect(actionsSource).toContain('data-testid="prospect-send-button"');
+    expect(listUiSource).toContain('data-testid="prospect-bulk-campaign-select"');
+    expect(listUiSource).toContain('data-testid="prospect-bulk-assign-button"');
+    expect(listUiSource).toContain('data-testid="prospect-import-link"');
+    expect(importUiSource).toContain('data-testid="prospect-import-page"');
+    expect(importUiSource).toContain('data-testid="prospect-import-preview"');
+    expect(importUiSource).toContain('data-testid="prospect-import-submit"');
+    expect(campaignDetailUiSource).toContain('data-testid="campaign-batch-actions"');
+    expect(campaignDetailUiSource).toContain('data-testid="campaign-batch-send-button"');
+    expect(campaignDetailUiSource).toContain('data-testid="campaign-batch-send-phrase"');
+    expect(campaignDetailUiSource).toContain('data-testid="campaign-prospect-list"');
   });
 });
