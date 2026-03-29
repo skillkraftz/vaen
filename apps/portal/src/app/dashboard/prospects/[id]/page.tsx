@@ -6,12 +6,14 @@ import type {
   ProspectSiteAnalysis,
   Client,
   Project,
+  OutreachSend,
   Quote,
   QuoteLine,
   ProspectOutreachPackage,
   JobRecord,
 } from "@/lib/types";
 import { ProspectDetailActions } from "../prospect-detail-actions";
+import { getProspectSendReadiness } from "@/lib/outreach-execution";
 
 function formatProspectStatus(status: Prospect["status"]) {
   return status.replaceAll("_", " ");
@@ -36,7 +38,7 @@ export default async function ProspectDetailPage({
   const analysisList = (analyses ?? []) as ProspectSiteAnalysis[];
   const latestAnalysis = analysisList[0] ?? null;
 
-  const [{ data: client }, { data: project }, { data: outreachPackages }] = await Promise.all([
+  const [{ data: client }, { data: project }, { data: outreachPackages }, { data: sends }] = await Promise.all([
     p.converted_client_id
       ? supabase.from("clients").select("id, name").eq("id", p.converted_client_id).single()
       : Promise.resolve({ data: null }),
@@ -53,11 +55,19 @@ export default async function ProspectDetailPage({
       .eq("prospect_id", id)
       .order("created_at", { ascending: false })
       .limit(1),
+    supabase
+      .from("outreach_sends")
+      .select("*")
+      .eq("prospect_id", id)
+      .order("created_at", { ascending: false })
+      .limit(10),
   ]);
 
   const linkedClient = client as Pick<Client, "id" | "name"> | null;
   const linkedProject = project as Pick<Project, "id" | "name" | "slug" | "status" | "last_reviewed_revision_id"> | null;
   const latestPackage = ((outreachPackages ?? [])[0] ?? null) as ProspectOutreachPackage | null;
+  const sendHistory = (sends ?? []) as OutreachSend[];
+  const latestSend = sendHistory[0] ?? null;
 
   const [{ data: jobs }, { data: quotes }, { data: screenshots }] = await Promise.all([
     linkedProject
@@ -92,6 +102,10 @@ export default async function ProspectDetailPage({
     quoteReady: !!latestQuote,
     outreachPackageReady: !!latestPackage,
   };
+  const sendReadiness = getProspectSendReadiness({
+    prospect: p,
+    outreachPackage: latestPackage,
+  });
 
   return (
     <>
@@ -125,8 +139,12 @@ export default async function ProspectDetailPage({
             <div><strong>Source:</strong> {p.source ?? "Manual"}</div>
             <div><strong>Campaign:</strong> {p.campaign ?? "None"}</div>
             <div><strong>Outreach Summary:</strong> {p.outreach_summary ?? "Not generated yet"}</div>
+            <div><strong>Outreach Status:</strong> {p.outreach_status ?? "draft"}</div>
             <div><strong>Notes:</strong> {p.notes ?? "None"}</div>
             <div><strong>Automation Level:</strong> {automationLevel}</div>
+            <div><strong>Last Sent:</strong> {p.last_outreach_sent_at ? new Date(p.last_outreach_sent_at).toLocaleString("en-US") : "Never"}</div>
+            <div><strong>Next Follow-up Due:</strong> {p.next_follow_up_due_at ? new Date(p.next_follow_up_due_at).toLocaleDateString("en-US") : "Not scheduled"}</div>
+            <div><strong>Follow-up Count:</strong> {p.follow_up_count ?? 0}</div>
             {automationBlockedReason && (
               <div><strong>Automation Note:</strong> {automationBlockedReason}</div>
             )}
@@ -190,7 +208,17 @@ export default async function ProspectDetailPage({
             <div><strong>Screenshots:</strong> {readiness.screenshotsReady ? "ready" : "pending"}</div>
             <div><strong>Quote:</strong> {readiness.quoteReady ? "ready" : "pending"}</div>
             <div><strong>Outreach Package:</strong> {readiness.outreachPackageReady ? "ready" : "pending"}</div>
+            <div><strong>Send Readiness:</strong> {sendReadiness.ready ? "ready" : "blocked"}</div>
           </div>
+          {!sendReadiness.ready && (
+            <div style={{ marginTop: "0.75rem" }}>
+              {sendReadiness.issues.map((issue) => (
+                <p key={issue} className="text-sm" style={{ color: "var(--color-warning)" }}>
+                  {issue}
+                </p>
+              ))}
+            </div>
+          )}
         </div>
       </div>
 
@@ -219,9 +247,45 @@ export default async function ProspectDetailPage({
                     : "No review screenshots available yet"}
                 </p>
               </div>
+              <div>
+                <strong>Send Readiness</strong>
+                <p className="text-sm text-muted">
+                  {sendReadiness.ready ? "Subject, body, project, and recipient are ready." : sendReadiness.issues.join(" ")}
+                </p>
+              </div>
             </div>
           ) : (
             <p className="text-sm text-muted">Generate an outreach package to prepare the offer summary and email draft.</p>
+          )}
+        </div>
+      </div>
+
+      <div className="section">
+        <div className="card" data-testid="prospect-send-history">
+          <h2 style={{ fontSize: "1rem", fontWeight: 600, marginBottom: "0.75rem" }}>Outreach History</h2>
+          {latestSend && (
+            <p className="text-sm text-muted" style={{ marginBottom: "0.75rem" }}>
+              Latest send: {latestSend.status} to {latestSend.recipient_email} on {new Date(latestSend.created_at).toLocaleString("en-US")}
+            </p>
+          )}
+          {sendHistory.length === 0 ? (
+            <p className="text-sm text-muted">No outreach has been sent yet.</p>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+              {sendHistory.map((send) => (
+                <div key={send.id} style={{ borderBottom: "1px solid var(--color-border)", paddingBottom: "0.75rem" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", gap: "0.75rem", flexWrap: "wrap" }}>
+                    <strong>{send.status}</strong>
+                    <span className="text-sm text-muted">{new Date(send.created_at).toLocaleString("en-US")}</span>
+                  </div>
+                  <p className="text-sm text-muted">{send.recipient_email}</p>
+                  <p className="text-sm text-muted">{send.subject}</p>
+                  {send.error_message && (
+                    <p className="text-sm" style={{ color: "var(--color-error)" }}>{send.error_message}</p>
+                  )}
+                </div>
+              ))}
+            </div>
           )}
         </div>
       </div>

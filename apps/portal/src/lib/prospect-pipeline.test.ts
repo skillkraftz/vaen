@@ -44,7 +44,9 @@ describe("prospect schema", () => {
     expect(source).toContain("export interface ProspectSiteAnalysis");
     expect(source).toContain("export type ProspectAutomationLevel");
     expect(source).toContain("export interface ProspectOutreachPackage");
+    expect(source).toContain("export interface OutreachSend");
     expect(source).toContain('status: "new" | "researching" | "analyzed" | "ready_for_outreach" | "converted" | "disqualified"');
+    expect(source).toContain('outreach_status?: "draft" | "ready" | "sent" | "followup_due" | "replied" | "do_not_contact"');
   });
 });
 
@@ -166,7 +168,7 @@ describe("prospect outreach helpers", () => {
 });
 
 describe("prospect actions and ui", () => {
-  it("exports create, analyze, convert, automation, and email prep actions", () => {
+  it("exports create, analyze, convert, automation, outreach package, and send actions", () => {
     const actionsPath = join(__dirname, "../app/dashboard/prospects/actions.ts");
     const source = readFileSync(actionsPath, "utf-8");
     expect(source).toContain("export async function createProspectAction");
@@ -175,11 +177,13 @@ describe("prospect actions and ui", () => {
     expect(source).toContain("export async function continueProspectAutomationAction");
     expect(source).toContain("export async function generateOutreachPackageAction");
     expect(source).toContain("export async function prepareProspectEmailDraftAction");
+    expect(source).toContain("export async function sendProspectOutreachAction");
     expect(source).toContain("analyzeProspectWebsite");
     expect(source).toContain("createRevisionAndSetCurrent");
     expect(source).toContain("processIntakeAction");
     expect(source).toContain("generateSiteAction");
     expect(source).toContain("runReviewAction");
+    expect(source).toContain("sendEmailViaResend");
   });
 
   it("conversion reuses client/project models and records source_prospect_id", () => {
@@ -206,6 +210,22 @@ describe("prospect actions and ui", () => {
     expect(source).toContain("Generate job dispatched. Review automation is waiting for site generation to complete.");
   });
 
+  it("uses the outreach package as the send source of truth and records send history", () => {
+    const actionsPath = join(__dirname, "../app/dashboard/prospects/actions.ts");
+    const source = readFileSync(actionsPath, "utf-8");
+    const sendFn = source.slice(
+      source.indexOf("export async function sendProspectOutreachAction"),
+    );
+    expect(sendFn).toContain('from("prospect_outreach_packages")');
+    expect(sendFn).toContain('from("outreach_sends")');
+    expect(sendFn).toContain("getProspectSendReadiness");
+    expect(sendFn).toContain("isDuplicateSendBlocked");
+    expect(sendFn).toContain('status: "blocked"');
+    expect(sendFn).toContain('status: "sent"');
+    expect(sendFn).toContain('outreach_status: "sent"');
+    expect(sendFn).toContain("computeNextFollowUpDate");
+  });
+
   it("adds a dedicated prospects area in the dashboard", () => {
     const dashboardPath = join(__dirname, "../app/dashboard/page.tsx");
     const layoutPath = join(__dirname, "../app/dashboard/layout.tsx");
@@ -222,7 +242,7 @@ describe("prospect actions and ui", () => {
     expect(newProspectSource).toContain("ProspectForm");
   });
 
-  it("renders prospect detail actions, readiness, and outreach package panels", () => {
+  it("renders prospect detail actions, readiness, outreach package, and send history panels", () => {
     const detailPath = join(__dirname, "../app/dashboard/prospects/[id]/page.tsx");
     const actionsUiPath = join(__dirname, "../app/dashboard/prospects/prospect-detail-actions.tsx");
     const detailSource = readFileSync(detailPath, "utf-8");
@@ -231,6 +251,7 @@ describe("prospect actions and ui", () => {
     expect(detailSource).toContain('data-testid="prospect-analysis-panel"');
     expect(detailSource).toContain('data-testid="prospect-readiness-panel"');
     expect(detailSource).toContain('data-testid="prospect-outreach-package"');
+    expect(detailSource).toContain('data-testid="prospect-send-history"');
     expect(detailSource).toContain('data-testid="prospect-email-subject"');
     expect(detailSource).toContain('data-testid="prospect-email-body"');
     expect(actionsSource).toContain('data-testid="prospect-actions"');
@@ -239,5 +260,8 @@ describe("prospect actions and ui", () => {
     expect(actionsSource).toContain('data-testid="prospect-automation-level"');
     expect(actionsSource).toContain('data-testid="prospect-continue-automation-button"');
     expect(actionsSource).toContain('data-testid="prospect-generate-package-button"');
+    expect(actionsSource).toContain('data-testid="prospect-preview-email-button"');
+    expect(actionsSource).toContain('data-testid="prospect-send-confirm"');
+    expect(actionsSource).toContain('data-testid="prospect-send-button"');
   });
 });

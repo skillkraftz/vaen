@@ -14,7 +14,15 @@ import {
   buildOutreachPackageRecord,
 } from "@/lib/prospect-outreach";
 import { calculateQuoteTotals } from "@/lib/quote-helpers";
+import {
+  buildOutreachSendBody,
+  computeNextFollowUpDate,
+  getProspectSendReadiness,
+  isDuplicateSendBlocked,
+} from "@/lib/outreach-execution";
+import { sendEmailViaResend } from "@/lib/resend";
 import type {
+  OutreachSend,
   Prospect,
   ProspectAutomationLevel,
   ProspectOutreachPackage,
@@ -612,6 +620,7 @@ export async function generateOutreachPackageAction(
     .from("prospects")
     .update({
       outreach_summary: packageRecord.offerSummary,
+      outreach_status: "ready",
       metadata: {
         ...(p.metadata ?? {}),
         latest_outreach_package_id: createdPackage.id,
@@ -662,4 +671,162 @@ export async function prepareProspectEmailDraftAction(
       ? resendReady.attachment_paths.filter((item): item is string => typeof item === "string")
       : [],
   };
+}
+
+export async function sendProspectOutreachAction(
+  prospectId: string,
+  options?: { confirm?: boolean },
+): Promise<{ error?: string; sendId?: string }> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated" };
+  if (!options?.confirm) return { error: "Send confirmation is required." };
+
+  const [{ data: prospect }, { data: packages }] = await Promise.all([
+    supabase.from("prospects").select("*").eq("id", prospectId).single(),
+    supabase
+      .from("prospect_outreach_packages")
+      .select("*")
+      .eq("prospect_id", prospectId)
+      .order("created_at", { ascending: false })
+      .limit(1),
+  ]);
+
+  if (!prospect) return { error: "Prospect not found." };
+  const p = prospect as Prospect;
+  const latestPackage = ((packages ?? [])[0] ?? null) as ProspectOutreachPackage | null;
+
+  const readiness = getProspectSendReadiness({
+    prospect: p,
+    outreachPackage: latestPackage,
+  });
+  if (!readiness.ready) {
+    return { error: readiness.issues.join(" ") };
+  }
+
+  const priorSends = (
+    await supabase
+      .from("outreach_sends")
+      .select("*")
+      .eq("prospect_id", prospectId)
+      .order("created_at", { ascending: false })
+      .limit(10)
+  ).data ?? [];
+
+  const blocked = isDuplicateSendBlocked({
+    sends: priorSends as OutreachSend[],
+    recipientEmail: p.contact_email!,
+    subject: latestPackage!.email_subject!,
+  });
+
+  if (blocked) {
+    const { data: blockedRow } = await supabase
+      .from("outreach_sends")
+      .insert({
+        prospect_id: p.id,
+        outreach_package_id: latestPackage!.id,
+        client_id: p.converted_client_id,
+        project_id: p.converted_project_id,
+        recipient_email: p.contact_email!,
+        subject: latestPackage!.email_subject!,
+        body: latestPackage!.email_body!,
+        attachment_links: [],
+        status: "blocked",
+        provider: "resend",
+        error_message: "Blocked duplicate send within the safety window.",
+      })
+      .select("id")
+      .single();
+
+    return { error: "A matching outreach email was already sent recently.", sendId: blockedRow?.id };
+  }
+
+  const projectUrl = p.converted_project_id
+    ? `${(process.env.NEXT_PUBLIC_PORTAL_URL ?? "http://localhost:3100").replace(/\/+$/, "")}/dashboard/projects/${p.converted_project_id}`
+    : null;
+
+  const attachmentPaths = await prepareProspectEmailDraftAction(prospectId);
+  if (attachmentPaths.error) return { error: attachmentPaths.error };
+
+  const screenshotLinks: string[] = [];
+  for (const storagePath of attachmentPaths.attachmentPaths ?? []) {
+    const { data } = await supabase.storage
+      .from("review-screenshots")
+      .createSignedUrl(storagePath, 7 * 24 * 60 * 60);
+    if (data?.signedUrl) screenshotLinks.push(data.signedUrl);
+  }
+
+  const sendBody = buildOutreachSendBody({
+    body: latestPackage!.email_body!,
+    projectUrl,
+    screenshotLinks,
+  });
+
+  const { data: sendRow, error: sendInsertError } = await supabase
+    .from("outreach_sends")
+    .insert({
+      prospect_id: p.id,
+      outreach_package_id: latestPackage!.id,
+      client_id: p.converted_client_id,
+      project_id: p.converted_project_id,
+      recipient_email: p.contact_email!,
+      subject: latestPackage!.email_subject!,
+      body: sendBody,
+      attachment_links: screenshotLinks,
+      status: "pending",
+      provider: "resend",
+    })
+    .select("id")
+    .single();
+
+  if (sendInsertError || !sendRow) {
+    return { error: sendInsertError?.message ?? "Failed to create outreach send record." };
+  }
+
+  const resendResult = await sendEmailViaResend({
+    to: p.contact_email!,
+    subject: latestPackage!.email_subject!,
+    text: sendBody,
+  });
+
+  const sentAt = new Date();
+  if (!resendResult.ok) {
+    await supabase
+      .from("outreach_sends")
+      .update({
+        status: "failed",
+        error_message: resendResult.error ?? "Unknown Resend error.",
+      })
+      .eq("id", sendRow.id);
+
+    return { error: resendResult.error ?? "Failed to send outreach email.", sendId: sendRow.id };
+  }
+
+  await supabase
+    .from("outreach_sends")
+    .update({
+      status: "sent",
+      provider_message_id: resendResult.messageId ?? null,
+      sent_at: sentAt.toISOString(),
+    })
+    .eq("id", sendRow.id);
+
+  await supabase
+    .from("prospects")
+    .update({
+      outreach_status: "sent",
+      last_outreach_sent_at: sentAt.toISOString(),
+      next_follow_up_due_at: computeNextFollowUpDate(sentAt, p.follow_up_count ?? 0),
+      follow_up_count: (p.follow_up_count ?? 0) + 1,
+      metadata: {
+        ...(p.metadata ?? {}),
+        latest_outreach_send_id: sendRow.id,
+      },
+    })
+    .eq("id", p.id);
+
+  revalidatePath("/dashboard");
+  revalidatePath("/dashboard/prospects");
+  revalidatePath(`/dashboard/prospects/${prospectId}`);
+  return { sendId: sendRow.id };
 }

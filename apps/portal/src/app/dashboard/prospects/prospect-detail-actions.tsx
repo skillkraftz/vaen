@@ -7,6 +7,8 @@ import {
   continueProspectAutomationAction,
   convertProspectAction,
   generateOutreachPackageAction,
+  prepareProspectEmailDraftAction,
+  sendProspectOutreachAction,
 } from "./actions";
 import { PROSPECT_AUTOMATION_LEVELS } from "@/lib/prospect-outreach";
 import type { Prospect, ProspectAutomationLevel } from "@/lib/types";
@@ -24,6 +26,7 @@ export function ProspectDetailActions({
       : "process_intake";
   })();
   const [automationLevel, setAutomationLevel] = useState<ProspectAutomationLevel>(initialLevel);
+  const [confirmSend, setConfirmSend] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
@@ -71,6 +74,31 @@ export function ProspectDetailActions({
         setError(result.error);
         return;
       }
+      router.refresh();
+    });
+  }
+
+  function previewEmailDraft() {
+    setError(null);
+    startTransition(async () => {
+      const result = await prepareProspectEmailDraftAction(prospect.id);
+      if (result.error) {
+        setError(result.error);
+        return;
+      }
+      router.refresh();
+    });
+  }
+
+  function sendNow() {
+    setError(null);
+    startTransition(async () => {
+      const result = await sendProspectOutreachAction(prospect.id, { confirm: confirmSend });
+      if (result.error) {
+        setError(result.error);
+        return;
+      }
+      setConfirmSend(false);
       router.refresh();
     });
   }
@@ -132,6 +160,35 @@ export function ProspectDetailActions({
           data-testid="prospect-generate-package-button"
         >
           {isPending ? "Preparing..." : "Generate Outreach Package"}
+        </button>
+        <button
+          type="button"
+          className="btn btn-sm"
+          onClick={previewEmailDraft}
+          disabled={isPending}
+          data-testid="prospect-preview-email-button"
+        >
+          {isPending ? "Preparing..." : "Prepare Email Draft"}
+        </button>
+      </div>
+      <label style={{ display: "flex", gap: "0.5rem", alignItems: "center", marginTop: "0.75rem" }}>
+        <input
+          type="checkbox"
+          checked={confirmSend}
+          onChange={(e) => setConfirmSend(e.target.checked)}
+          data-testid="prospect-send-confirm"
+        />
+        Confirm outbound send to the current contact email
+      </label>
+      <div style={{ marginTop: "0.75rem" }}>
+        <button
+          type="button"
+          className="btn btn-sm btn-primary"
+          onClick={sendNow}
+          disabled={isPending || !confirmSend}
+          data-testid="prospect-send-button"
+        >
+          {isPending ? "Sending..." : "Send Outreach Email"}
         </button>
       </div>
       {error && (

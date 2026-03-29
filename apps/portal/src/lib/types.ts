@@ -160,6 +160,10 @@ export interface Prospect {
   source: string | null;
   campaign: string | null;
   outreach_summary: string | null;
+  outreach_status?: "draft" | "ready" | "sent" | "followup_due" | "replied" | "do_not_contact";
+  last_outreach_sent_at?: string | null;
+  next_follow_up_due_at?: string | null;
+  follow_up_count?: number;
   metadata: Record<string, unknown>;
   converted_client_id: string | null;
   converted_project_id: string | null;
@@ -202,6 +206,24 @@ export interface ProspectOutreachPackage {
   email_body: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface OutreachSend {
+  id: string;
+  prospect_id: string;
+  outreach_package_id: string | null;
+  client_id: string | null;
+  project_id: string | null;
+  recipient_email: string;
+  subject: string;
+  body: string;
+  attachment_links: string[];
+  status: "pending" | "sent" | "failed" | "blocked";
+  provider: "resend";
+  provider_message_id: string | null;
+  error_message: string | null;
+  sent_at: string | null;
+  created_at: string;
 }
 
 export interface Quote {
