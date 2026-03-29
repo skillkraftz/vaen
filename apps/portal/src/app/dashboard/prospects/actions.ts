@@ -26,6 +26,7 @@ import type {
 } from "@/lib/types";
 import { readProspectSequenceState } from "@/lib/campaign-sequences";
 import { buildCampaignSequenceState, buildPausedSequenceState } from "@/lib/sequence-execution";
+import { createContinuationRequest, resolveContinuationRequest, listContinuationRequests, isContinuationEligible } from "@/lib/continuation-helpers";
 import { asNullableString, buildInitialRequestSnapshot } from "../new/client-intake-helpers";
 import { createRevisionAndSetCurrent } from "../projects/[id]/project-revision-helpers";
 import {
@@ -192,6 +193,24 @@ async function runProspectAutomationLevel(params: {
   }
 
   blockedReason = "Generate job dispatched. Review automation is waiting for site generation to complete.";
+
+  // Create continuation request so the operator sees an actionable item after generate completes
+  const { data: { user: currentUser } } = await supabase.auth.getUser();
+  if (currentUser) {
+    await createContinuationRequest(supabase, {
+      prospectId: params.prospect.id,
+      projectId: params.projectId,
+      campaignId: params.prospect.campaign_id ?? null,
+      userId: currentUser.id,
+      requestType: "pending_review",
+      context: {
+        automation_level: params.level,
+        generate_job_id: latestJobId,
+        created_reason: "review_site automation blocked by in-progress generation",
+      },
+    });
+  }
+
   return { progress, blockedReason, latestJobId };
 }
 
@@ -505,6 +524,75 @@ export async function continueProspectAutomationAction(
   revalidatePath("/dashboard/prospects");
   revalidatePath(`/dashboard/prospects/${prospectId}`);
   return { latestJobId: automation.latestJobId };
+}
+
+export async function continuePendingReviewAction(
+  continuationRequestId: string,
+): Promise<{ error?: string; jobId?: string }> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated" };
+
+  const requests = await listContinuationRequests(supabase, { status: "pending" });
+  const request = requests.find((r) => r.id === continuationRequestId);
+  if (!request) return { error: "Continuation request not found or already resolved." };
+
+  const { data: project } = await supabase
+    .from("projects")
+    .select("status")
+    .eq("id", request.project_id)
+    .single();
+
+  if (!project) return { error: "Linked project not found." };
+
+  if (!isContinuationEligible(project.status, request.request_type)) {
+    // Mark as blocked if the project can't continue
+    if (project.status === "build_failed") {
+      await resolveContinuationRequest(supabase, {
+        requestId: request.id,
+        status: "blocked",
+        resolvedBy: user.id,
+        resolutionNote: `Build failed. Project status: ${project.status}`,
+      });
+      return { error: `Cannot continue: project build failed.` };
+    }
+    return { error: `Project is not ready for review yet (status: ${project.status}).` };
+  }
+
+  const reviewResult = await runReviewAction(request.project_id);
+  if (reviewResult.error) {
+    return { error: reviewResult.error };
+  }
+
+  await resolveContinuationRequest(supabase, {
+    requestId: request.id,
+    status: "completed",
+    resolvedBy: user.id,
+    resolutionNote: `Review job dispatched: ${reviewResult.jobId ?? "unknown"}`,
+  });
+
+  // Update prospect automation metadata
+  const { data: prospect } = await supabase
+    .from("prospects")
+    .select("*")
+    .eq("id", request.prospect_id)
+    .single();
+
+  if (prospect) {
+    const p = prospect as Prospect;
+    await updateProspectAutomationMetadata(supabase, p, {
+      automation_blocked_reason: null,
+      automation_latest_job_id: reviewResult.jobId,
+    });
+  }
+
+  revalidatePath("/dashboard");
+  revalidatePath("/dashboard/prospects");
+  revalidatePath(`/dashboard/prospects/${request.prospect_id}`);
+  if (request.campaign_id) {
+    revalidatePath(`/dashboard/campaigns/${request.campaign_id}`);
+  }
+  return { jobId: reviewResult.jobId };
 }
 
 export async function pauseProspectSequenceAction(

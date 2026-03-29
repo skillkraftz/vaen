@@ -1,9 +1,10 @@
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getLockedCampaignStepCounts } from "@/lib/campaign-sequences";
-import type { ApprovalRequest, Campaign, CampaignSequenceStep, Prospect, ProspectOutreachPackage } from "@/lib/types";
+import type { ApprovalRequest, Campaign, CampaignSequenceStep, ContinuationRequest, Prospect, ProspectOutreachPackage } from "@/lib/types";
 import { CampaignDetailManager } from "./campaign-detail-manager";
 import { listVisibleApprovalRequests } from "@/lib/approval-helpers";
+import { listContinuationRequests } from "@/lib/continuation-helpers";
 
 export default async function CampaignDetailPage({
   params,
@@ -58,6 +59,10 @@ export default async function CampaignDetailPage({
     (request) => request.context?.campaign_id === id,
   ) ?? null;
   const lockedStepCounts = Object.fromEntries(getLockedCampaignStepCounts(prospectItems).entries());
+  const pendingContinuations = await listContinuationRequests(supabase, {
+    campaignId: id,
+    status: "pending",
+  });
 
   return (
     <CampaignDetailManager
@@ -69,6 +74,7 @@ export default async function CampaignDetailPage({
       approvalRequest={latestApproval}
       sequenceSteps={(sequenceSteps ?? []) as CampaignSequenceStep[]}
       lockedStepCounts={lockedStepCounts}
+      pendingContinuations={pendingContinuations as ContinuationRequest[]}
     />
   );
 }

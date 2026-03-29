@@ -16,12 +16,14 @@ import type {
   ApprovalRequest,
   Campaign,
   CampaignSequenceStep,
+  ContinuationRequest,
   Prospect,
   ProspectOutreachPackage,
 } from "@/lib/types";
 import {
   advanceDueFollowUpsAction,
   batchAnalyzeCampaignProspectsAction,
+  batchContinuePendingReviewsAction,
   batchConvertCampaignProspectsAction,
   batchGenerateCampaignPackagesAction,
   batchRunCampaignAutomationAction,
@@ -51,12 +53,14 @@ export function CampaignDetailManager({
   approvalRequest,
   sequenceSteps,
   lockedStepCounts,
+  pendingContinuations,
 }: {
   campaign: Campaign;
   rows: CampaignProspectRow[];
   approvalRequest: ApprovalRequest | null;
   sequenceSteps: CampaignSequenceStep[];
   lockedStepCounts: Record<number, number>;
+  pendingContinuations: ContinuationRequest[];
 }) {
   const router = useRouter();
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -227,6 +231,20 @@ export function CampaignDetailManager({
     setNotice(null);
     startTransition(async () => {
       const result = await advanceDueFollowUpsAction(campaign.id);
+      if (result.error) {
+        setError(result.error);
+        return;
+      }
+      setBatchResult(result);
+      router.refresh();
+    });
+  }
+
+  function continuePendingReviews() {
+    setError(null);
+    setNotice(null);
+    startTransition(async () => {
+      const result = await batchContinuePendingReviewsAction(campaign.id);
       if (result.error) {
         setError(result.error);
         return;
@@ -515,6 +533,33 @@ export function CampaignDetailManager({
           </div>
         )}
       </div>
+
+      {pendingContinuations.length > 0 && (
+        <div
+          className="card"
+          style={{ marginBottom: "1rem", borderLeft: "3px solid var(--color-warning, #e68a00)" }}
+          data-testid="campaign-continuation-panel"
+        >
+          <div className="section-header" style={{ marginBottom: "0.75rem" }}>
+            <div>
+              <h2 style={{ fontSize: "1rem", fontWeight: 600 }}>Pending Continuations</h2>
+              <p className="text-sm text-muted">
+                {pendingContinuations.length} prospect{pendingContinuations.length === 1 ? "" : "s"} waiting
+                for review after generation. Continue when ready.
+              </p>
+            </div>
+            <button
+              type="button"
+              className="btn btn-sm btn-primary"
+              onClick={continuePendingReviews}
+              disabled={isPending || pendingContinuations.length === 0}
+              data-testid="campaign-continue-reviews-button"
+            >
+              {isPending ? "Continuing..." : `Continue Pending Reviews (${pendingContinuations.length})`}
+            </button>
+          </div>
+        </div>
+      )}
 
       <div className="card" style={{ marginBottom: "1rem" }} data-testid="campaign-batch-actions">
         <p className="text-sm text-muted" style={{ marginBottom: "0.75rem" }}>

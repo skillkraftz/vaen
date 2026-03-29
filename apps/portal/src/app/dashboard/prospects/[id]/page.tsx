@@ -18,6 +18,9 @@ import { getProspectSendReadiness } from "@/lib/outreach-execution";
 import { getOutreachConfigReadiness } from "@/lib/outreach-config";
 import { readProspectSequenceState } from "@/lib/campaign-sequences";
 import { getCurrentCampaignStep, getSequencePauseReason } from "@/lib/sequence-execution";
+import { listContinuationRequests, isContinuationEligible, getContinuationBlockedReason } from "@/lib/continuation-helpers";
+import type { ContinuationRequest } from "@/lib/types";
+import { ProspectContinuationPanel } from "../prospect-continuation-panel";
 
 function formatProspectStatus(status: Prospect["status"]) {
   return status.replaceAll("_", " ");
@@ -130,6 +133,17 @@ export default async function ProspectDetailPage({
     sequenceState,
   });
 
+  const continuationRequests = await listContinuationRequests(supabase, {
+    prospectId: id,
+  }) as ContinuationRequest[];
+
+  const pendingContinuations = continuationRequests.filter((r) => r.status === "pending");
+  const continuationItems = pendingContinuations.map((r) => ({
+    request: r,
+    eligible: linkedProject ? isContinuationEligible(linkedProject.status, r.request_type) : false,
+    blockedReason: linkedProject ? getContinuationBlockedReason(linkedProject.status, r.request_type) : "No linked project.",
+  }));
+
   return (
     <>
       <div style={{ marginBottom: "0.75rem" }}>
@@ -151,6 +165,12 @@ export default async function ProspectDetailPage({
 
         <ProspectDetailActions prospect={p} />
       </div>
+
+      {continuationItems.length > 0 && (
+        <div className="section">
+          <ProspectContinuationPanel items={continuationItems} />
+        </div>
+      )}
 
       <div className="section">
         <div className="card">

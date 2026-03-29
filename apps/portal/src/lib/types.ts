@@ -348,3 +348,22 @@ export interface Contract {
   metadata: Record<string, unknown>;
   created_at: string;
 }
+
+export type ContinuationRequestType = "pending_review";
+export type ContinuationRequestStatus = "pending" | "completed" | "cancelled" | "blocked";
+
+export interface ContinuationRequest {
+  id: string;
+  prospect_id: string;
+  project_id: string;
+  campaign_id: string | null;
+  user_id: string;
+  request_type: ContinuationRequestType;
+  status: ContinuationRequestStatus;
+  context: Record<string, unknown>;
+  resolved_at: string | null;
+  resolved_by: string | null;
+  resolution_note: string | null;
+  created_at: string;
+  updated_at: string;
+}

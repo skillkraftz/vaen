@@ -23,16 +23,18 @@ import {
   getSequencePauseReason,
   renderSequenceTemplate,
 } from "@/lib/sequence-execution";
-import type { Campaign, CampaignSequenceStep, Prospect, ProspectOutreachPackage } from "@/lib/types";
+import type { Campaign, CampaignSequenceStep, ContinuationRequest, Prospect, ProspectOutreachPackage } from "@/lib/types";
 import {
   analyzeProspectAction,
   continueProspectAutomationAction,
+  continuePendingReviewAction,
   convertProspectAction,
   generateOutreachPackageAction,
   sendProspectOutreachAction,
 } from "../prospects/actions";
 import type { ProspectAutomationLevel } from "@/lib/types";
 import { executeProspectOutreachSend } from "../prospects/prospect-send-helpers";
+import { listContinuationRequests, isContinuationEligible } from "@/lib/continuation-helpers";
 
 async function requireCampaignOwner(
   supabase: Awaited<ReturnType<typeof createClient>>,
@@ -1042,6 +1044,101 @@ export async function batchSendCampaignOutreachAction(params: {
       sent: results.filter((result) => result.status === "sent").length,
       blocked: results.filter((result) => result.status === "blocked").length,
       failed: results.filter((result) => result.status === "failed").length,
+    },
+    results,
+  };
+}
+
+export async function listCampaignContinuationRequestsAction(
+  campaignId: string,
+): Promise<{ requests: ContinuationRequest[]; error?: string }> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { requests: [], error: "Not authenticated" };
+
+  const requests = await listContinuationRequests(supabase, {
+    campaignId,
+    status: "pending",
+  });
+
+  return { requests };
+}
+
+export async function batchContinuePendingReviewsAction(
+  campaignId: string,
+): Promise<{
+  summary: { succeeded: number; skipped: number; failed: number };
+  results: Array<{ prospectId: string; status: string; message: string }>;
+  error?: string;
+}> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { summary: { succeeded: 0, skipped: 0, failed: 0 }, results: [], error: "Not authenticated" };
+
+  const campaign = await requireCampaignOwner(supabase, campaignId, user.id);
+  if (!campaign) return { summary: { succeeded: 0, skipped: 0, failed: 0 }, results: [], error: "Campaign not found." };
+
+  const pendingRequests = await listContinuationRequests(supabase, {
+    campaignId,
+    status: "pending",
+  });
+
+  if (pendingRequests.length === 0) {
+    return {
+      summary: { succeeded: 0, skipped: 0, failed: 0 },
+      results: [],
+    };
+  }
+
+  // Check eligibility for each by loading project status
+  const projectIds = [...new Set(pendingRequests.map((r) => r.project_id))];
+  const { data: projects } = await supabase
+    .from("projects")
+    .select("id, status")
+    .in("id", projectIds);
+
+  const projectStatusMap = new Map(
+    ((projects ?? []) as Array<{ id: string; status: string }>).map((p) => [p.id, p.status]),
+  );
+
+  const results: Array<{ prospectId: string; status: string; message: string }> = [];
+
+  for (const request of pendingRequests) {
+    const projectStatus = projectStatusMap.get(request.project_id);
+    if (!projectStatus) {
+      results.push({ prospectId: request.prospect_id, status: "skipped", message: "Project not found." });
+      continue;
+    }
+
+    if (!isContinuationEligible(projectStatus, request.request_type)) {
+      results.push({
+        prospectId: request.prospect_id,
+        status: "skipped",
+        message: `Not eligible yet (project status: ${projectStatus}).`,
+      });
+      continue;
+    }
+
+    const result = await continuePendingReviewAction(request.id);
+    if (result.error) {
+      results.push({ prospectId: request.prospect_id, status: "failed", message: result.error });
+    } else {
+      results.push({
+        prospectId: request.prospect_id,
+        status: "succeeded",
+        message: `Review dispatched (job: ${result.jobId ?? "unknown"}).`,
+      });
+    }
+  }
+
+  revalidatePath(`/dashboard/campaigns/${campaignId}`);
+  revalidatePath("/dashboard/prospects");
+
+  return {
+    summary: {
+      succeeded: results.filter((r) => r.status === "succeeded").length,
+      skipped: results.filter((r) => r.status === "skipped").length,
+      failed: results.filter((r) => r.status === "failed").length,
     },
     results,
   };
