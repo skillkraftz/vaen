@@ -134,6 +134,17 @@ export interface PackagePricing {
   updated_at: string;
 }
 
+export interface PricingChangeEvent {
+  id: string;
+  pricing_item_id: string;
+  changed_by: string;
+  changed_by_email: string | null;
+  previous_values: Record<string, unknown>;
+  next_values: Record<string, unknown>;
+  change_reason: string | null;
+  created_at: string;
+}
+
 export interface Quote {
   id: string;
   project_id: string;

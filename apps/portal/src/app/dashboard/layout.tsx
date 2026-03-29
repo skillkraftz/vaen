@@ -30,6 +30,9 @@ export default async function DashboardLayout({
           vaen.space
         </Link>
         <nav className="header-nav">
+          <Link href="/dashboard/settings/pricing" className="text-sm text-muted">
+            Pricing
+          </Link>
           <span className="header-email">{user.email}</span>
           <form action={signOut}>
             <button type="submit" className="btn btn-sm">

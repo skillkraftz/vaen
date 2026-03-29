@@ -62,13 +62,16 @@ export function buildQuoteLineDrafts(params: {
 
   params.selectedModules.forEach((module, index) => {
     const pricing = pricingById.get(module.id);
+    if (!pricing) {
+      throw new Error(`Missing active pricing for module "${module.id}".`);
+    }
     lines.push({
       line_type: "module",
       reference_id: module.id,
-      label: pricing?.label ?? module.id,
-      description: pricing?.description ?? null,
-      setup_price_cents: pricing?.setup_price_cents ?? 0,
-      recurring_price_cents: pricing?.recurring_price_cents ?? 0,
+      label: pricing.label,
+      description: pricing.description ?? null,
+      setup_price_cents: pricing.setup_price_cents,
+      recurring_price_cents: pricing.recurring_price_cents,
       quantity: 1,
       sort_order: index + 1,
     });

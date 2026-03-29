@@ -45,6 +45,17 @@ describe("quote actions and UI", () => {
     expect(createFn).toContain("buildQuoteLineDrafts");
   });
 
+  it("future quote creation depends on active pricing defaults, without mutating old quotes", () => {
+    const helperPath = join(__dirname, "../app/dashboard/projects/[id]/project-quote-helpers.ts");
+    const actionsPath = join(__dirname, "../app/dashboard/settings/pricing/actions.ts");
+    const helperSource = readFileSync(helperPath, "utf-8");
+    const actionSource = readFileSync(actionsPath, "utf-8");
+    expect(helperSource).toContain('.eq("active", true)');
+    expect(helperSource).toContain('Missing active pricing for module');
+    expect(actionSource).not.toContain('.from("quotes").update');
+    expect(actionSource).not.toContain('.from("quote_lines").update');
+  });
+
   it("renders the quote section with stable selectors", () => {
     const sectionPath = join(__dirname, "../app/dashboard/projects/[id]/quote-section.tsx");
     const source = readFileSync(sectionPath, "utf-8");
