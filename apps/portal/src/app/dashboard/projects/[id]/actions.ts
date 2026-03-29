@@ -39,6 +39,7 @@ import {
   purgeGeneratedProjectDir,
   purgeProjectStorageAssets,
 } from "./project-lifecycle-helpers";
+import { allocateVariantIdentity } from "./project-variant-helpers";
 
 export type { ProjectDiagnostics } from "./project-diagnostics-types";
 
@@ -1699,6 +1700,112 @@ export async function setActiveRevisionAction(
 }
 
 // ── Project lifecycle operations ────────────────────────────────────
+
+export async function duplicateProjectAction(
+  projectId: string,
+  variantLabel?: string | null,
+): Promise<{ error?: string; projectId?: string }> {
+  const supabase = await createClient();
+
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated" };
+
+  const { data: project } = await supabase
+    .from("projects")
+    .select("*")
+    .eq("id", projectId)
+    .single();
+
+  if (!project) return { error: "Project not found" };
+
+  const sourceProject = project as Project;
+  const { draft, revisionId, error: draftError } = await loadCurrentDraft(supabase, projectId);
+  if (draftError) return { error: draftError };
+
+  const identity = await allocateVariantIdentity(supabase, {
+    id: sourceProject.id,
+    name: sourceProject.name,
+    slug: sourceProject.slug,
+    variant_of: sourceProject.variant_of,
+  }, variantLabel ?? null);
+
+  const { data: duplicatedProject, error: insertError } = await supabase
+    .from("projects")
+    .insert({
+      user_id: user.id,
+      client_id: sourceProject.client_id,
+      variant_of: identity.lineageRootId,
+      variant_label: identity.variantLabel,
+      name: identity.name,
+      slug: identity.slug,
+      status: "intake_draft_ready",
+      contact_name: sourceProject.contact_name,
+      contact_email: sourceProject.contact_email,
+      contact_phone: sourceProject.contact_phone,
+      business_type: sourceProject.business_type,
+      notes: sourceProject.notes,
+      client_summary: sourceProject.client_summary,
+      draft_request: draft,
+      missing_info: sourceProject.missing_info,
+      recommendations: sourceProject.recommendations,
+      final_request: null,
+      current_revision_id: null,
+      last_exported_revision_id: null,
+      last_generated_revision_id: null,
+      last_reviewed_revision_id: null,
+    })
+    .select("id, slug")
+    .single();
+
+  if (insertError || !duplicatedProject) {
+    return { error: insertError?.message ?? "Failed to duplicate project." };
+  }
+
+  const duplicatedRevisionId = await createRevisionAndSetCurrent(
+    supabase,
+    duplicatedProject.id,
+    "manual",
+    draft,
+    null,
+    `Duplicated from ${sourceProject.slug}`,
+  );
+
+  await supabase.from("project_events").insert([
+    {
+      project_id: sourceProject.id,
+      event_type: "project_variant_created",
+      from_status: sourceProject.status,
+      to_status: sourceProject.status,
+      metadata: {
+        created_project_id: duplicatedProject.id,
+        created_slug: duplicatedProject.slug,
+        variant_label: identity.variantLabel,
+        source_revision_id: revisionId,
+        triggered_by: user.id,
+      },
+    },
+    {
+      project_id: duplicatedProject.id,
+      event_type: "project_duplicated",
+      from_status: null,
+      to_status: "intake_draft_ready",
+      metadata: {
+        source_project_id: sourceProject.id,
+        source_slug: sourceProject.slug,
+        source_revision_id: revisionId,
+        variant_of: identity.lineageRootId,
+        variant_label: identity.variantLabel,
+        duplicated_revision_id: duplicatedRevisionId,
+        triggered_by: user.id,
+      },
+    },
+  ]);
+
+  revalidatePath("/dashboard");
+  revalidatePath(`/dashboard/projects/${projectId}`);
+  revalidatePath(`/dashboard/projects/${duplicatedProject.id}`);
+  return { projectId: duplicatedProject.id };
+}
 
 export async function archiveProjectAction(
   projectId: string,

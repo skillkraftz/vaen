@@ -86,6 +86,23 @@ export default async function ProjectDetailPage({
     client?: Pick<Client, "id" | "name" | "contact_name" | "contact_email" | "contact_phone" | "business_type"> | null;
   };
 
+  const lineageRootId = p.variant_of ?? p.id;
+
+  const [{ data: lineageRoot }, { data: lineageVariants }] = await Promise.all([
+    p.variant_of
+      ? supabase
+        .from("projects")
+        .select("id, name, slug")
+        .eq("id", p.variant_of)
+        .single()
+      : Promise.resolve({ data: null }),
+    supabase
+      .from("projects")
+      .select("id, name, slug, status, variant_label, archived_at")
+      .eq("variant_of", lineageRootId)
+      .order("created_at", { ascending: true }),
+  ]);
+
   const { data: assets } = await supabase
     .from("assets")
     .select("*")
@@ -141,6 +158,12 @@ export default async function ProjectDetailPage({
               Client: {p.client.name}
             </p>
           )}
+          {(p.variant_label || p.variant_of || (lineageVariants?.length ?? 0) > 0) && (
+            <p className="text-sm text-muted" style={{ fontSize: "0.8rem", marginTop: "0.2rem" }}>
+              {p.variant_label ? `Variant: ${p.variant_label}` : "Variant: Base"}
+              {lineageRoot?.name ? ` \u00b7 Base: ${lineageRoot.name}` : ""}
+            </p>
+          )}
           {p.archived_at && (
             <p className="text-sm text-muted" style={{ fontSize: "0.8rem", marginTop: "0.2rem" }}>
               Archived on {fmtDate(p.archived_at)}
@@ -166,6 +189,44 @@ export default async function ProjectDetailPage({
       <div className="section">
         <ProjectLifecyclePanel projectId={id} slug={p.slug} archived={p.archived_at != null} />
       </div>
+
+      {(p.variant_of || (lineageVariants?.length ?? 0) > 0) && (
+        <div className="section">
+          <div className="card" data-testid="project-variant-lineage">
+            <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+              <div>
+                <h2 style={{ fontSize: "1rem", fontWeight: 600, marginBottom: "0.25rem" }}>
+                  Variant Lineage
+                </h2>
+                <p className="text-sm text-muted">
+                  Variants share the same client and starting request snapshot, but continue independently after duplication.
+                </p>
+              </div>
+
+              {lineageRoot && (
+                <p className="text-sm text-muted">
+                  Base project: <Link href={`/dashboard/projects/${lineageRoot.id}`}>{lineageRoot.name}</Link>
+                </p>
+              )}
+
+              {(lineageVariants?.length ?? 0) > 0 && (
+                <div style={{ display: "flex", flexDirection: "column", gap: "0.35rem" }}>
+                  {lineageVariants!.map((variant) => (
+                    <Link
+                      key={variant.id}
+                      href={`/dashboard/projects/${variant.id}`}
+                      className="text-sm"
+                      data-testid={`variant-link-${variant.slug}`}
+                    >
+                      {(variant.variant_label ?? "Variant")}: {variant.name}
+                    </Link>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── Website Plan ────────────────────────────────────────── */}
       {(hasDraft || recommendations || missingInfo.length > 0) && (

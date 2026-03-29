@@ -18,6 +18,8 @@ export interface Project {
   id: string;
   user_id: string;
   client_id: string | null;
+  variant_of: string | null;
+  variant_label: string | null;
   name: string;
   slug: string;
   status: string;

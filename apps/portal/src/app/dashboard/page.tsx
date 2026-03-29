@@ -104,6 +104,11 @@ export default async function DashboardPage({
                   Client: {project.client.name}
                 </p>
               )}
+              {(project.variant_label || project.variant_of) && (
+                <p className="text-sm text-muted" style={{ marginTop: "0.2rem" }}>
+                  Variant: {project.variant_label ?? "Base"}
+                </p>
+              )}
             </Link>
           ))}
         </div>
@@ -158,6 +163,11 @@ export default async function DashboardPage({
                   {project.client?.name && (
                     <p className="text-sm text-muted" style={{ marginTop: "0.2rem" }}>
                       Client: {project.client.name}
+                    </p>
+                  )}
+                  {(project.variant_label || project.variant_of) && (
+                    <p className="text-sm text-muted" style={{ marginTop: "0.2rem" }}>
+                      Variant: {project.variant_label ?? "Base"}
                     </p>
                   )}
                 </Link>

@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
   archiveProjectAction,
+  duplicateProjectAction,
   purgeProjectAction,
   restoreProjectAction,
 } from "./actions";
@@ -21,6 +22,8 @@ export function ProjectLifecyclePanel({
   const [isPending, startTransition] = useTransition();
   const [purgeSlug, setPurgeSlug] = useState("");
   const [purgeOpen, setPurgeOpen] = useState(false);
+  const [duplicateOpen, setDuplicateOpen] = useState(false);
+  const [variantLabel, setVariantLabel] = useState("");
   const [error, setError] = useState<string | null>(null);
 
   function archive() {
@@ -50,6 +53,21 @@ export function ProjectLifecyclePanel({
     });
   }
 
+  function duplicate() {
+    setError(null);
+    startTransition(async () => {
+      const result = await duplicateProjectAction(projectId, variantLabel);
+      if (result.error) {
+        setError(result.error);
+        return;
+      }
+      if (result.projectId) {
+        router.push(`/dashboard/projects/${result.projectId}`);
+        router.refresh();
+      }
+    });
+  }
+
   return (
     <div className="card" data-testid="project-lifecycle-panel">
       <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
@@ -75,12 +93,57 @@ export function ProjectLifecyclePanel({
           <button
             type="button"
             className="btn btn-sm"
+            onClick={() => setDuplicateOpen((value) => !value)}
+            data-testid="project-duplicate-toggle"
+          >
+            {duplicateOpen ? "Cancel Duplicate" : "Duplicate Project"}
+          </button>
+          <button
+            type="button"
+            className="btn btn-sm"
             onClick={() => setPurgeOpen((value) => !value)}
             data-testid="project-purge-toggle"
           >
             {purgeOpen ? "Cancel Purge" : "Purge Project"}
           </button>
         </div>
+
+        {duplicateOpen && (
+          <div
+            style={{
+              border: "1px solid var(--color-border)",
+              borderRadius: "6px",
+              padding: "0.75rem",
+              display: "flex",
+              flexDirection: "column",
+              gap: "0.5rem",
+            }}
+          >
+            <p className="text-sm text-muted">
+              Create a new variant linked to the same client. The duplicate starts from the current request revision and resets export, build, review, and deploy state.
+            </p>
+            <label className="form-label" htmlFor="variantLabel">
+              Variant Label
+            </label>
+            <input
+              id="variantLabel"
+              className="form-input"
+              value={variantLabel}
+              onChange={(e) => setVariantLabel(e.target.value)}
+              placeholder="Package 1"
+              data-testid="project-duplicate-label"
+            />
+            <button
+              type="button"
+              className="btn btn-sm"
+              disabled={isPending}
+              onClick={duplicate}
+              data-testid="project-duplicate-confirm"
+            >
+              {isPending ? "Duplicating..." : "Create Variant"}
+            </button>
+          </div>
+        )}
 
         {purgeOpen && (
           <div
