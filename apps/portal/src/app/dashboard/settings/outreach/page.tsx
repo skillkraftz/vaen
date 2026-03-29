@@ -52,7 +52,7 @@ export default async function OutreachSettingsPage() {
 
       <div className="card" style={{ marginBottom: "1rem" }}>
         <h2 style={{ fontSize: "1rem", fontWeight: 600, marginBottom: "0.75rem" }}>Resolved Values</h2>
-        <div style={{ display: "grid", gap: "0.5rem" }}>
+        <div className="detail-grid">
           <div><strong>From email:</strong> {readiness.values.fromEmail ?? "Not configured"}</div>
           <div><strong>From name:</strong> {readiness.values.fromName}</div>
           <div><strong>Formatted sender:</strong> {readiness.values.fromAddress ?? "Not configured"}</div>

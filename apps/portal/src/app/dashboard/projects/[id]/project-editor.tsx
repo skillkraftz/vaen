@@ -106,14 +106,7 @@ function FieldTextarea({
 
   return (
     <div style={{ marginBottom: "1.5rem" }}>
-      <div
-        style={{
-          display: "flex",
-          alignItems: "baseline",
-          gap: "0.5rem",
-          marginBottom: "0.35rem",
-        }}
-      >
+      <div className="responsive-actions" style={{ alignItems: "baseline", marginBottom: "0.35rem" }}>
         <label
           style={{
             fontSize: "0.8rem",
@@ -140,14 +133,7 @@ function FieldTextarea({
         }}
       />
       {(dirty || status === "saved" || status === "error") && (
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: "0.5rem",
-            marginTop: "0.35rem",
-          }}
-        >
+        <div className="responsive-actions" style={{ marginTop: "0.35rem" }}>
           {dirty && (
             <button
               className="btn btn-sm btn-primary"
@@ -199,16 +185,8 @@ function FieldInput({
   }
 
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-      <label
-        style={{
-          fontSize: "0.8rem",
-          fontWeight: 500,
-          color: "var(--color-text-muted)",
-          minWidth: "90px",
-          flexShrink: 0,
-        }}
-      >
+    <div className="responsive-field-row">
+      <label className="responsive-field-row-label">
         {label}
       </label>
       <input
@@ -480,14 +458,7 @@ export function SummaryEditor({
         }}
       />
       {(dirty || status === "saved" || status === "error") && (
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: "0.5rem",
-            marginTop: "0.35rem",
-          }}
-        >
+        <div className="responsive-actions" style={{ marginTop: "0.35rem" }}>
           {dirty && (
             <button
               className="btn btn-sm btn-primary"
@@ -552,22 +523,24 @@ export function FileManager({
 }) {
   return (
     <div className="card">
-      <table className="info-table">
-        <thead>
-          <tr>
-            <th>File</th>
-            <th>Type</th>
-            <th>Size</th>
-            <th>Uploaded</th>
-            <th style={{ width: "100px" }}>Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          {assets.map((asset) => (
-            <FileRow key={asset.id} asset={asset} projectId={projectId} />
-          ))}
-        </tbody>
-      </table>
+      <div className="scroll-shell">
+        <table className="info-table">
+          <thead>
+            <tr>
+              <th>File</th>
+              <th>Type</th>
+              <th>Size</th>
+              <th>Uploaded</th>
+              <th style={{ width: "100px" }}>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {assets.map((asset) => (
+              <FileRow key={asset.id} asset={asset} projectId={projectId} />
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
@@ -892,13 +865,12 @@ export function DraftRequestEditor({
         </button>
       </div>
       <pre
+        className="mobile-code-block"
         style={{
-          whiteSpace: "pre-wrap",
           fontFamily: "var(--font-mono)",
           fontSize: "0.8rem",
           lineHeight: 1.5,
           maxHeight: "400px",
-          overflow: "auto",
         }}
       >
         {JSON.stringify(draftRequest, null, 2)}

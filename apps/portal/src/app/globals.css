@@ -66,6 +66,8 @@ a:hover {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
   background: var(--color-surface);
 }
 
@@ -83,11 +85,14 @@ a:hover {
   display: flex;
   align-items: center;
   gap: 1rem;
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 .header-email {
   color: var(--color-text-muted);
   font-size: 0.85rem;
+  overflow-wrap: anywhere;
 }
 
 /* ── Buttons ───────────────────────────── */
@@ -95,6 +100,7 @@ a:hover {
 .btn {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 0.5rem;
   padding: 0.5rem 1rem;
   border: 1px solid var(--color-border);
@@ -102,6 +108,7 @@ a:hover {
   background: var(--color-surface);
   color: var(--color-text);
   font-size: 0.875rem;
+  min-height: 2.5rem;
   cursor: pointer;
   transition: background 0.15s;
 }
@@ -123,6 +130,7 @@ a:hover {
 .btn-sm {
   padding: 0.35rem 0.75rem;
   font-size: 0.8rem;
+  min-height: 2rem;
 }
 
 .btn:disabled {
@@ -153,6 +161,7 @@ a:hover {
   color: var(--color-text);
   font-size: 0.9rem;
   font-family: var(--font-sans);
+  min-height: 2.5rem;
 }
 .form-input:focus {
   outline: none;
@@ -177,6 +186,7 @@ textarea.form-input {
   border-radius: var(--radius);
   background: var(--color-surface);
   padding: 1.25rem;
+  min-width: 0;
 }
 
 .card-link {
@@ -187,6 +197,7 @@ textarea.form-input {
   padding: 1.25rem;
   color: var(--color-text);
   transition: border-color 0.15s;
+  min-width: 0;
 }
 .card-link:hover {
   border-color: var(--color-primary);
@@ -322,8 +333,9 @@ textarea.form-input {
 
 .section-header {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
+  gap: 0.75rem;
   margin-bottom: 1.5rem;
 }
 
@@ -472,6 +484,59 @@ textarea.form-input {
 
 .text-mono {
   font-family: var(--font-mono);
+  overflow-wrap: anywhere;
+}
+
+.responsive-field-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.responsive-field-row-label {
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--color-text-muted);
+  min-width: 90px;
+  flex-shrink: 0;
+}
+
+.responsive-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.scroll-shell {
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.mobile-code-block {
+  white-space: pre-wrap;
+  overflow: auto;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.detail-grid {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.two-col-grid {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.three-col-grid {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .mt-1 { margin-top: 0.5rem; }
@@ -482,3 +547,49 @@ textarea.form-input {
 .flex { display: flex; }
 .flex-col { flex-direction: column; }
 .items-center { align-items: center; }
+
+@media (max-width: 768px) {
+  .page-center,
+  .page-narrow {
+    padding: 1rem 0.85rem 1.5rem;
+  }
+
+  .header {
+    align-items: flex-start;
+    padding: 0.75rem 0.85rem;
+  }
+
+  .header-nav {
+    width: 100%;
+    justify-content: flex-start;
+    gap: 0.6rem 0.85rem;
+  }
+
+  .section-header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .responsive-field-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .responsive-field-row-label {
+    min-width: 0;
+  }
+
+  .two-col-grid,
+  .three-col-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .info-table {
+    min-width: 640px;
+  }
+
+  .card,
+  .card-link {
+    padding: 1rem;
+  }
+}

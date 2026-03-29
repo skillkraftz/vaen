@@ -300,6 +300,20 @@ describe("portal displays screenshots for correct project/revision", () => {
   });
 });
 
+// ── 7. Mobile-safe project editor surfaces ──────────────────────────
+
+describe("project editor responsive structure", () => {
+  it("uses responsive field rows and mobile-safe request json blocks", () => {
+    const editorPath = join(__dirname, "../app/dashboard/projects/[id]/project-editor.tsx");
+    const source = readFileSync(editorPath, "utf-8");
+    expect(source).toContain('className="responsive-field-row"');
+    expect(source).toContain('className="responsive-field-row-label"');
+    expect(source).toContain('className="responsive-actions"');
+    expect(source).toContain('className="scroll-shell"');
+    expect(source).toContain('className="mobile-code-block"');
+  });
+});
+
 // ── 7. Rerun after asset change produces different output ────────────
 
 describe("rerun after asset change produces different output", () => {

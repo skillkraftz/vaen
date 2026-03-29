@@ -356,7 +356,7 @@ export function CampaignDetailManager({
             {analytics.followUpsDue + analytics.pendingContinuations + analytics.blockedOrPaused} open
           </span>
         </div>
-        <div style={{ display: "flex", gap: "1rem", flexWrap: "wrap", fontSize: "0.9rem" }}>
+        <div className="responsive-actions" style={{ fontSize: "0.9rem" }}>
           <span>
             Follow-ups due: <strong>{analytics.followUpsDue}</strong>
           </span>
@@ -383,7 +383,7 @@ export function CampaignDetailManager({
       </div>
 
       <div className="card" style={{ marginBottom: "1rem" }}>
-        <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap", alignItems: "end" }}>
+        <div className="responsive-actions" style={{ alignItems: "end" }}>
           <div>
             <label className="form-label" htmlFor="campaignStatus">Campaign status</label>
             <select
@@ -410,7 +410,7 @@ export function CampaignDetailManager({
       </div>
 
       <div className="card" style={{ marginBottom: "1rem" }}>
-        <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap" }}>
+        <div className="responsive-actions">
           <div>
             <label className="form-label" htmlFor="campaignStatusFilter">Filter by prospect status</label>
             <select
@@ -499,7 +499,7 @@ export function CampaignDetailManager({
                     )}
                   </div>
                   <div style={{ display: "grid", gap: "0.5rem" }}>
-                    <div style={{ display: "grid", gridTemplateColumns: "9rem 1fr 9rem", gap: "0.75rem" }}>
+                    <div className="three-col-grid">
                       <div>
                         <label className="form-label" htmlFor={`step-number-${step.step_number}`}>Step #</label>
                         <select
@@ -570,7 +570,7 @@ export function CampaignDetailManager({
           </div>
         )}
 
-        <div style={{ marginTop: "0.75rem", display: "flex", gap: "0.5rem", flexWrap: "wrap", alignItems: "center" }}>
+        <div className="responsive-actions" style={{ marginTop: "0.75rem" }}>
           <button
             type="button"
             className="btn btn-sm btn-primary"
@@ -658,7 +658,7 @@ export function CampaignDetailManager({
         <p className="text-sm text-muted" style={{ marginBottom: "0.75rem" }}>
           Selected prospects: {selectedIds.length}. Batch actions stay explicit: analysis, conversion, and early pipeline automation run one prospect at a time and report per-prospect outcomes. Sending still requires a typed confirmation phrase.
         </p>
-        <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", alignItems: "end" }}>
+        <div className="responsive-actions" style={{ alignItems: "end" }}>
           <button
             type="button"
             className="btn btn-sm"
@@ -780,7 +780,7 @@ export function CampaignDetailManager({
         {filteredRows.length === 0 ? (
           <p className="text-sm text-muted">No prospects match the current filters.</p>
         ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+          <div className="card-list">
             {filteredRows.map((row) => {
               const readiness = computedReadiness(row);
               const sequenceState = readProspectSequenceState(row.prospect.metadata);
@@ -788,7 +788,7 @@ export function CampaignDetailManager({
 
               return (
                 <div key={row.prospect.id} style={{ borderBottom: "1px solid var(--color-border)", paddingBottom: "0.75rem" }}>
-                  <div style={{ display: "flex", gap: "0.75rem", alignItems: "flex-start" }}>
+                  <div className="responsive-actions" style={{ alignItems: "flex-start" }}>
                     <input
                       type="checkbox"
                       checked={selectedIds.includes(row.prospect.id)}
@@ -796,7 +796,7 @@ export function CampaignDetailManager({
                       data-testid={`campaign-select-${row.prospect.id}`}
                     />
                     <div style={{ flex: 1 }}>
-                      <div style={{ display: "flex", justifyContent: "space-between", gap: "0.75rem", flexWrap: "wrap" }}>
+                      <div className="wrap-between">
                         <div>
                           <Link href={`/dashboard/prospects/${row.prospect.id}`} className="card-link">
                             <strong>{row.prospect.company_name}</strong>

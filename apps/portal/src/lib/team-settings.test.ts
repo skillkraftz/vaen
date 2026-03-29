@@ -72,6 +72,7 @@ describe("team settings integration", () => {
     expect(uiSource).toContain('data-testid="team-member-list"');
     expect(uiSource).toContain('data-testid="team-current-role"');
     expect(uiSource).toContain('data-testid="team-invite-stub"');
+    expect(uiSource).toContain('className="scroll-shell"');
     expect(uiSource).toContain('data-testid={`team-role-select-${member.userId}`}');
     expect(uiSource).toContain("Invite-by-email is not wired yet");
     expect(uiSource).toContain("Last-admin protection is enforced");

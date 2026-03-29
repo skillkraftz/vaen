@@ -33,7 +33,7 @@ export default async function DashboardLayout({
         <Link href="/dashboard" className="header-brand">
           vaen.space
         </Link>
-        <nav className="header-nav">
+        <nav className="header-nav" data-testid="dashboard-header-nav">
           <Link href="/dashboard/prospects" className="text-sm text-muted">
             Prospects
           </Link>

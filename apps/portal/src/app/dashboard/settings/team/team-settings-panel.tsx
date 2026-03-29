@@ -149,27 +149,29 @@ export function TeamSettingsPanel({
         {members.length === 0 ? (
           <p className="text-sm text-muted">No team members found yet.</p>
         ) : (
-          <table className="info-table">
-            <thead>
-              <tr>
-                <th>User</th>
-                <th>Role</th>
-                <th>Granted</th>
-                <th>Granted By</th>
-                <th />
-              </tr>
-            </thead>
-            <tbody>
-              {members.map((member) => (
-                <RoleRow
-                  key={member.userId}
-                  member={member}
-                  canManage={canManage}
-                  lastAdminProtected={adminCount === 1 && member.role === "admin"}
-                />
-              ))}
-            </tbody>
-          </table>
+          <div className="scroll-shell">
+            <table className="info-table">
+              <thead>
+                <tr>
+                  <th>User</th>
+                  <th>Role</th>
+                  <th>Granted</th>
+                  <th>Granted By</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {members.map((member) => (
+                  <RoleRow
+                    key={member.userId}
+                    member={member}
+                    canManage={canManage}
+                    lastAdminProtected={adminCount === 1 && member.role === "admin"}
+                  />
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
       </div>
 

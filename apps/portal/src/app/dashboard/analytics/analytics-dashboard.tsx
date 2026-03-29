@@ -104,7 +104,7 @@ export function AnalyticsDashboard({ data }: { data: AnalyticsData }) {
       </div>
 
       {/* ── Prospect Status Breakdown ──────────────────────── */}
-      <div style={{ display: "grid", gap: "0.75rem", gridTemplateColumns: "1fr 1fr", marginBottom: "1rem" }}>
+      <div className="two-col-grid" style={{ marginBottom: "1rem" }}>
         <div className="card" style={{ padding: "0.75rem" }} data-testid="analytics-prospect-status">
           <strong style={{ fontSize: "0.85rem" }}>Prospects by Status</strong>
           <div style={{ marginTop: "0.5rem", display: "flex", flexDirection: "column", gap: "0.25rem" }}>

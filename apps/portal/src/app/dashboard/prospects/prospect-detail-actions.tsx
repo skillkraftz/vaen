@@ -176,7 +176,7 @@ export function ProspectDetailActions({
           {PROSPECT_AUTOMATION_LEVELS.find((level) => level.id === automationLevel)?.description}
         </p>
       </div>
-      <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
+      <div className="responsive-actions">
         <button
           type="button"
           className="btn btn-sm"
@@ -232,7 +232,7 @@ export function ProspectDetailActions({
           {isPending ? "Preparing..." : "Prepare Email Draft"}
         </button>
       </div>
-      <label style={{ display: "flex", gap: "0.5rem", alignItems: "center", marginTop: "0.75rem" }}>
+      <label className="responsive-actions" style={{ marginTop: "0.75rem" }}>
         <input
           type="checkbox"
           checked={confirmSend}
@@ -241,7 +241,7 @@ export function ProspectDetailActions({
         />
         Confirm outbound send to the current contact email
       </label>
-      <div style={{ marginTop: "0.75rem" }}>
+      <div className="responsive-actions" style={{ marginTop: "0.75rem" }}>
         <button
           type="button"
           className="btn btn-sm btn-primary"
@@ -257,7 +257,6 @@ export function ProspectDetailActions({
             className="btn btn-sm"
             onClick={toggleSequencePause}
             disabled={isPending}
-            style={{ marginLeft: "0.5rem" }}
             data-testid="prospect-sequence-toggle"
           >
             {isPending ? "Updating..." : sequencePaused ? "Resume Sequence" : "Pause Sequence"}

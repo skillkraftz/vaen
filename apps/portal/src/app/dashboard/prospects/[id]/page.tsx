@@ -192,7 +192,7 @@ export default async function ProspectDetailPage({
       <div className="section">
         <div className="card">
           <h2 style={{ fontSize: "1rem", fontWeight: 600, marginBottom: "0.75rem" }}>Prospect Details</h2>
-          <div style={{ display: "grid", gap: "0.5rem" }}>
+          <div className="detail-grid">
             <div><strong>Contact:</strong> {p.contact_name ?? "Unknown"}</div>
             <div><strong>Email:</strong> {p.contact_email ?? "Unknown"}</div>
             <div><strong>Phone:</strong> {p.contact_phone ?? "Unknown"}</div>
@@ -221,7 +221,7 @@ export default async function ProspectDetailPage({
         <div className="card" data-testid="prospect-sequence-state">
           <h2 style={{ fontSize: "1rem", fontWeight: 600, marginBottom: "0.75rem" }}>Sequence State</h2>
           {p.campaign_id && campaignSequenceSteps.length > 0 ? (
-            <div style={{ display: "grid", gap: "0.5rem" }}>
+            <div className="detail-grid">
               <div><strong>Current Step:</strong> {currentSequenceStep.step ? `${currentSequenceStep.step.step_number} · ${currentSequenceStep.step.label}` : "Complete"}</div>
               <div><strong>Due Status:</strong> {sequencePauseReason ? "paused" : currentSequenceStep.due ? "due now" : "scheduled"}</div>
               <div><strong>Paused:</strong> {sequencePauseReason ? `yes (${sequencePauseReason})` : "no"}</div>
@@ -255,7 +255,7 @@ export default async function ProspectDetailPage({
             <div style={{ display: "grid", gap: "0.75rem" }}>
               <div>
                 <strong>Business Summary</strong>
-                <pre style={{ whiteSpace: "pre-wrap", marginTop: "0.35rem" }}>{latestEnrichment.business_summary ?? "Not generated yet"}</pre>
+                  <pre className="mobile-code-block" style={{ marginTop: "0.35rem" }}>{latestEnrichment.business_summary ?? "Not generated yet"}</pre>
               </div>
               <div>
                 <strong>Recommended Package</strong>
@@ -263,7 +263,7 @@ export default async function ProspectDetailPage({
               </div>
               <div>
                 <strong>Opportunity Analysis</strong>
-                <pre style={{ whiteSpace: "pre-wrap", marginTop: "0.35rem" }}>{latestEnrichment.opportunity_summary ?? "Not generated yet"}</pre>
+                  <pre className="mobile-code-block" style={{ marginTop: "0.35rem" }}>{latestEnrichment.opportunity_summary ?? "Not generated yet"}</pre>
               </div>
               <div>
                 <strong>Missing Pieces</strong>
@@ -279,7 +279,7 @@ export default async function ProspectDetailPage({
               </div>
               <div>
                 <strong>Offer Positioning</strong>
-                <pre style={{ whiteSpace: "pre-wrap", marginTop: "0.35rem" }}>{latestEnrichment.offer_positioning ?? "Not generated yet"}</pre>
+                  <pre className="mobile-code-block" style={{ marginTop: "0.35rem" }}>{latestEnrichment.offer_positioning ?? "Not generated yet"}</pre>
               </div>
             </div>
           ) : (
@@ -292,7 +292,7 @@ export default async function ProspectDetailPage({
         <div className="card" data-testid="prospect-analysis-panel">
           <h2 style={{ fontSize: "1rem", fontWeight: 600, marginBottom: "0.75rem" }}>Website Analysis</h2>
           {latestAnalysis ? (
-            <div style={{ display: "grid", gap: "0.5rem" }}>
+            <div className="detail-grid">
               <div><strong>Source:</strong> {latestAnalysis.analysis_source}</div>
               <div><strong>Status:</strong> {latestAnalysis.status}</div>
               <div><strong>Site Title:</strong> {latestAnalysis.site_title ?? "Unknown"}</div>
@@ -314,7 +314,7 @@ export default async function ProspectDetailPage({
       <div className="section">
         <div className="card">
           <h2 style={{ fontSize: "1rem", fontWeight: 600, marginBottom: "0.75rem" }}>Conversion Links</h2>
-          <div style={{ display: "grid", gap: "0.5rem" }}>
+          <div className="detail-grid">
             <div>
               <strong>Client:</strong>{" "}
               {linkedClient ? <Link href="/dashboard">{linkedClient.name}</Link> : "Not created yet"}
@@ -370,7 +370,7 @@ export default async function ProspectDetailPage({
             <div style={{ display: "grid", gap: "0.75rem" }}>
               <div>
                 <strong>Offer Summary</strong>
-                <pre style={{ whiteSpace: "pre-wrap", marginTop: "0.35rem" }}>{latestPackage.offer_summary}</pre>
+                <pre className="mobile-code-block" style={{ marginTop: "0.35rem" }}>{latestPackage.offer_summary}</pre>
               </div>
               <div>
                 <strong>Email Subject</strong>
@@ -378,7 +378,7 @@ export default async function ProspectDetailPage({
               </div>
               <div>
                 <strong>Email Body</strong>
-                <pre style={{ whiteSpace: "pre-wrap", marginTop: "0.35rem" }} data-testid="prospect-email-body">{latestPackage.email_body ?? "Not prepared yet"}</pre>
+                <pre className="mobile-code-block" style={{ marginTop: "0.35rem" }} data-testid="prospect-email-body">{latestPackage.email_body ?? "Not prepared yet"}</pre>
               </div>
               <div>
                 <strong>Attachment Hooks</strong>

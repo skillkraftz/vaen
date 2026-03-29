@@ -308,6 +308,7 @@ describe("prospect actions and ui", () => {
     expect(layoutSource).toContain("/dashboard/prospects");
     expect(layoutSource).toContain("/dashboard/campaigns");
     expect(layoutSource).toContain("/dashboard/settings/outreach");
+    expect(layoutSource).toContain('data-testid="dashboard-header-nav"');
     expect(campaignsPageSource).toContain("CampaignListManager");
     expect(campaignsListUiSource).toContain('data-testid="campaign-list-page"');
     expect(campaignsDetailSource).toContain("CampaignDetailManager");
@@ -334,6 +335,8 @@ describe("prospect actions and ui", () => {
     const listUiSource = readFileSync(listUiPath, "utf-8");
     const importUiSource = readFileSync(importUiPath, "utf-8");
     expect(detailSource).toContain('data-testid="prospect-detail-page"');
+    expect(detailSource).toContain('className="detail-grid"');
+    expect(detailSource).toContain('className="mobile-code-block"');
     expect(detailSource).toContain('data-testid="prospect-analysis-panel"');
     expect(detailSource).toContain('data-testid="prospect-enrichment-panel"');
     expect(detailSource).toContain('data-testid="prospect-readiness-panel"');
@@ -345,6 +348,7 @@ describe("prospect actions and ui", () => {
     expect(detailSource).toContain('data-testid="prospect-email-body"');
     expect(detailSource).toContain("/dashboard/settings/outreach");
     expect(actionsSource).toContain('data-testid="prospect-actions"');
+    expect(actionsSource).toContain('className="responsive-actions"');
     expect(actionsSource).toContain('data-testid="prospect-analyze-button"');
     expect(actionsSource).toContain('data-testid="prospect-convert-button"');
     expect(actionsSource).toContain('data-testid="prospect-automation-level"');
@@ -364,6 +368,8 @@ describe("prospect actions and ui", () => {
     expect(importUiSource).toContain('data-testid="prospect-import-preview"');
     expect(importUiSource).toContain('data-testid="prospect-import-submit"');
     expect(campaignDetailUiSource).toContain('data-testid="campaign-batch-analyze-button"');
+    expect(campaignDetailUiSource).toContain('className="responsive-actions"');
+    expect(campaignDetailUiSource).toContain('className="three-col-grid"');
     expect(campaignDetailUiSource).toContain('data-testid="campaign-batch-convert-button"');
     expect(campaignDetailUiSource).toContain('data-testid="campaign-automation-level"');
     expect(campaignDetailUiSource).toContain('data-testid="campaign-batch-automation-button"');
