@@ -19,63 +19,16 @@ import {
   validateDraftRequired,
   ensureDraftDefaults,
 } from "@/lib/draft-helpers";
+import type { ReviewManifest } from "./project-review-types";
+import type { ProjectDiagnostics } from "./project-diagnostics-types";
+import {
+  getPortalRepoRoot,
+  readArtifactStatusFromDisk,
+  readGeneratedFileFlags,
+  readLocalScreenshotDataUrl,
+} from "./project-artifact-helpers";
 
-interface ReviewManifestFile {
-  file_name: string;
-  path: string;
-  size_bytes: number;
-  sha256: string;
-  modified_at: string;
-  uploaded_storage_path?: string | null;
-  uploaded_asset_id?: string | null;
-  uploaded_at?: string | null;
-}
-
-interface ReviewManifest {
-  schema_version: number;
-  status: "completed" | "failed";
-  project_id: string | null;
-  slug: string;
-  revision_id: string | null;
-  job_id: string | null;
-  review_started_at: string | null;
-  review_completed_at: string | null;
-  served_url: string | null;
-  served_title: string | null;
-  port: number | null;
-  site_dir: string;
-  screenshots_dir: string;
-  manifest_path: string;
-  screenshot_files: ReviewManifestFile[];
-  review_probe_path?: string | null;
-  content_verification?: {
-    status: "matched" | "mismatched" | "unknown";
-    expected_business_name: string | null;
-    observed_home_title: string | null;
-    observed_home_h1: string | null;
-    mismatches: string[];
-  };
-  runtime_config_probe_path?: string | null;
-  runtime_config_status?: "matched" | "mismatched" | "unknown";
-  expected_business_name?: string | null;
-  runtime_business_name?: string | null;
-  runtime_config_path?: string | null;
-  runtime_cwd?: string | null;
-  review_identity_status?: "matched" | "mismatched" | "unknown";
-  mismatch_stage?: "generated_source" | "review_probe" | "unknown" | null;
-  site_config_snapshot_path?: string | null;
-  site_source_summary_path?: string | null;
-  site_identity_scan_path?: string | null;
-  upload_summary?: {
-    compared_at: string;
-    matched: boolean;
-    manifest_count: number;
-    uploaded_count: number;
-    missing_in_upload: string[];
-    extra_uploaded: string[];
-    hash_mismatches: string[];
-  };
-}
+export type { ProjectDiagnostics } from "./project-diagnostics-types";
 
 // ── Revision helpers (internal) ──────────────────────────────────────
 
@@ -1290,55 +1243,7 @@ export async function getArtifactStatusAction(
   screenshotNames: string[];
   screenshotManifest: ReviewManifest | null;
 }> {
-  const repoRoot = join(process.cwd(), "../..");
-  const result = {
-    hasClientRequest: false,
-    hasWorkspace: false,
-    hasSiteBuild: false,
-    hasScreenshots: false,
-    screenshotCount: 0,
-    screenshotNames: [] as string[],
-    screenshotManifest: null as ReviewManifest | null,
-  };
-
-  try {
-    await access(join(repoRoot, "generated", slug, "client-request.json"));
-    result.hasClientRequest = true;
-  } catch { /* noop */ }
-
-  try {
-    await access(join(repoRoot, "generated", slug, "site", "config.json"));
-    result.hasWorkspace = true;
-  } catch { /* noop */ }
-
-  try {
-    await access(join(repoRoot, "generated", slug, "site", ".next"));
-    result.hasSiteBuild = true;
-  } catch { /* noop */ }
-
-  try {
-    const dir = join(repoRoot, "generated", slug, "artifacts", "screenshots");
-    const files = await readdir(dir);
-    const pngs = files.filter((f) => f.endsWith(".png")).sort();
-    result.hasScreenshots = pngs.length > 0;
-    result.screenshotCount = pngs.length;
-    result.screenshotNames = pngs;
-  } catch { /* noop */ }
-
-  try {
-    const manifestPath = join(
-      repoRoot,
-      "generated",
-      slug,
-      "artifacts",
-      "screenshots",
-      "manifest.json",
-    );
-    const manifestRaw = await readFile(manifestPath, "utf-8");
-    result.screenshotManifest = JSON.parse(manifestRaw) as ReviewManifest;
-  } catch { /* noop */ }
-
-  return result;
+  return readArtifactStatusFromDisk(slug);
 }
 
 /**
@@ -1349,22 +1254,7 @@ export async function getScreenshotAction(
   slug: string,
   filename: string,
 ): Promise<{ error?: string; dataUrl?: string }> {
-  // Sanitize filename to prevent path traversal
-  const safe = filename.replace(/[^a-zA-Z0-9._-]/g, "");
-  if (!safe.endsWith(".png")) {
-    return { error: "Invalid filename" };
-  }
-
-  const repoRoot = join(process.cwd(), "../..");
-  const filepath = join(repoRoot, "generated", slug, "artifacts", "screenshots", safe);
-
-  try {
-    const data = await readFile(filepath);
-    const b64 = data.toString("base64");
-    return { dataUrl: `data:image/png;base64,${b64}` };
-  } catch {
-    return { error: "Screenshot not found" };
-  }
+  return readLocalScreenshotDataUrl(slug, filename);
 }
 
 // ── Recovery: Re-export draft to disk from any status ────────────────
@@ -1672,49 +1562,6 @@ export async function resetToDraftAction(
 
 // ── Project diagnostics ──────────────────────────────────────────────
 
-export interface ProjectDiagnostics {
-  draft: {
-    exists: boolean;
-    hasVersion: boolean;
-    hasBusiness: boolean;
-    hasContact: boolean;
-    hasServices: boolean;
-    servicesCount: number;
-    topLevelKeys: string[];
-  };
-  requestSource: "final" | "draft" | "none";
-  hasFinalRequest: boolean;
-  files: {
-    hasExportedRequest: boolean;
-    hasWorkspace: boolean;
-    hasBuild: boolean;
-    hasScreenshots: boolean;
-    screenshotCount: number;
-    hasPromptTxt: boolean;
-  };
-  jobs: {
-    lastGenerate: { id: string; status: string; completedAt: string | null } | null;
-    lastReview: { id: string; status: string; completedAt: string | null } | null;
-  };
-  timestamps: {
-    lastProcessedAt: string | null;
-    lastExportedAt: string | null;
-    lastGeneratedAt: string | null;
-    lastReviewedAt: string | null;
-  };
-  /** Whether screenshots are stale (older than last generate or no review after generate) */
-  screenshotsStale: boolean;
-  liveMissingInfo: Array<{ field: string; label: string; severity: string; hint?: string }>;
-  /** Revision-based staleness (null if revisions not yet migrated) */
-  revisions: {
-    count: number;
-    currentSource: string | null;
-    exportStale: boolean;
-    generateStale: boolean;
-    reviewStale: boolean;
-  } | null;
-}
-
 export async function getProjectDiagnosticsAction(
   projectId: string,
   slug: string,
@@ -1755,28 +1602,8 @@ export async function getProjectDiagnosticsAction(
   const hasFinalRequest = p?.final_request !== null && p?.final_request !== undefined;
   const requestSource = hasFinalRequest ? "final" as const : draftDiag.exists ? "draft" as const : "none" as const;
 
-  // File diagnostics (check disk)
-  const repoRoot = join(process.cwd(), "../..");
-  const fileDiag = {
-    hasExportedRequest: false,
-    hasWorkspace: false,
-    hasBuild: false,
-    hasScreenshots: false,
-    screenshotCount: 0,
-    hasPromptTxt: false,
-  };
-
-  try { await access(join(repoRoot, "generated", slug, "client-request.json")); fileDiag.hasExportedRequest = true; } catch { /* noop */ }
-  try { await access(join(repoRoot, "generated", slug, "site", "config.json")); fileDiag.hasWorkspace = true; } catch { /* noop */ }
-  try { await access(join(repoRoot, "generated", slug, "site", ".next")); fileDiag.hasBuild = true; } catch { /* noop */ }
-  try { await access(join(repoRoot, "generated", slug, "artifacts", "prompt.txt")); fileDiag.hasPromptTxt = true; } catch { /* noop */ }
-  try {
-    const dir = join(repoRoot, "generated", slug, "artifacts", "screenshots");
-    const files = await readdir(dir);
-    const pngs = files.filter((f: string) => f.endsWith(".png"));
-    fileDiag.hasScreenshots = pngs.length > 0;
-    fileDiag.screenshotCount = pngs.length;
-  } catch { /* noop */ }
+  const repoRoot = getPortalRepoRoot();
+  const fileDiag = await readGeneratedFileFlags(slug);
 
   // Job diagnostics
   const lastGenerate = jobList.find((j) => j.job_type === "generate") ?? null;
