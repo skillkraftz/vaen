@@ -41,6 +41,22 @@ export default async function DeploymentSettingsPage() {
         />
       </div>
 
+      <div className="card" style={{ marginBottom: "1rem" }} data-testid="deployment-worker-vm-checklist">
+        <h2 style={{ fontSize: "1rem", fontWeight: 600, marginBottom: "0.75rem" }}>Worker VM checklist</h2>
+        <div className="detail-grid">
+          <p className="text-sm text-muted">
+            For real remote testing, run the worker poller on a separate VM with a writable repo checkout and
+            Playwright Chromium installed. The detailed runbook lives in <code>docs/architecture/worker-vm-runbook.md</code>.
+          </p>
+          <ul className="text-sm text-muted" style={{ margin: 0, paddingLeft: "1.25rem" }}>
+            <li>Set <code>SUPABASE_URL</code>, <code>SUPABASE_SERVICE_ROLE_KEY</code>, <code>WORKER_ID</code>, and <code>NEXT_PUBLIC_PORTAL_URL=https://vaen.space</code>.</li>
+            <li>Build the repo and install Chromium with <code>pnpm --filter @vaen/review-tools exec playwright install --with-deps chromium</code>.</li>
+            <li>Run <code>pnpm --filter @vaen/worker poll</code> under <code>systemd</code> or <code>pm2</code>.</li>
+            <li>Confirm this page shows a healthy worker heartbeat before trusting pending jobs.</li>
+          </ul>
+        </div>
+      </div>
+
       <div className="card" style={{ marginBottom: "1rem" }}>
         <h2 style={{ fontSize: "1rem", fontWeight: 600, marginBottom: "0.75rem" }}>Checks</h2>
         <div className="detail-grid">
@@ -107,6 +123,9 @@ export default async function DeploymentSettingsPage() {
             The repo already contains deployment-payload schema/generator support, deploy statuses in the workflow model,
             and a real Resend webhook route. What is still missing is provider automation for GitHub, Vercel, domains,
             and richer worker/deployment orchestration.
+          </p>
+          <p className="text-sm text-muted">
+            For a real worker VM setup, use the repo runbook at <code>docs/architecture/worker-vm-runbook.md</code>.
           </p>
           <Link href="/dashboard/settings/outreach" className="text-sm text-muted">
             Review outreach/webhook readiness

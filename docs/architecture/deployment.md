@@ -100,6 +100,7 @@ Worker poller +---> claim_next_job() -> status: running
 - VM has local disk for generation workspace
 - VM has Playwright installed for screenshots
 - Communication: VM ↔ Supabase (direct, no portal involvement)
+- Use [worker-vm-runbook.md](/home/andy/projects/vaen/docs/architecture/worker-vm-runbook.md) for the concrete setup steps, env vars, and supervisor examples
 
 ### Tailscale for phone testing — PLANNED
 - Install Tailscale on phone and VM

@@ -136,6 +136,8 @@ The portal is not fully deployment-automated yet, but the repo now includes:
 
 - a deployment readiness surface at `/dashboard/settings/deployment`
 - project-level deployment run creation/history backed by worker jobs
+- worker heartbeat visibility in the portal
+- a worker VM runbook at `docs/architecture/worker-vm-runbook.md`
 
 Production assumptions for the portal:
 
@@ -150,6 +152,23 @@ Required envs for a real hosted portal:
 - `SUPABASE_SERVICE_ROLE_KEY`
 - `NEXT_PUBLIC_PORTAL_URL=https://vaen.space`
 
+Required envs for a real remote worker VM:
+
+- `SUPABASE_URL`
+- `SUPABASE_SERVICE_ROLE_KEY`
+- `WORKER_ID`
+- `NEXT_PUBLIC_PORTAL_URL=https://vaen.space`
+- `OPENAI_API_KEY` for generator-backed jobs
+
+Optional provider envs for `deploy_execute` testing:
+
+- `GITHUB_TOKEN`
+- `GITHUB_ORG`
+- `VERCEL_TOKEN`
+- `VERCEL_TEAM_ID`
+- `DNS_PROVIDER_TOKEN`
+- `VAEN_BASE_DOMAIN`
+
 Recommended for live outreach/webhook behavior:
 
 - `RESEND_API_KEY`
@@ -163,6 +182,7 @@ Important operational note:
 - downstream generation/export/deployment rely on the active revision request payload and exported `client-request.json`, not just visible project form state
 - verify Business Details and Request Data (JSON) are in sync on project detail before trusting deploy/generate artifacts
 - deployment runs validate `deployment-payload.json`, but provider automation for GitHub/Vercel/domains is still pending
+- real VM setup guidance lives in `docs/architecture/worker-vm-runbook.md`
 
 ### Request Truth Model
 

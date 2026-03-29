@@ -1159,6 +1159,7 @@ describe("deployment doc has clear implementation status labels", () => {
     expect(source).toContain("Remaining Work For True VM Deployment");
     expect(source).toContain("persistent supervisor");
     expect(source).toContain("Implement real GitHub provider");
+    expect(source).toContain("worker-vm-runbook.md");
   });
 
   it("has top-level status summary", () => {

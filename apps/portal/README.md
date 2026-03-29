@@ -68,6 +68,8 @@ Outbound outreach readiness is visible in the portal at `/dashboard/settings/out
 
 Deployment readiness is visible in the portal at `/dashboard/settings/deployment`. It checks the base URL, auth callback expectation, webhook target expectation, Supabase runtime envs, and repo-level deployment payload support.
 
+That page now also shows worker heartbeat status and a small VM setup checklist. The full operational runbook for a remote worker lives at `docs/architecture/worker-vm-runbook.md`.
+
 Project pages now also support tracked deployment runs from authoritative revision/export/build state. Those runs validate `deployment-payload.json` and record history without pretending provider automation is finished.
 
 ## Request Truth Model

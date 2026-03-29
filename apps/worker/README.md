@@ -40,6 +40,20 @@ pnpm --filter @vaen/worker poll
 pnpm --filter @vaen/worker run-job -- <job-id>
 ```
 
+## VM runbook
+
+For a real remote worker setup, use:
+
+- [docs/architecture/worker-vm-runbook.md](/home/andy/projects/vaen/docs/architecture/worker-vm-runbook.md)
+
+That runbook covers:
+
+- required env vars
+- Playwright/Chromium setup
+- writable workspace expectations under `generated/`
+- `systemd` and `pm2` examples
+- portal heartbeat verification steps
+
 ## Usage (programmatic)
 
 ```typescript
@@ -54,5 +68,5 @@ const pipeline = await runPipeline(
 ## Remaining deployment work
 - run the poller under a real process supervisor on a VM
 - provision Playwright/build dependencies on that VM
-- add operator-facing heartbeat status in the portal UI
+- implement real provider adapters on top of the current deployment control plane
 - add deploy-target orchestration on top of the job backbone

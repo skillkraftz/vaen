@@ -46,6 +46,20 @@ describe("deployment readiness helpers", () => {
     expect(envExample).toContain("RESEND_WEBHOOK_SECRET");
   });
 
+  it("documents the worker vm runbook with real setup steps", () => {
+    const runbookPath = join(REPO_ROOT, "docs/architecture/worker-vm-runbook.md");
+    const runbook = readFileSync(runbookPath, "utf-8");
+
+    expect(runbook).toContain("SUPABASE_URL");
+    expect(runbook).toContain("SUPABASE_SERVICE_ROLE_KEY");
+    expect(runbook).toContain("WORKER_ID");
+    expect(runbook).toContain("OPENAI_API_KEY");
+    expect(runbook).toContain("pnpm --filter @vaen/worker poll");
+    expect(runbook).toContain("systemd");
+    expect(runbook).toContain("pm2");
+    expect(runbook).toContain("/dashboard/settings/deployment");
+  });
+
   it("keeps the shared deployment readiness helper bundle-safe", () => {
     const helperPath = join(__dirname, "deployment-readiness.ts");
     const serverHelperPath = join(__dirname, "deployment-readiness-server.ts");
@@ -76,12 +90,18 @@ describe("deployment readiness ui integration", () => {
     expect(pageSource).toContain('data-testid="deployment-blockers"');
     expect(pageSource).toContain('data-testid="deployment-warnings"');
     expect(pageSource).toContain('testId="deployment-worker-health"');
+    expect(pageSource).toContain('data-testid="deployment-worker-vm-checklist"');
+    expect(pageSource).toContain("Worker VM checklist");
+    expect(pageSource).toContain("docs/architecture/worker-vm-runbook.md");
+    expect(pageSource).toContain("pnpm --filter @vaen/worker poll");
     expect(pageSource).toContain("active revision request payload");
     expect(pageSource).toContain("Worker heartbeat");
     expect(layoutSource).toContain("/dashboard/settings/deployment");
     expect(layoutSource).toContain("Deployment");
     expect(readmeSource).toContain("/dashboard/settings/deployment");
+    expect(readmeSource).toContain("worker-vm-runbook.md");
     expect(rootReadmeSource).toContain("https://vaen.space/auth/callback");
     expect(rootReadmeSource).toContain("https://vaen.space/api/webhooks/resend");
+    expect(rootReadmeSource).toContain("worker-vm-runbook.md");
   });
 });
