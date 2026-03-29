@@ -72,10 +72,25 @@ describe("team settings integration", () => {
     expect(uiSource).toContain('data-testid="team-member-list"');
     expect(uiSource).toContain('data-testid="team-current-role"');
     expect(uiSource).toContain('data-testid="team-invite-stub"');
+    expect(uiSource).toContain('data-testid="team-role-guide"');
     expect(uiSource).toContain('className="scroll-shell"');
     expect(uiSource).toContain('data-testid={`team-role-select-${member.userId}`}');
+    expect(uiSource).toContain("High-risk controls already enforced by role");
+    expect(uiSource).toContain("Some actions can also require approval");
     expect(uiSource).toContain("Invite-by-email is not wired yet");
+    expect(uiSource).toContain("No invitation email will be sent from this page");
+    expect(uiSource).toContain("Current safe path:");
     expect(uiSource).toContain("Last-admin protection is enforced");
+  });
+
+  it("documents each role in operator-friendly language", () => {
+    const uiPath = join(__dirname, "../app/dashboard/settings/team/team-settings-panel.tsx");
+    const uiSource = readFileSync(uiPath, "utf-8");
+
+    expect(uiSource).toContain("Can review records and statuses");
+    expect(uiSource).toContain("Can work prospects and outreach");
+    expect(uiSource).toContain("Can run delivery workflow");
+    expect(uiSource).toContain("Can manage pricing, roles, approvals");
   });
 
   it("adds team navigation for admins in the dashboard layout", () => {

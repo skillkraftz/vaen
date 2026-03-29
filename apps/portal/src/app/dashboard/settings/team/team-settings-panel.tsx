@@ -8,6 +8,25 @@ import { updateUserRoleAction } from "./actions";
 
 const ROLE_OPTIONS: UserRole[] = ["viewer", "sales", "operator", "admin"];
 
+const ROLE_HELP: Record<UserRole, { label: string; permissions: string }> = {
+  viewer: {
+    label: "Viewer",
+    permissions: "Can review records and statuses, but cannot trigger sensitive operational actions.",
+  },
+  sales: {
+    label: "Sales",
+    permissions: "Can work prospects and outreach, including batch outreach, but does not manage pricing or team roles.",
+  },
+  operator: {
+    label: "Operator",
+    permissions: "Can run delivery workflow, revisions, builds, reviews, and standard project operations.",
+  },
+  admin: {
+    label: "Admin",
+    permissions: "Can manage pricing, roles, approvals, and other high-risk controls.",
+  },
+};
+
 function RoleRow({
   member,
   canManage,
@@ -41,25 +60,35 @@ function RoleRow({
           <strong>{member.email ?? member.userId}</strong>
           <span className="text-sm text-muted">
             {member.isCurrentUser ? "Current user" : "Team member"}
-            {!member.hasExplicitRole && " · default operator"}
+            {!member.hasExplicitRole && " · no explicit role record, defaults to operator"}
           </span>
         </div>
       </td>
       <td>
         {canManage ? (
-          <select
-            className="form-input"
-            value={draftRole}
-            onChange={(event) => setDraftRole(event.target.value as UserRole)}
-            disabled={isPending || lastAdminProtected}
-            data-testid={`team-role-select-${member.userId}`}
-          >
-            {ROLE_OPTIONS.map((role) => (
-              <option key={role} value={role}>{role}</option>
-            ))}
-          </select>
+          <div style={{ display: "flex", flexDirection: "column", gap: "0.35rem" }}>
+            <select
+              className="form-input"
+              value={draftRole}
+              onChange={(event) => setDraftRole(event.target.value as UserRole)}
+              disabled={isPending || lastAdminProtected}
+              data-testid={`team-role-select-${member.userId}`}
+            >
+              {ROLE_OPTIONS.map((role) => (
+                <option key={role} value={role}>{role}</option>
+              ))}
+            </select>
+            <p className="text-sm text-muted" style={{ maxWidth: "16rem" }}>
+              {ROLE_HELP[draftRole].permissions}
+            </p>
+          </div>
         ) : (
-          <span className="badge" data-testid={`team-role-badge-${member.userId}`}>{member.role}</span>
+          <div style={{ display: "flex", flexDirection: "column", gap: "0.35rem" }}>
+            <span className="badge" data-testid={`team-role-badge-${member.userId}`}>{member.role}</span>
+            <p className="text-sm text-muted" style={{ maxWidth: "16rem" }}>
+              {ROLE_HELP[member.role].permissions}
+            </p>
+          </div>
         )}
       </td>
       <td className="text-sm text-muted">
@@ -130,13 +159,35 @@ export function TeamSettingsPanel({
         <p className="text-sm text-muted">
           {canManage
             ? "Admins can update roles here. Changes take effect immediately on the server-side permission checks."
-            : "You can review your current role here. Team role changes require an admin."}
+            : "You can review your current role here. Team role changes, pricing changes, and permanent deletes require an admin."}
         </p>
         {canManage && (
-          <p className="text-sm text-muted" style={{ marginTop: "0.5rem" }}>
-            Last-admin protection is enforced in the UI and server action layer.
-          </p>
+          <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem", marginTop: "0.5rem" }}>
+            <p className="text-sm text-muted">
+              High-risk controls already enforced by role: pricing changes require admin, permanent project purge requires admin, and batch outreach requires sales or higher.
+            </p>
+            <p className="text-sm text-muted">
+              Some actions can also require approval, such as large discounts and larger batch outreach sends.
+            </p>
+            <p className="text-sm text-muted">
+              Last-admin protection is enforced in the UI and server action layer.
+            </p>
+          </div>
         )}
+      </div>
+
+      <div className="card" style={{ marginBottom: "1rem" }} data-testid="team-role-guide">
+        <h2 style={{ fontSize: "1rem", fontWeight: 600, marginBottom: "0.5rem" }}>Role Guide</h2>
+        <div className="detail-grid">
+          {ROLE_OPTIONS.map((role) => (
+            <div key={role} style={{ minWidth: 0 }}>
+              <strong>{ROLE_HELP[role].label}</strong>
+              <p className="text-sm text-muted" style={{ marginTop: "0.25rem" }}>
+                {ROLE_HELP[role].permissions}
+              </p>
+            </div>
+          ))}
+        </div>
       </div>
 
       {error && (
@@ -182,10 +233,15 @@ export function TeamSettingsPanel({
         ) : (
           <>
             <p className="text-sm text-muted">
-              Invite-by-email is not wired yet. The current auth model supports email/password sign-in, but there is no clean in-app onboarding flow for invited users yet.
+              Invite-by-email is not wired yet. No invitation email will be sent from this page, and there is no in-app acceptance flow yet.
             </p>
             <p className="text-sm text-muted" style={{ marginTop: "0.5rem" }}>
-              For now, have the new user create an account through the existing auth flow, then assign their role here.
+              Current safe path:
+              {" "}
+              the new user signs up through the existing auth flow first, then an admin assigns the correct role here.
+            </p>
+            <p className="text-sm text-muted" style={{ marginTop: "0.5rem" }}>
+              This keeps role changes explicit and avoids creating orphaned or half-invited accounts until backend invite support exists.
             </p>
           </>
         )}
