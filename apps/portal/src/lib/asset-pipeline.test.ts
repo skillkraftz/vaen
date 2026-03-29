@@ -1152,7 +1152,7 @@ describe("deployment doc has clear implementation status labels", () => {
     const source = readFileSync(docPath, "utf-8");
     expect(source).toContain("Remaining Work For True VM Deployment");
     expect(source).toContain("persistent supervisor");
-    expect(source).toContain("deploy target orchestration");
+    expect(source).toContain("provider adapters for GitHub/Vercel/domain wiring");
   });
 
   it("has top-level status summary", () => {

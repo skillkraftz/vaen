@@ -11,6 +11,7 @@ import type {
   IntakeRecommendations,
   Quote,
   QuoteLine,
+  DeploymentRun,
 } from "@/lib/types";
 import { detectMissingInfo } from "@/lib/intake-processor";
 import { listVisibleApprovalRequests } from "@/lib/approval-helpers";
@@ -20,6 +21,7 @@ import { RevisionList } from "./revision-list";
 import { ProjectLifecyclePanel } from "./project-lifecycle-panel";
 import { ModuleManager } from "./module-manager";
 import { QuoteSection } from "./quote-section";
+import { DeploymentRunsSection } from "./project-deployment-panel";
 import { expirePastDueQuotes } from "./project-quote-helpers";
 import {
   BuildInputsEditor,
@@ -136,10 +138,18 @@ export default async function ProjectDetailPage({
     .eq("project_id", id)
     .order("created_at", { ascending: false });
 
+  const { data: deploymentRuns } = await supabase
+    .from("deployment_runs")
+    .select("*")
+    .eq("project_id", id)
+    .order("created_at", { ascending: false })
+    .limit(10);
+
   const assetList = (assets ?? []) as Asset[];
   const eventList = (events ?? []) as ProjectEvent[];
   const quoteList = (quotes ?? []) as Array<Quote & { lines: QuoteLine[] }>;
   const contractList = (contracts ?? []) as Array<import("@/lib/types").Contract>;
+  const deploymentRunList = (deploymentRuns ?? []) as DeploymentRun[];
   const approvalRequests = await listVisibleApprovalRequests(supabase, {
     statuses: ["pending", "approved", "rejected", "expired"],
     limit: 100,
@@ -340,6 +350,12 @@ export default async function ProjectDetailPage({
             currentTemplateId={templateId}
             approvalRequests={quoteApprovals}
           />
+
+      <DeploymentRunsSection
+        projectId={id}
+        project={p}
+        deploymentRuns={deploymentRunList}
+      />
 
       {/* ── Business Details ───────────────────────────────────────── */}
       <div className="section">

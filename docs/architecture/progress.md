@@ -108,6 +108,13 @@
 - [x] Portal normal path decoupled from direct local child-process spawn
 - [x] Local direct spawn retained only as an opt-in dev fallback (`VAEN_ENABLE_LOCAL_WORKER_SPAWN`)
 
+### Phase 3d — Deployment Control Plane Foundation
+- [x] Deployment runs table — `deployment_runs`
+- [x] Portal deployment run creation from authoritative revision/export/build state
+- [x] Project-level deployment history UI
+- [x] Worker `deploy_prepare` handler validates `deployment-payload.json`
+- [x] Deployment readiness remains separate from provider automation
+
 ### Phase 3b Fix — Target Path Resolution
 - [x] Canonical path fix — `resolveTarget()` defaults to `generated/<slug>/client-request.json` (was `examples/fake-clients/`)
 - [x] Portal export writes to `generated/<slug>/client-request.json`

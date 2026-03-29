@@ -44,6 +44,7 @@ import {
   stat,
 } from "node:fs/promises";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
+import type { DeploymentPayload } from "@vaen/schemas";
 import { createWorkerClient } from "./db.js";
 
 // ── Types ─────────────────────────────────────────────────────────────
@@ -332,6 +333,9 @@ export async function runJobById(
       case "review":
         await executeReview(db, j, p);
         break;
+      case "deploy_prepare":
+        await executeDeploymentPrepare(db, j, p);
+        break;
       default:
         throw new Error(`Unknown job type: ${j.job_type}`);
     }
@@ -347,6 +351,16 @@ export async function runJobById(
         completed_at: new Date().toISOString(),
       })
       .eq("id", jobId);
+
+    await db
+      .from("deployment_runs")
+      .update({
+        status: "failed",
+        error_summary: message.slice(0, 2000),
+        completed_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq("job_id", jobId);
   }
 }
 
@@ -1562,6 +1576,193 @@ async function executeReview(
   console.log(
     `[worker] Review complete for ${slug} (${screenshotCount} screenshots, site ${siteAge}, upload match: ${uploadSummary.matched ? "yes" : "no"}, identity: ${identityVerdict.review_identity_status}/${identityVerdict.mismatch_stage ?? "none"})`,
   );
+}
+
+function parseDeploymentPayload(
+  raw: string,
+): { payload: DeploymentPayload | null; errors: string[] } {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return { payload: null, errors: ["deployment-payload.json is not valid JSON"] };
+  }
+
+  const payload = parsed as Partial<DeploymentPayload>;
+  const errors: string[] = [];
+
+  if (payload.version !== "1.0.0") errors.push("version must be 1.0.0");
+  if (!payload.clientSlug) errors.push("clientSlug is missing");
+  if (!payload.sitePath) errors.push("sitePath is missing");
+  if (!payload.outputDir) errors.push("outputDir is missing");
+  if (payload.framework !== "nextjs") errors.push("framework must be nextjs");
+  if (!payload.domain?.subdomain) errors.push("domain.subdomain is missing");
+  if (!payload.metadata?.templateId) errors.push("metadata.templateId is missing");
+  if (!Array.isArray(payload.metadata?.moduleIds)) errors.push("metadata.moduleIds is missing");
+  if (!payload.metadata?.businessName) errors.push("metadata.businessName is missing");
+  if (!payload.metadata?.businessType) errors.push("metadata.businessType is missing");
+
+  return {
+    payload: errors.length === 0 ? (payload as DeploymentPayload) : null,
+    errors,
+  };
+}
+
+async function executeDeploymentPrepare(
+  db: ReturnType<typeof createWorkerClient>,
+  job: JobRow,
+  project: ProjectRow,
+) {
+  const repoRoot = resolveRepoRoot();
+  const slug = project.slug;
+  const payloadPath = join(repoRoot, "generated", slug, "deployment-payload.json");
+  const now = new Date().toISOString();
+
+  const { data: deploymentRun } = await db
+    .from("deployment_runs")
+    .select("id")
+    .eq("job_id", job.id)
+    .maybeSingle();
+
+  if (deploymentRun?.id) {
+    await db
+      .from("deployment_runs")
+      .update({
+        status: "running",
+        started_at: now,
+        updated_at: now,
+      })
+      .eq("id", deploymentRun.id);
+  }
+
+  let rawPayload: string;
+  try {
+    rawPayload = await readFile(payloadPath, "utf-8");
+  } catch (error) {
+    const message = `deployment-payload.json not found at generated/${slug}/deployment-payload.json`;
+
+    await db.from("projects").update({ status: "deploy_failed" }).eq("id", project.id);
+    await db
+      .from("jobs")
+      .update({
+        status: "failed",
+        result: { success: false, message },
+        stderr: error instanceof Error ? error.message.slice(0, 50_000) : String(error).slice(0, 50_000),
+        completed_at: now,
+      })
+      .eq("id", job.id);
+
+    if (deploymentRun?.id) {
+      await db
+        .from("deployment_runs")
+        .update({
+          status: "failed",
+          error_summary: message,
+          completed_at: now,
+          updated_at: now,
+        })
+        .eq("id", deploymentRun.id);
+    }
+
+    await db.from("project_events").insert({
+      project_id: project.id,
+      event_type: "deployment_prepare_failed",
+      from_status: project.status,
+      to_status: "deploy_failed",
+      metadata: { job_id: job.id, error: message, payload_path: payloadPath },
+    });
+    return;
+  }
+
+  const parsed = parseDeploymentPayload(rawPayload);
+  if (!parsed.payload) {
+    const message = `Deployment payload validation failed: ${parsed.errors.join("; ")}`;
+
+    await db.from("projects").update({ status: "deploy_failed" }).eq("id", project.id);
+    await db
+      .from("jobs")
+      .update({
+        status: "failed",
+        result: { success: false, message, errors: parsed.errors },
+        stderr: parsed.errors.join("\n").slice(0, 50_000),
+        completed_at: now,
+      })
+      .eq("id", job.id);
+
+    if (deploymentRun?.id) {
+      await db
+        .from("deployment_runs")
+        .update({
+          status: "failed",
+          error_summary: message,
+          payload_metadata: {
+            payload_path: payloadPath,
+            validation_errors: parsed.errors,
+          },
+          completed_at: now,
+          updated_at: now,
+        })
+        .eq("id", deploymentRun.id);
+    }
+
+    await db.from("project_events").insert({
+      project_id: project.id,
+      event_type: "deployment_prepare_failed",
+      from_status: project.status,
+      to_status: "deploy_failed",
+      metadata: { job_id: job.id, error: message, validation_errors: parsed.errors },
+    });
+    return;
+  }
+
+  const payload = parsed.payload;
+  const summary = {
+    framework: payload.framework,
+    subdomain: payload.domain.subdomain,
+    templateId: payload.metadata.templateId,
+    moduleCount: payload.metadata.moduleIds.length,
+    businessName: payload.metadata.businessName,
+  };
+
+  await db.from("projects").update({ status: "deploy_ready" }).eq("id", project.id);
+  await db
+    .from("jobs")
+    .update({
+      status: "completed",
+      result: {
+        success: true,
+        message: "Deployment payload prepared and validated",
+        payload_path: payloadPath,
+        payload_summary: summary,
+      },
+      completed_at: now,
+    })
+    .eq("id", job.id);
+
+  if (deploymentRun?.id) {
+    await db
+      .from("deployment_runs")
+      .update({
+        status: "validated",
+        payload_metadata: {
+          payload_path: payloadPath,
+          summary,
+          payload,
+        },
+        log_summary: "Deployment payload prepared and validated. Provider automation remains pending.",
+        completed_at: now,
+        updated_at: now,
+      })
+      .eq("id", deploymentRun.id);
+  }
+
+  await db.from("project_events").insert({
+    project_id: project.id,
+    event_type: "deployment_prepared",
+    from_status: project.status,
+    to_status: "deploy_ready",
+    metadata: { job_id: job.id, payload_path: payloadPath, payload_summary: summary },
+  });
 }
 
 // ── Discord notifications ─────────────────────────────────────────────

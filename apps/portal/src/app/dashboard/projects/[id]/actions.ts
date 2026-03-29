@@ -61,6 +61,8 @@ import {
 import { calculateQuoteTotals, resolveDiscountCents, validateDiscount } from "@/lib/quote-helpers";
 import { requireRole } from "@/lib/user-role-server";
 import { createApprovalRequestRecord } from "@/lib/approval-helpers";
+import { getDeploymentReadiness } from "@/lib/deployment-readiness";
+import { getDeploymentEligibility } from "@/lib/deployment-control-plane";
 import type { ModuleManifest } from "@vaen/module-registry";
 import {
   buildQuoteLineDrafts,
@@ -1128,6 +1130,105 @@ export async function runReviewAction(
 
   revalidatePath(`/dashboard/projects/${projectId}`);
   return { jobId: job.id };
+}
+
+/**
+ * Create a deployment-prepare run from the current authoritative revision/build state.
+ * This prepares and validates deployment metadata, but does not perform provider automation.
+ */
+export async function createDeploymentRunAction(
+  projectId: string,
+): Promise<{ error?: string; jobId?: string; deploymentRunId?: string }> {
+  const supabase = await createClient();
+
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated" };
+
+  const { data: project } = await supabase
+    .from("projects")
+    .select("*")
+    .eq("id", projectId)
+    .single();
+
+  if (!project) return { error: "Project not found" };
+
+  const p = project as Project;
+  const readiness = getDeploymentReadiness();
+  const eligibility = getDeploymentEligibility(p, readiness);
+  if (!eligibility.allowed) {
+    return { error: eligibility.reason ?? "Deployment run cannot be created yet." };
+  }
+
+  const payloadPath = `generated/${p.slug}/deployment-payload.json`;
+
+  const { data: job, error: jobError } = await supabase
+    .from("jobs")
+    .insert({
+      project_id: projectId,
+      job_type: "deploy_prepare",
+      status: "pending",
+      payload: {
+        triggered_by: user.id,
+        target_slug: p.slug,
+        deployment_payload_path: payloadPath,
+        revision_id: p.current_revision_id ?? undefined,
+      },
+    })
+    .select("id")
+    .single();
+
+  if (jobError || !job) {
+    return { error: `Failed to create deployment job: ${jobError?.message}` };
+  }
+
+  const { data: deploymentRun, error: runError } = await supabase
+    .from("deployment_runs")
+    .insert({
+      project_id: projectId,
+      revision_id: p.current_revision_id,
+      job_id: job.id,
+      status: "pending",
+      trigger_source: "portal_manual",
+      provider: "unconfigured",
+      payload_metadata: {
+        payload_path: payloadPath,
+        source: "authoritative_revision_export",
+      },
+    })
+    .select("id")
+    .single();
+
+  if (runError || !deploymentRun) {
+    await supabase.from("jobs").delete().eq("id", job.id);
+    return { error: `Failed to create deployment run: ${runError?.message}` };
+  }
+
+  await supabase
+    .from("projects")
+    .update({ status: "deploying" })
+    .eq("id", projectId);
+
+  await supabase.from("project_events").insert({
+    project_id: projectId,
+    event_type: "deployment_run_created",
+    from_status: p.status,
+    to_status: "deploying",
+    metadata: {
+      deployment_run_id: deploymentRun.id,
+      job_id: job.id,
+      revision_id: p.current_revision_id,
+      payload_path: payloadPath,
+      triggered_by: user.id,
+    },
+  });
+
+  if (shouldUseLocalWorkerSpawn()) {
+    spawnWorker(job.id);
+  }
+
+  revalidatePath(`/dashboard/projects/${projectId}`);
+  revalidatePath("/dashboard/settings/deployment");
+  return { jobId: job.id, deploymentRunId: deploymentRun.id };
 }
 
 // ── Job status queries ───────────────────────────────────────────────

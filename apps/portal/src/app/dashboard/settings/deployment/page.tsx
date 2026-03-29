@@ -11,7 +11,7 @@ export default async function DeploymentSettingsPage() {
           <h1 style={{ marginBottom: "0.25rem" }}>Deployment Readiness</h1>
           <p className="text-sm text-muted">
             This surface documents the runtime assumptions for hosting the portal on <strong>vaen.space</strong>.
-            It does not trigger deployments yet. It exists to reduce configuration mistakes before the real deploy pipeline is wired.
+            It does not trigger deployments itself. Project pages can now create tracked deployment runs, while provider automation remains a separate future layer.
           </p>
         </div>
         <span className="badge" data-testid="deployment-readiness-badge">
@@ -91,8 +91,8 @@ export default async function DeploymentSettingsPage() {
         <div className="detail-grid">
           <p className="text-sm text-muted">
             The repo already contains deployment-payload schema/generator support, deploy statuses in the workflow model,
-            and a real Resend webhook route. What is still missing is the actual deploy trigger/integration layer for GitHub,
-            Vercel, domains, and worker health orchestration.
+            and a real Resend webhook route. What is still missing is provider automation for GitHub, Vercel, domains,
+            and richer worker/deployment orchestration.
           </p>
           <Link href="/dashboard/settings/outreach" className="text-sm text-muted">
             Review outreach/webhook readiness

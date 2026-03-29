@@ -8,7 +8,7 @@ Website factory that takes client intake and turns it into deployed local busine
 apps/
   portal/          vaen.space — authenticated intake portal (Next.js + Supabase)
   intake-bot/      Discord bot for conversational intake (scaffolded)
-  worker/          Background job runner — executes generate/review via child_process
+  worker/          Background job runner — polls Supabase jobs and executes generate/review/deploy-prepare
 
 packages/
   shared/          Target resolution, job model, state machine, artifact lifecycle
@@ -132,7 +132,10 @@ Operators can review current readiness in the portal at `/dashboard/settings/out
 
 ### Deployment Readiness
 
-The portal is not fully deployment-automated yet, but the repo now includes a deployment readiness surface at `/dashboard/settings/deployment`.
+The portal is not fully deployment-automated yet, but the repo now includes:
+
+- a deployment readiness surface at `/dashboard/settings/deployment`
+- project-level deployment run creation/history backed by worker jobs
 
 Production assumptions for the portal:
 
@@ -159,6 +162,7 @@ Important operational note:
 
 - downstream generation/export/deployment rely on the active revision request payload and exported `client-request.json`, not just visible project form state
 - verify Business Details and Request Data (JSON) are in sync on project detail before trusting deploy/generate artifacts
+- deployment runs validate `deployment-payload.json`, but provider automation for GitHub/Vercel/domains is still pending
 
 ### Discord Notifications (Optional)
 

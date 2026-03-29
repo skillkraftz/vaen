@@ -20,6 +20,7 @@ Vaen splits into two runtime contexts: the **portal** (web UI, database access) 
   - File upload to Supabase Storage
   - Job dispatch (creates job record in DB)
   - Worker heartbeat visibility
+  - Deployment run creation and history
   - Status display, screenshot viewing
 
 ### Worker (VM / local machine)
@@ -35,7 +36,7 @@ Vaen splits into two runtime contexts: the **portal** (web UI, database access) 
   - Update job status and project status in DB
 
 ### Database (Supabase)
-- **Tables**: projects, project_request_revisions, assets, revision_assets, jobs, project_events, worker_heartbeats
+- **Tables**: projects, project_request_revisions, assets, revision_assets, jobs, project_events, worker_heartbeats, deployment_runs
 - **Storage buckets**: intake-assets, review-screenshots
 - **Auth**: Supabase Auth (portal), Service Role Key (worker)
 
@@ -73,6 +74,7 @@ Worker poller +---> claim_next_job() -> status: running
   |               |
   |               +---> reads client-request.json from disk
   |               +---> runs generator / review
+  |               +---> validates deployment-payload.json for deploy runs
   |               +---> uploads to Supabase
   |               +---> writes job + project results
   |
@@ -86,6 +88,7 @@ Worker poller +---> claim_next_job() -> status: running
 - Environment variables: `NEXT_PUBLIC_SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`
 - No filesystem access — all data goes through Supabase DB/Storage
 - Job dispatch: insert into `jobs` table (normal path no longer depends on `child_process.spawn`)
+- Deployment control plane: project pages can create tracked deployment runs backed by worker jobs
 - Supabase auth callback should be configured as `https://vaen.space/auth/callback`
 - Resend webhook target should be `https://vaen.space/api/webhooks/resend`
 - Deployment trust depends on active revision request data and exported `client-request.json`, not just visible project fields
@@ -135,6 +138,7 @@ OPENAI_API_KEY=sk-...  # for generator AI calls
 - `apps/worker/src/poll.ts` claims pending jobs from Supabase
 - Portal inserts jobs; worker polls and executes
 - `worker_heartbeats` is the worker health source
+- `deployment_runs` track deploy-prepare history from authoritative revision/build state
 - Local direct spawn remains available only as an opt-in dev fallback
 
 ### Phase 3: Worker on cloud VM — PLANNED (future)
@@ -164,4 +168,4 @@ OPENAI_API_KEY=sk-...  # for generator AI calls
 2. Provision Playwright/build dependencies on that VM
 3. Decide the shared/generated workspace location and retention policy
 4. Add operator-facing worker heartbeat visibility to the portal UI
-5. Add deploy target orchestration (GitHub/Vercel/domain wiring)
+5. Add provider adapters for GitHub/Vercel/domain wiring on top of deployment runs

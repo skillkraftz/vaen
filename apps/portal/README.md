@@ -2,7 +2,7 @@
 
 Authenticated operations portal for the vaen website factory. It now covers intake, project automation, pricing and quotes, prospects, campaigns, approvals, sequencing, and analytics.
 
-**Status:** Core portal workflow, sales ops, governance, campaign sequencing, campaign-detail analytics, and deployment/outreach readiness foundations are implemented. The main remaining work is deeper automation continuation, broader team-management polish, and real deployment trigger/orchestration.
+**Status:** Core portal workflow, sales ops, governance, campaign sequencing, campaign-detail analytics, deployment readiness, and deployment run control-plane foundations are implemented. The main remaining work is deeper automation continuation, broader team-management polish, and real provider deployment orchestration.
 
 ## Tech Stack
 
@@ -66,7 +66,9 @@ Authenticated operations portal for the vaen website factory. It now covers inta
 
 Outbound outreach readiness is visible in the portal at `/dashboard/settings/outreach`. Missing config blocks send attempts before they reach Resend.
 
-Deployment readiness is visible in the portal at `/dashboard/settings/deployment`. It checks the base URL, auth callback expectation, webhook target expectation, Supabase runtime envs, and repo-level deployment payload support without pretending the actual deploy trigger is implemented yet.
+Deployment readiness is visible in the portal at `/dashboard/settings/deployment`. It checks the base URL, auth callback expectation, webhook target expectation, Supabase runtime envs, and repo-level deployment payload support.
+
+Project pages now also support tracked deployment runs from authoritative revision/export/build state. Those runs validate `deployment-payload.json` and record history without pretending provider automation is finished.
 
 ## Database
 
@@ -152,4 +154,4 @@ New states: `intake_processing`, `intake_draft_ready`, `intake_needs_revision`, 
 
 - Automation continuation after async generate/review boundaries
 - Broader team management and role administration UI
-- Deployment trigger and operational release controls
+- Provider deployment adapters and operational release controls

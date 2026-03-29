@@ -160,6 +160,24 @@ export interface WorkerHeartbeat {
   updated_at: string;
 }
 
+export interface DeploymentRun {
+  id: string;
+  project_id: string;
+  revision_id: string | null;
+  job_id: string | null;
+  status: "pending" | "running" | "validated" | "failed";
+  trigger_source: "portal_manual" | "automation" | "retry";
+  provider: string | null;
+  provider_reference: string | null;
+  payload_metadata: Record<string, unknown>;
+  log_summary: string | null;
+  error_summary: string | null;
+  started_at: string | null;
+  completed_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface PackagePricing {
   id: string;
   item_type: "template" | "module";

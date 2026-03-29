@@ -210,7 +210,8 @@ Branch states:
 | Screenshot viewer in portal (inline base64 PNGs) | Complete |
 | Intake field enrichment in generator (_intake.* → siteConfig) | Complete |
 | Discord multi-event notifications (5 portal + 4 worker events) | Complete |
-| Deployment pipeline (portal-triggered) | Planned |
+| Deployment control plane (portal-triggered deploy runs + history) | Complete |
+| Provider deploy automation (GitHub/Vercel/domain adapters) | Planned |
 | Worker VM for isolated builds | Planned |
 | Additional templates and modules | Planned |
 
