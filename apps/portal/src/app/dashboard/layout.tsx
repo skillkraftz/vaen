@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import Link from "next/link";
 import { bootstrapCurrentUserRole } from "@/lib/user-role-server";
+import { roleSatisfies } from "@/lib/user-roles";
 
 async function signOut() {
   "use server";
@@ -45,6 +46,11 @@ export default async function DashboardLayout({
           <Link href="/dashboard/settings/outreach" className="text-sm text-muted">
             Outreach
           </Link>
+          {roleState.role && roleSatisfies(roleState.role, "sales") && (
+            <Link href="/dashboard/analytics" className="text-sm text-muted">
+              Analytics
+            </Link>
+          )}
           {roleState.role === "admin" && (
             <Link href="/dashboard/approvals" className="text-sm text-muted">
               Approvals
