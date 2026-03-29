@@ -70,8 +70,8 @@ describe("variant operator UI", () => {
   });
 
   it("shows variant labels in the dashboard list", () => {
-    const pagePath = join(__dirname, "../app/dashboard/page.tsx");
-    const source = readFileSync(pagePath, "utf-8");
+    const listPath = join(__dirname, "../app/dashboard/dashboard-project-list.tsx");
+    const source = readFileSync(listPath, "utf-8");
     expect(source).toContain("Variant:");
     expect(source).toContain("project.variant_label ?? \"Base\"");
   });

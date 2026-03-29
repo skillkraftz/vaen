@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   calculateQuoteTotals,
+  getQuoteOutdatedReasons,
   isQuoteOutdated,
   resolveDiscountCents,
   validateDiscount,
@@ -43,5 +44,19 @@ describe("quote helpers", () => {
       [{ id: "maps-embed" }, { id: "manual-testimonials" }],
       [{ id: "maps-embed" }],
     )).toBe(true);
+  });
+
+  it("reports revision and template drift as outdated reasons", () => {
+    expect(getQuoteOutdatedReasons({
+      currentModules: [{ id: "maps-embed" }],
+      snapshotModules: [{ id: "maps-embed" }],
+      currentRevisionId: "rev-2",
+      quoteRevisionId: "rev-1",
+      currentTemplateId: "service-pro",
+      quoteTemplateId: "service-core",
+    })).toEqual([
+      "Project revision has changed since this quote snapshot.",
+      "Template selection has changed since this quote was created.",
+    ]);
   });
 });

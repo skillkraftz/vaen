@@ -84,6 +84,27 @@ export function isQuoteOutdated(
   return JSON.stringify(currentIds) !== JSON.stringify(snapshotIds);
 }
 
+export function getQuoteOutdatedReasons(params: {
+  currentModules: SelectedModule[];
+  snapshotModules: SelectedModule[];
+  currentRevisionId: string | null;
+  quoteRevisionId: string | null;
+  currentTemplateId: string;
+  quoteTemplateId: string;
+}) {
+  const reasons: string[] = [];
+  if (isQuoteOutdated(params.currentModules, params.snapshotModules)) {
+    reasons.push("Module selection has changed since this quote was created.");
+  }
+  if (params.currentRevisionId && params.quoteRevisionId && params.currentRevisionId !== params.quoteRevisionId) {
+    reasons.push("Project revision has changed since this quote snapshot.");
+  }
+  if (params.currentTemplateId !== params.quoteTemplateId) {
+    reasons.push("Template selection has changed since this quote was created.");
+  }
+  return reasons;
+}
+
 export function formatCurrency(cents: number) {
   return new Intl.NumberFormat("en-US", {
     style: "currency",

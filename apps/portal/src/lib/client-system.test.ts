@@ -71,9 +71,11 @@ describe("new intake flow with clients", () => {
 describe("client relationship visibility", () => {
   it("dashboard shows client relationship", () => {
     const pagePath = join(__dirname, "../app/dashboard/page.tsx");
-    const source = readFileSync(pagePath, "utf-8");
-    expect(source).toContain("client:clients");
-    expect(source).toContain("Client:");
+    const listPath = join(__dirname, "../app/dashboard/dashboard-project-list.tsx");
+    const pageSource = readFileSync(pagePath, "utf-8");
+    const listSource = readFileSync(listPath, "utf-8");
+    expect(pageSource).toContain("client:clients");
+    expect(listSource).toContain("Client:");
   });
 
   it("project detail shows client relationship", () => {

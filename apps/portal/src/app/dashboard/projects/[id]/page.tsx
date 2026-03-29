@@ -18,6 +18,7 @@ import { RevisionList } from "./revision-list";
 import { ProjectLifecyclePanel } from "./project-lifecycle-panel";
 import { ModuleManager } from "./module-manager";
 import { QuoteSection } from "./quote-section";
+import { expirePastDueQuotes } from "./project-quote-helpers";
 import {
   BuildInputsEditor,
   SummaryEditor,
@@ -119,15 +120,24 @@ export default async function ProjectDetailPage({
     .eq("project_id", id)
     .order("created_at", { ascending: false });
 
+  await expirePastDueQuotes(supabase, id).catch(() => {});
+
   const { data: quotes } = await supabase
     .from("quotes")
     .select("*, lines:quote_lines(*)")
     .eq("project_id", id)
     .order("created_at", { ascending: false });
 
+  const { data: contracts } = await supabase
+    .from("contracts")
+    .select("*")
+    .eq("project_id", id)
+    .order("created_at", { ascending: false });
+
   const assetList = (assets ?? []) as Asset[];
   const eventList = (events ?? []) as ProjectEvent[];
   const quoteList = (quotes ?? []) as Array<Quote & { lines: QuoteLine[] }>;
+  const contractList = (contracts ?? []) as Array<import("@/lib/types").Contract>;
   const missingInfo = detectMissingInfo(p, assetList);
   const recommendations = p.recommendations as IntakeRecommendations | null;
   const selectedModules = Array.isArray(p.selected_modules) ? p.selected_modules : [];
@@ -308,7 +318,14 @@ export default async function ProjectDetailPage({
         </>
       )}
 
-      <QuoteSection projectId={id} quotes={quoteList} currentModules={selectedModules} />
+      <QuoteSection
+        projectId={id}
+        quotes={quoteList}
+        contracts={contractList}
+        currentModules={selectedModules}
+        currentRevisionId={p.current_revision_id}
+        currentTemplateId={templateId}
+      />
 
       {/* ── Business Details ───────────────────────────────────────── */}
       <div className="section">

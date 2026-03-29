@@ -44,8 +44,7 @@ import {
 } from "./project-recovery-helpers";
 import { buildProjectDiagnostics } from "./project-diagnostics-helpers";
 import {
-  purgeGeneratedProjectDir,
-  purgeProjectStorageAssets,
+  purgeProjectResources,
 } from "./project-lifecycle-helpers";
 import { allocateVariantIdentity } from "./project-variant-helpers";
 import {
@@ -61,6 +60,8 @@ import { calculateQuoteTotals } from "@/lib/quote-helpers";
 import type { ModuleManifest } from "@vaen/module-registry";
 import {
   buildQuoteLineDrafts,
+  createContractFromQuote,
+  expirePastDueQuotes,
   insertQuoteLines,
   loadPricingRows,
   recalculateQuote,
@@ -1204,6 +1205,11 @@ export async function getQuotesForProjectAction(
   projectId: string,
 ): Promise<{ quotes: Array<Quote & { lines: QuoteLine[] }>; error?: string }> {
   const supabase = await createClient();
+  try {
+    await expirePastDueQuotes(supabase, projectId);
+  } catch {
+    // keep reads resilient if expiry maintenance fails
+  }
 
   const { data: quotes, error } = await supabase
     .from("quotes")
@@ -1386,6 +1392,87 @@ export async function addQuoteLineAction(
   if (error) return { error: error.message };
   await recalculateQuote(supabase, quoteId);
   revalidatePath(`/dashboard/projects/${quote.project_id}`);
+  return {};
+}
+
+export async function transitionQuoteAction(
+  quoteId: string,
+  newStatus: "sent" | "accepted" | "rejected",
+): Promise<{ error?: string }> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated" };
+
+  const { data: quote } = await supabase
+    .from("quotes")
+    .select("*")
+    .eq("id", quoteId)
+    .single();
+
+  if (!quote) return { error: "Quote not found." };
+  const quoteRow = quote as Quote;
+
+  const allowedTransitions: Record<Quote["status"], Array<"sent" | "accepted" | "rejected">> = {
+    draft: ["sent", "rejected"],
+    sent: ["accepted", "rejected"],
+    accepted: [],
+    rejected: [],
+    expired: [],
+  };
+
+  if (!allowedTransitions[quoteRow.status].includes(newStatus)) {
+    return { error: `Cannot transition quote from "${quoteRow.status}" to "${newStatus}".` };
+  }
+
+  const { data: project } = await supabase
+    .from("projects")
+    .select("id, client_id, status")
+    .eq("id", quoteRow.project_id)
+    .single();
+
+  if (!project) return { error: "Project not found." };
+
+  const updates: Record<string, unknown> = { status: newStatus };
+  if (newStatus === "sent" && !quoteRow.valid_until) {
+    updates.valid_until = new Date(Date.now() + quoteRow.valid_days * 24 * 60 * 60 * 1000).toISOString();
+  }
+
+  const { error: updateError } = await supabase
+    .from("quotes")
+    .update(updates)
+    .eq("id", quoteId);
+
+  if (updateError) return { error: updateError.message };
+
+  if (newStatus === "accepted") {
+    try {
+      await createContractFromQuote(supabase, { ...quoteRow, status: "accepted" }, project as Pick<Project, "id" | "client_id">);
+    } catch (error) {
+      return { error: error instanceof Error ? error.message : String(error) };
+    }
+
+    await supabase
+      .from("quotes")
+      .update({ status: "expired" })
+      .eq("project_id", quoteRow.project_id)
+      .neq("id", quoteId)
+      .in("status", ["draft", "sent"]);
+  }
+
+  await supabase.from("project_events").insert({
+    project_id: quoteRow.project_id,
+    event_type: `quote_${newStatus}`,
+    from_status: (project as { status: string }).status,
+    to_status: (project as { status: string }).status,
+    metadata: {
+      quote_id: quoteId,
+      previous_quote_status: quoteRow.status,
+      next_quote_status: newStatus,
+      triggered_by: user.id,
+    },
+  });
+
+  revalidatePath(`/dashboard/projects/${quoteRow.project_id}`);
   return {};
 }
 
@@ -2361,13 +2448,7 @@ export async function purgeProjectAction(
     return { error: "Slug confirmation does not match." };
   }
 
-  const { data: assets } = await supabase
-    .from("assets")
-    .select("*")
-    .eq("project_id", projectId);
-
-  await purgeProjectStorageAssets(user.id, projectId, (assets ?? []) as Asset[]);
-  await purgeGeneratedProjectDir(p.slug);
+  await purgeProjectResources(supabase, user.id, p);
 
   const { error } = await supabase
     .from("projects")
@@ -2378,4 +2459,111 @@ export async function purgeProjectAction(
 
   revalidatePath("/dashboard");
   return {};
+}
+
+export async function bulkArchiveProjectsAction(
+  projectIds: string[],
+): Promise<{ error?: string; count?: number }> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated" };
+  const ids = [...new Set(projectIds.filter(Boolean))];
+  if (ids.length === 0) return { error: "No projects selected." };
+
+  const { data: projects } = await supabase
+    .from("projects")
+    .select("id, status, archived_at")
+    .in("id", ids);
+
+  const active = (projects ?? []).filter((project) => !project.archived_at);
+  if (active.length === 0) return { count: 0 };
+
+  const { error } = await supabase
+    .from("projects")
+    .update({ archived_at: new Date().toISOString(), archived_by: user.id })
+    .in("id", active.map((project) => project.id));
+
+  if (error) return { error: error.message };
+
+  await supabase.from("project_events").insert(
+    active.map((project) => ({
+      project_id: project.id,
+      event_type: "project_archived",
+      from_status: project.status,
+      to_status: project.status,
+      metadata: { archived_by: user.id, source: "dashboard_bulk" },
+    })),
+  );
+
+  revalidatePath("/dashboard");
+  return { count: active.length };
+}
+
+export async function bulkRestoreProjectsAction(
+  projectIds: string[],
+): Promise<{ error?: string; count?: number }> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated" };
+  const ids = [...new Set(projectIds.filter(Boolean))];
+  if (ids.length === 0) return { error: "No projects selected." };
+
+  const { data: projects } = await supabase
+    .from("projects")
+    .select("id, status, archived_at")
+    .in("id", ids);
+
+  const archived = (projects ?? []).filter((project) => !!project.archived_at);
+  if (archived.length === 0) return { count: 0 };
+
+  const { error } = await supabase
+    .from("projects")
+    .update({ archived_at: null, archived_by: null })
+    .in("id", archived.map((project) => project.id));
+
+  if (error) return { error: error.message };
+
+  await supabase.from("project_events").insert(
+    archived.map((project) => ({
+      project_id: project.id,
+      event_type: "project_restored",
+      from_status: project.status,
+      to_status: project.status,
+      metadata: { restored_by: user.id, source: "dashboard_bulk" },
+    })),
+  );
+
+  revalidatePath("/dashboard");
+  return { count: archived.length };
+}
+
+export async function bulkPurgeProjectsAction(
+  projectIds: string[],
+  confirmationPhrase: string,
+): Promise<{ error?: string; count?: number }> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated" };
+  const ids = [...new Set(projectIds.filter(Boolean))];
+  if (ids.length === 0) return { error: "No projects selected." };
+
+  const expected = `DELETE ${ids.length} PROJECT${ids.length === 1 ? "" : "S"}`;
+  if (confirmationPhrase.trim() !== expected) {
+    return { error: `Confirmation phrase must exactly match "${expected}".` };
+  }
+
+  const { data: projects } = await supabase
+    .from("projects")
+    .select("*")
+    .in("id", ids);
+
+  const records = (projects ?? []) as Project[];
+  for (const project of records) {
+    await purgeProjectResources(supabase, user.id, project);
+    const { error } = await supabase.from("projects").delete().eq("id", project.id);
+    if (error) return { error: error.message };
+  }
+
+  revalidatePath("/dashboard");
+  return { count: records.length };
 }

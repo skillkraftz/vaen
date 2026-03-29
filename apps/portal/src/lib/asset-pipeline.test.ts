@@ -401,7 +401,7 @@ describe("UI uses plain-language labels", () => {
   });
 
   it("dashboard uses Step N format", () => {
-    const dashPath = join(__dirname, "../app/dashboard/page.tsx");
+    const dashPath = join(__dirname, "../app/dashboard/dashboard-project-list.tsx");
     const source = readFileSync(dashPath, "utf-8");
     expect(source).toContain("formatStatusLabel");
   });

@@ -1,5 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
-import type { PackagePricing, Project, Quote, QuoteLine, SelectedModule } from "@/lib/types";
+import type { Contract, PackagePricing, Project, Quote, QuoteLine, SelectedModule } from "@/lib/types";
 import {
   calculateQuoteTotals,
   resolveDiscountCents,
@@ -138,4 +138,52 @@ export async function recalculateQuote(
     .eq("id", quoteId);
 
   if (error) throw new Error(error.message);
+}
+
+export async function expirePastDueQuotes(
+  supabase: PortalSupabase,
+  projectId: string,
+) {
+  const now = new Date().toISOString();
+  const { error } = await supabase
+    .from("quotes")
+    .update({ status: "expired" })
+    .eq("project_id", projectId)
+    .in("status", ["draft", "sent"])
+    .lt("valid_until", now);
+
+  if (error) throw new Error(error.message);
+}
+
+export async function createContractFromQuote(
+  supabase: PortalSupabase,
+  quote: Quote,
+  project: Pick<Project, "id" | "client_id">,
+) {
+  const { data: existing } = await supabase
+    .from("contracts")
+    .select("*")
+    .eq("quote_id", quote.id)
+    .maybeSingle();
+
+  if (existing) return existing as Contract;
+
+  const { data, error } = await supabase
+    .from("contracts")
+    .insert({
+      quote_id: quote.id,
+      project_id: project.id,
+      client_id: project.client_id,
+      billing_type: quote.recurring_total_cents > 0 ? "monthly" : "one_time",
+      setup_amount_cents: quote.setup_total_cents,
+      recurring_amount_cents: quote.recurring_total_cents,
+      metadata: {
+        source_quote_status: quote.status,
+      },
+    })
+    .select("*")
+    .single();
+
+  if (error || !data) throw new Error(error?.message ?? "Failed to create contract.");
+  return data as Contract;
 }

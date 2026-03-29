@@ -32,10 +32,12 @@ describe("dashboard archive behavior", () => {
 
   it("can show archived projects separately", () => {
     const pagePath = join(__dirname, "../app/dashboard/page.tsx");
-    const source = readFileSync(pagePath, "utf-8");
-    expect(source).toContain("archived-project-list");
-    expect(source).toContain("Show Archived");
-    expect(source).toContain("Hide Archived");
+    const listPath = join(__dirname, "../app/dashboard/dashboard-project-list.tsx");
+    const pageSource = readFileSync(pagePath, "utf-8");
+    const listSource = readFileSync(listPath, "utf-8");
+    expect(pageSource).toContain("Show Archived");
+    expect(listSource).toContain("archived-project-list");
+    expect(listSource).toContain("Hide Archived");
   });
 });
 
@@ -46,6 +48,9 @@ describe("project archive and purge actions", () => {
     expect(source).toContain("export async function archiveProjectAction");
     expect(source).toContain("export async function restoreProjectAction");
     expect(source).toContain("export async function purgeProjectAction");
+    expect(source).toContain("export async function bulkArchiveProjectsAction");
+    expect(source).toContain("export async function bulkRestoreProjectsAction");
+    expect(source).toContain("export async function bulkPurgeProjectsAction");
   });
 
   it("archive and restore keep workflow status unchanged", () => {
@@ -79,10 +84,12 @@ describe("project archive and purge actions", () => {
     const actionSource = readFileSync(actionsPath, "utf-8");
     const helperSource = readFileSync(helperPath, "utf-8");
     const purgeFn = actionSource.slice(sourceIndex(actionSource, "export async function purgeProjectAction"));
-    expect(purgeFn).toContain("purgeProjectStorageAssets");
-    expect(purgeFn).toContain("purgeGeneratedProjectDir");
+    expect(purgeFn).toContain("purgeProjectResources");
     expect(purgeFn).toContain('.from("projects")');
     expect(purgeFn).toContain(".delete()");
+    expect(helperSource).toContain("export async function purgeProjectResources");
+    expect(helperSource).toContain("purgeProjectStorageAssets");
+    expect(helperSource).toContain("purgeGeneratedProjectDir");
     expect(helperSource).toContain('from("review-screenshots").remove');
     expect(helperSource).toContain('from("intake-assets").remove');
     expect(helperSource).toContain('rm(getGeneratedProjectDir(slug)');
@@ -98,6 +105,24 @@ describe("project operations UI", () => {
     expect(source).toContain("Purge Project");
     expect(source).toContain('data-testid="project-purge-slug"');
     expect(source).toContain('data-testid="project-purge-confirm"');
+  });
+
+  it("supports dashboard card actions and bulk selection", () => {
+    const listPath = join(__dirname, "../app/dashboard/dashboard-project-list.tsx");
+    const source = readFileSync(listPath, "utf-8");
+    expect(source).toContain('data-testid="dashboard-bulk-mode-toggle"');
+    expect(source).toContain('data-testid="bulk-archive-button"');
+    expect(source).toContain('data-testid="bulk-unarchive-button"');
+    expect(source).toContain('data-testid="bulk-purge-button"');
+    expect(source).toContain('data-testid="dashboard-purge-dialog"');
+    expect(source).toContain('data-testid="dashboard-purge-phrase"');
+    expect(source).toContain('data-testid="dashboard-purge-confirm"');
+    expect(source).toContain("dashboard-project-archive-${project.slug}");
+    expect(source).toContain("dashboard-project-restore-${project.slug}");
+    expect(source).toContain("dashboard-project-duplicate-${project.slug}");
+    expect(source).toContain("dashboard-project-purge-${project.slug}");
+    expect(source).toContain("DELETE ${projects.length} PROJECT");
+    expect(source).toContain("bulkPurgeProjectsAction");
   });
 });
 

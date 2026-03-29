@@ -2,13 +2,14 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import type { Quote, QuoteLine, SelectedModule } from "@/lib/types";
-import { formatCurrency, isQuoteOutdated } from "@/lib/quote-helpers";
+import type { Contract, Quote, QuoteLine, SelectedModule } from "@/lib/types";
+import { formatCurrency, getQuoteOutdatedReasons } from "@/lib/quote-helpers";
 import {
   addQuoteLineAction,
   createQuoteAction,
   removeQuoteLineAction,
   setQuoteDiscountAction,
+  transitionQuoteAction,
   updateQuoteLineAction,
 } from "./actions";
 
@@ -92,23 +93,39 @@ function QuoteLineEditor({
 
 function QuoteCard({
   quote,
+  contract,
   currentModules,
+  currentRevisionId,
+  currentTemplateId,
 }: {
   quote: Quote & { lines: QuoteLine[] };
+  contract: Contract | null;
   currentModules: SelectedModule[];
+  currentRevisionId: string | null;
+  currentTemplateId: string;
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
+  const [error, setError] = useState<string | null>(null);
   const [addonLabel, setAddonLabel] = useState("");
   const [addonSetup, setAddonSetup] = useState("0");
   const [addonRecurring, setAddonRecurring] = useState("0");
   const [discountPercent, setDiscountPercent] = useState(quote.discount_percent != null ? String(quote.discount_percent) : "");
   const [discountReason, setDiscountReason] = useState(quote.discount_reason ?? "");
   const editable = quote.status === "draft";
-  const outdated = isQuoteOutdated(currentModules, quote.selected_modules_snapshot);
+  const outdatedReasons = getQuoteOutdatedReasons({
+    currentModules,
+    snapshotModules: quote.selected_modules_snapshot,
+    currentRevisionId,
+    quoteRevisionId: quote.revision_id,
+    currentTemplateId,
+    quoteTemplateId: quote.template_id,
+  });
+  const outdated = outdatedReasons.length > 0;
 
   function addAddon() {
     startTransition(async () => {
+      setError(null);
       await addQuoteLineAction(quote.id, {
         label: addonLabel,
         setup_price_cents: Number(addonSetup),
@@ -123,10 +140,27 @@ function QuoteCard({
 
   function saveDiscount() {
     startTransition(async () => {
-      await setQuoteDiscountAction(quote.id, {
+      const result = await setQuoteDiscountAction(quote.id, {
         percent: discountPercent === "" ? 0 : Number(discountPercent),
         reason: discountReason,
       });
+      if (result.error) {
+        setError(result.error);
+        return;
+      }
+      setError(null);
+      router.refresh();
+    });
+  }
+
+  function transition(status: "sent" | "accepted" | "rejected") {
+    startTransition(async () => {
+      const result = await transitionQuoteAction(quote.id, status);
+      if (result.error) {
+        setError(result.error);
+        return;
+      }
+      setError(null);
       router.refresh();
     });
   }
@@ -146,9 +180,36 @@ function QuoteCard({
       </div>
 
       {outdated && (
-        <p className="text-sm" style={{ color: "var(--color-warning)" }} data-testid="quote-outdated-warning">
-          Module selection has changed since this quote was created.
-        </p>
+        <div
+          style={{ marginTop: "0.75rem", display: "flex", flexDirection: "column", gap: "0.35rem" }}
+          data-testid="quote-outdated-warning"
+        >
+          {outdatedReasons.map((reason) => (
+            <p key={reason} className="text-sm" style={{ color: "var(--color-warning)" }}>
+              {reason}
+            </p>
+          ))}
+        </div>
+      )}
+
+      {quote.status === "accepted" && contract && (
+        <div
+          className="card"
+          style={{ marginTop: "0.75rem", padding: "0.75rem", background: "var(--color-surface-subtle)" }}
+          data-testid="contract-badge"
+        >
+          <div style={{ display: "flex", justifyContent: "space-between", gap: "0.75rem", flexWrap: "wrap" }}>
+            <div>
+              <strong>Contract #{contract.contract_number}</strong>
+              <p className="text-sm text-muted">
+                {contract.status} · {contract.billing_type}
+              </p>
+            </div>
+            <div className="text-sm text-muted">
+              Started {new Date(contract.started_at).toLocaleDateString("en-US")}
+            </div>
+          </div>
+        </div>
       )}
 
       <table className="info-table" style={{ marginTop: "0.75rem" }}>
@@ -203,6 +264,65 @@ function QuoteCard({
         </div>
       )}
 
+      <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", marginTop: "0.75rem" }}>
+        {quote.status === "draft" && (
+          <>
+            <button
+              type="button"
+              className="btn btn-sm btn-primary"
+              onClick={() => transition("sent")}
+              disabled={isPending}
+              data-testid="btn-send-quote"
+            >
+              Mark Sent
+            </button>
+            <button
+              type="button"
+              className="btn btn-sm"
+              onClick={() => transition("rejected")}
+              disabled={isPending}
+              data-testid="btn-reject-quote"
+            >
+              Reject
+            </button>
+          </>
+        )}
+        {quote.status === "sent" && (
+          <>
+            <button
+              type="button"
+              className="btn btn-sm btn-primary"
+              onClick={() => transition("accepted")}
+              disabled={isPending}
+              data-testid="btn-accept-quote"
+            >
+              Accept + Create Contract
+            </button>
+            <button
+              type="button"
+              className="btn btn-sm"
+              onClick={() => transition("rejected")}
+              disabled={isPending}
+              data-testid="btn-reject-quote"
+            >
+              Reject
+            </button>
+          </>
+        )}
+      </div>
+
+      {quote.valid_until && (
+        <p className="text-sm text-muted" style={{ marginTop: "0.5rem" }}>
+          Valid until {new Date(quote.valid_until).toLocaleDateString("en-US")}
+        </p>
+      )}
+
+      {error && (
+        <p className="text-sm" style={{ color: "var(--color-error)", marginTop: "0.75rem" }}>
+          {error}
+        </p>
+      )}
+
       <div style={{ marginTop: "0.75rem", borderTop: "1px solid var(--color-border)", paddingTop: "0.75rem" }}>
         <div style={{ display: "flex", justifyContent: "space-between" }}>
           <span>Subtotal</span>
@@ -228,11 +348,17 @@ function QuoteCard({
 export function QuoteSection({
   projectId,
   quotes,
+  contracts,
   currentModules,
+  currentRevisionId,
+  currentTemplateId,
 }: {
   projectId: string;
   quotes: Array<Quote & { lines: QuoteLine[] }>;
+  contracts: Contract[];
   currentModules: SelectedModule[];
+  currentRevisionId: string | null;
+  currentTemplateId: string;
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -271,7 +397,14 @@ export function QuoteSection({
             </button>
           </div>
           {quotes.map((quote) => (
-            <QuoteCard key={quote.id} quote={quote} currentModules={currentModules} />
+            <QuoteCard
+              key={quote.id}
+              quote={quote}
+              contract={contracts.find((contract) => contract.quote_id === quote.id) ?? null}
+              currentModules={currentModules}
+              currentRevisionId={currentRevisionId}
+              currentTemplateId={currentTemplateId}
+            />
           ))}
         </div>
       )}

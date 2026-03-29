@@ -28,6 +28,7 @@ describe("quote actions and UI", () => {
     expect(source).toContain("export async function addQuoteLineAction");
     expect(source).toContain("export async function removeQuoteLineAction");
     expect(source).toContain("export async function setQuoteDiscountAction");
+    expect(source).toContain("export async function transitionQuoteAction");
     expect(source).toContain('event_type: "quote_created"');
   });
 
@@ -55,6 +56,11 @@ describe("quote actions and UI", () => {
     expect(source).toContain('data-testid="quote-total-setup"');
     expect(source).toContain('data-testid="quote-total-recurring"');
     expect(source).toContain('data-testid="quote-discount"');
+    expect(source).toContain('data-testid="quote-outdated-warning"');
+    expect(source).toContain('data-testid="btn-send-quote"');
+    expect(source).toContain('data-testid="btn-accept-quote"');
+    expect(source).toContain('data-testid="btn-reject-quote"');
+    expect(source).toContain('data-testid="contract-badge"');
   });
 
   it("places the quote section on the project page", () => {
@@ -62,6 +68,22 @@ describe("quote actions and UI", () => {
     const source = readFileSync(pagePath, "utf-8");
     expect(source).toContain("QuoteSection");
     expect(source).toContain("quotes={quoteList}");
+    expect(source).toContain("contracts={contractList}");
     expect(source).toContain("currentModules={selectedModules}");
+    expect(source).toContain("currentRevisionId={p.current_revision_id}");
+    expect(source).toContain("currentTemplateId={templateId}");
+  });
+
+  it("accepting a quote creates a contract and expires competing quotes", () => {
+    const actionsPath = join(__dirname, "../app/dashboard/projects/[id]/actions.ts");
+    const source = readFileSync(actionsPath, "utf-8");
+    const lifecycleFn = source.slice(
+      source.indexOf("export async function transitionQuoteAction"),
+      source.indexOf("export async function removeQuoteLineAction"),
+    );
+    expect(lifecycleFn).toContain('newStatus === "accepted"');
+    expect(lifecycleFn).toContain("createContractFromQuote");
+    expect(lifecycleFn).toContain('.update({ status: "expired" })');
+    expect(lifecycleFn).toContain('event_type: `quote_${newStatus}`');
   });
 });

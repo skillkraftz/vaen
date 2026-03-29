@@ -1,7 +1,10 @@
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
-import type { Asset } from "@/lib/types";
+import type { Asset, Project } from "@/lib/types";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { createClient } from "@/lib/supabase/server";
+
+type PortalSupabase = Awaited<ReturnType<typeof createClient>>;
 
 export function getGeneratedProjectDir(slug: string) {
   return join(process.cwd(), "../..", "generated", slug);
@@ -43,4 +46,18 @@ export async function purgeProjectStorageAssets(
       await admin.storage.from("intake-assets").remove(extraPaths);
     }
   }
+}
+
+export async function purgeProjectResources(
+  supabase: PortalSupabase,
+  userId: string,
+  project: Project,
+) {
+  const { data: assets } = await supabase
+    .from("assets")
+    .select("*")
+    .eq("project_id", project.id);
+
+  await purgeProjectStorageAssets(userId, project.id, (assets ?? []) as Asset[]);
+  await purgeGeneratedProjectDir(project.slug);
 }
