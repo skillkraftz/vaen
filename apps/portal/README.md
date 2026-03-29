@@ -57,8 +57,10 @@ Authenticated operations portal for the vaen website factory. It now covers inta
 | `DISCORD_WEBHOOK_URL` | No | Discord webhook for notifications |
 | `NEXT_PUBLIC_PORTAL_URL` | No | Portal URL for links in notifications |
 | `RESEND_API_KEY` | No | Required for outbound outreach execution via Resend |
-| `OUTREACH_FROM_EMAIL` | No | Preferred From address for outreach sends |
-| `RESEND_FROM_EMAIL` | No | Fallback From address if `OUTREACH_FROM_EMAIL` is unset |
+| `RESEND_FROM_EMAIL` | No | Preferred From address for outreach sends |
+| `RESEND_FROM_NAME` | No | Display name for outreach sends (defaults to `Skillkraftz Support`) |
+| `RESEND_REPLY_TO` | No | Optional reply-to address for outreach sends |
+| `OUTREACH_FROM_EMAIL` | No | Legacy fallback From address if `RESEND_FROM_EMAIL` is unset |
 
 Outbound outreach readiness is visible in the portal at `/dashboard/settings/outreach`. Missing config blocks send attempts before they reach Resend.
 

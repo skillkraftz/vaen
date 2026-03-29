@@ -54,6 +54,9 @@ export default async function OutreachSettingsPage() {
         <h2 style={{ fontSize: "1rem", fontWeight: 600, marginBottom: "0.75rem" }}>Resolved Values</h2>
         <div style={{ display: "grid", gap: "0.5rem" }}>
           <div><strong>From email:</strong> {readiness.values.fromEmail ?? "Not configured"}</div>
+          <div><strong>From name:</strong> {readiness.values.fromName}</div>
+          <div><strong>Formatted sender:</strong> {readiness.values.fromAddress ?? "Not configured"}</div>
+          <div><strong>Reply-to:</strong> {readiness.values.replyTo ?? "Not configured"}</div>
           <div><strong>Portal URL:</strong> {readiness.values.portalUrl ?? "Not configured"}</div>
         </div>
       </div>

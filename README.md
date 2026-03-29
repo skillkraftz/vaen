@@ -98,8 +98,10 @@ pnpm build
 | `DISCORD_WEBHOOK_URL` | No | Discord webhook for lifecycle notifications |
 | `NEXT_PUBLIC_PORTAL_URL` | No | Portal URL for notification links (default: http://localhost:3100) |
 | `RESEND_API_KEY` | No | Required for outbound prospect outreach via Resend |
-| `OUTREACH_FROM_EMAIL` | No | Preferred From address for outreach emails |
-| `RESEND_FROM_EMAIL` | No | Fallback From address if `OUTREACH_FROM_EMAIL` is unset |
+| `RESEND_FROM_EMAIL` | No | Preferred From address for outreach emails (for production: `support@skillkraftz.com`) |
+| `RESEND_FROM_NAME` | No | Display name for outbound outreach emails (defaults to `Skillkraftz Support`) |
+| `RESEND_REPLY_TO` | No | Optional reply-to address for outreach emails |
+| `OUTREACH_FROM_EMAIL` | No | Legacy fallback From address if `RESEND_FROM_EMAIL` is unset |
 
 **Worker** (`apps/worker/.env`) — loaded automatically by `run-job.ts` via dotenv:
 
@@ -119,7 +121,9 @@ Outbound outreach stays operator-controlled, but it now validates configuration 
 Required portal env vars for outreach:
 
 - `RESEND_API_KEY`
-- `OUTREACH_FROM_EMAIL` or `RESEND_FROM_EMAIL`
+- `RESEND_FROM_EMAIL` or `OUTREACH_FROM_EMAIL`
+- `RESEND_FROM_NAME` is optional and defaults to `Skillkraftz Support`
+- `RESEND_REPLY_TO` is optional
 - `NEXT_PUBLIC_PORTAL_URL`
 
 Operators can review current readiness in the portal at `/dashboard/settings/outreach`.

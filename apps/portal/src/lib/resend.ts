@@ -1,9 +1,12 @@
-import { getOutreachConfigReadiness, getOutreachFromEmail } from "./outreach-config";
+import { getEmailSenderConfig } from "./email-sender-config";
+import { getOutreachConfigReadiness } from "./outreach-config";
+import type { ResendTag } from "./resend-tags";
 
 export interface ResendSendEmailInput {
   to: string;
   subject: string;
   text: string;
+  tags?: ResendTag[];
 }
 
 export async function sendEmailViaResend(input: ResendSendEmailInput): Promise<{
@@ -13,7 +16,8 @@ export async function sendEmailViaResend(input: ResendSendEmailInput): Promise<{
 }> {
   const readiness = getOutreachConfigReadiness();
   const apiKey = process.env.RESEND_API_KEY?.trim();
-  const from = getOutreachFromEmail();
+  const senderConfig = getEmailSenderConfig();
+  const from = senderConfig.fromAddress;
 
   if (!readiness.ready || !apiKey || !from) {
     return {
@@ -36,6 +40,8 @@ export async function sendEmailViaResend(input: ResendSendEmailInput): Promise<{
         to: [input.to],
         subject: input.subject,
         text: input.text,
+        reply_to: senderConfig.replyTo ? [senderConfig.replyTo] : undefined,
+        tags: input.tags,
       }),
     });
 

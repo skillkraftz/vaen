@@ -475,6 +475,8 @@ export async function advanceDueFollowUpsAction(
       subjectOverride: subject,
       bodyOverride: body,
       campaignId,
+      sendType: "sequence",
+      sequenceStep: current.step.step_number,
     });
 
     if (sendResult.status !== "sent" || !sendResult.sendId || !sendResult.sentAt) {

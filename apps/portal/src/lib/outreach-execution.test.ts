@@ -24,6 +24,14 @@ describe("outreach send schema", () => {
     expect(source).toContain("next_follow_up_due_at");
     expect(source).toContain("follow_up_count");
   });
+
+  it("adds provider metadata for webhook correlation and sender auditability", () => {
+    const migrationPath = join(REPO_ROOT, "supabase/migrations/20260329000018_add_outreach_send_provider_metadata.sql");
+    expect(existsSync(migrationPath)).toBe(true);
+    const source = readFileSync(migrationPath, "utf-8");
+    expect(source).toContain("alter table public.outreach_sends");
+    expect(source).toContain("provider_metadata jsonb");
+  });
 });
 
 describe("outreach execution helpers", () => {
@@ -36,6 +44,7 @@ describe("outreach execution helpers", () => {
 
     expect(readiness.ready).toBe(true);
     expect(readiness.values.fromEmail).toBe("sales@vaen.space");
+    expect(readiness.values.fromName).toBe("Skillkraftz Support");
     expect(readiness.values.portalUrl).toBe("https://portal.vaen.space");
     expect(readiness.checks.portalUrl.ok).toBe(true);
   });
@@ -49,7 +58,7 @@ describe("outreach execution helpers", () => {
 
     expect(readiness.ready).toBe(false);
     expect(readiness.issues).toContain("RESEND_API_KEY is missing.");
-    expect(readiness.issues).toContain("OUTREACH_FROM_EMAIL or RESEND_FROM_EMAIL is missing.");
+    expect(readiness.issues).toContain("RESEND_FROM_EMAIL or OUTREACH_FROM_EMAIL is missing.");
     expect(readiness.issues).toContain("NEXT_PUBLIC_PORTAL_URL is missing or not a valid absolute URL.");
   });
 
@@ -132,5 +141,21 @@ describe("outreach execution helpers", () => {
   it("normalizes portal urls for outbound links", () => {
     expect(normalizePortalBaseUrl("https://portal.vaen.space/")).toBe("https://portal.vaen.space");
     expect(normalizePortalBaseUrl("not-a-url")).toBe(null);
+  });
+
+  it("threads centralized sender config, provider metadata, and resend tags through the send path", () => {
+    const resendSource = readFileSync(join(REPO_ROOT, "apps/portal/src/lib/resend.ts"), "utf-8");
+    const helperSource = readFileSync(join(REPO_ROOT, "apps/portal/src/app/dashboard/prospects/prospect-send-helpers.ts"), "utf-8");
+    const webhookSource = readFileSync(join(REPO_ROOT, "apps/portal/src/app/api/webhooks/resend/route.ts"), "utf-8");
+
+    expect(resendSource).toContain("getEmailSenderConfig");
+    expect(resendSource).toContain("reply_to");
+    expect(resendSource).toContain("tags");
+    expect(helperSource).toContain("buildResendTags");
+    expect(helperSource).toContain("provider_metadata");
+    expect(helperSource).toContain("provider_message_id");
+    expect(helperSource).toContain("sendType");
+    expect(helperSource).toContain("sequenceStep");
+    expect(webhookSource).toContain("Resend webhook scaffold");
   });
 });

@@ -285,6 +285,7 @@ export interface OutreachSend {
   subject: string;
   body: string;
   attachment_links: string[];
+  provider_metadata?: Record<string, unknown>;
   status: "pending" | "sent" | "failed" | "blocked";
   provider: "resend";
   provider_message_id: string | null;

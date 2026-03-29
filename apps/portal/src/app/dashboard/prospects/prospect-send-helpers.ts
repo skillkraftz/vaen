@@ -1,5 +1,6 @@
 import { revalidatePath } from "next/cache";
 import type { createClient } from "@/lib/supabase/server";
+import { getEmailSenderConfig } from "@/lib/email-sender-config";
 import {
   buildOutreachSendBody,
   computeNextFollowUpDate,
@@ -7,6 +8,7 @@ import {
   isDuplicateSendBlocked,
 } from "@/lib/outreach-execution";
 import { sendEmailViaResend } from "@/lib/resend";
+import { buildResendTags } from "@/lib/resend-tags";
 import { getOutreachConfigReadiness } from "@/lib/outreach-config";
 import type { OutreachSend, Prospect, ProspectOutreachPackage } from "@/lib/types";
 
@@ -41,12 +43,40 @@ export async function executeProspectOutreachSend(params: {
   subjectOverride?: string | null;
   bodyOverride?: string | null;
   campaignId?: string | null;
+  sendType?: "manual" | "sequence";
+  sequenceStep?: number | null;
 }) {
   if (!params.confirm) {
     return { error: "Send confirmation is required." };
   }
 
   const configReadiness = getOutreachConfigReadiness();
+  const senderConfig = getEmailSenderConfig();
+  const resendTags = buildResendTags({
+    campaignId: params.campaignId ?? params.prospect.campaign_id ?? null,
+    prospectId: params.prospect.id,
+    projectId: params.prospect.converted_project_id ?? null,
+    sendType: params.sendType ?? "manual",
+    sequenceStep: params.sequenceStep ?? null,
+  });
+  const providerMetadata = {
+    sender: {
+      from_email: senderConfig.fromEmail,
+      from_name: senderConfig.fromName,
+      from_address: senderConfig.fromAddress,
+      reply_to: senderConfig.replyTo,
+    },
+    resend: {
+      tags: resendTags,
+    },
+    vaen: {
+      campaign_id: params.campaignId ?? params.prospect.campaign_id ?? null,
+      prospect_id: params.prospect.id,
+      project_id: params.prospect.converted_project_id ?? null,
+      send_type: params.sendType ?? "manual",
+      sequence_step: params.sequenceStep ?? null,
+    },
+  };
   const subject = params.subjectOverride?.trim() || params.outreachPackage?.email_subject || null;
   const body = params.bodyOverride?.trim() || params.outreachPackage?.email_body || null;
   const readinessPackage = subject || body
@@ -78,6 +108,7 @@ export async function executeProspectOutreachSend(params: {
           subject,
           body,
           attachment_links: [],
+          provider_metadata: providerMetadata,
           status: "blocked",
           provider: "resend",
           error_message: readiness.issues.join(" "),
@@ -118,6 +149,7 @@ export async function executeProspectOutreachSend(params: {
         subject: subject!,
         body: body!,
         attachment_links: [],
+        provider_metadata: providerMetadata,
         status: "blocked",
         provider: "resend",
         error_message: "Blocked duplicate send within the safety window.",
@@ -162,6 +194,13 @@ export async function executeProspectOutreachSend(params: {
       subject: subject!,
       body: sendBody,
       attachment_links: screenshotLinks,
+      provider_metadata: {
+        ...providerMetadata,
+        attachments: {
+          count: screenshotLinks.length,
+          strategy: "signed_link",
+        },
+      },
       status: "pending",
       provider: "resend",
     })
@@ -176,6 +215,7 @@ export async function executeProspectOutreachSend(params: {
     to: params.prospect.contact_email!,
     subject: subject!,
     text: sendBody,
+    tags: resendTags,
   });
 
   const sentAt = new Date();
@@ -200,6 +240,17 @@ export async function executeProspectOutreachSend(params: {
     .update({
       status: "sent",
       provider_message_id: resendResult.messageId ?? null,
+      provider_metadata: {
+        ...providerMetadata,
+        attachments: {
+          count: screenshotLinks.length,
+          strategy: "signed_link",
+        },
+        resend: {
+          tags: resendTags,
+          message_id: resendResult.messageId ?? null,
+        },
+      },
       sent_at: sentAt.toISOString(),
     })
     .eq("id", sendRow.id);
