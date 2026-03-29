@@ -59,6 +59,7 @@ import {
 } from "@/lib/module-selection";
 import { calculateQuoteTotals, resolveDiscountCents, validateDiscount } from "@/lib/quote-helpers";
 import { requireRole } from "@/lib/user-role-server";
+import { createApprovalRequestRecord } from "@/lib/approval-helpers";
 import type { ModuleManifest } from "@vaen/module-registry";
 import {
   buildQuoteLineDrafts,
@@ -1510,6 +1511,7 @@ export async function setQuoteDiscountAction(
 ): Promise<{
   error?: string;
   approval_required?: boolean;
+  request_id?: string;
   approval_context?: {
     kind: "large_discount";
     role: UserRole;
@@ -1524,7 +1526,7 @@ export async function setQuoteDiscountAction(
 
   const { data: quote } = await supabase
     .from("quotes")
-    .select("id, project_id, status")
+    .select("id, project_id, quote_number, client_name, status")
     .eq("id", quoteId)
     .single();
 
@@ -1553,8 +1555,24 @@ export async function setQuoteDiscountAction(
     roleCheck.role ?? "operator",
   );
   if (validation.approval_required) {
+    const { request } = await createApprovalRequestRecord(supabase, {
+      requestType: "large_discount",
+      requestedBy: user.id,
+      context: {
+        quote_id: quoteId,
+        project_id: quote.project_id,
+        quote_number: (quote as { quote_number?: number }).quote_number ?? null,
+        client_name: (quote as { client_name?: string | null }).client_name ?? null,
+        discount_cents: resolvedDiscountCents,
+        discount_percent: validation.percent ?? discount.percent ?? null,
+        reason: discount.reason,
+        subtotal_cents: subtotalCents,
+        requester_email: user.email ?? null,
+      },
+    });
     return {
       approval_required: true,
+      request_id: request.id,
       approval_context: validation.approval_context,
     };
   }
@@ -2470,12 +2488,12 @@ export async function restoreProjectAction(
 export async function purgeProjectAction(
   projectId: string,
   confirmSlug: string,
-): Promise<{ error?: string }> {
+): Promise<{ error?: string; approval_required?: boolean; request_id?: string }> {
   const supabase = await createClient();
 
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: "Not authenticated" };
-  const roleCheck = await requireRole("admin");
+  const roleCheck = await requireRole("operator");
   if (!roleCheck.ok) return { error: roleCheck.error };
 
   const { data: project } = await supabase
@@ -2491,17 +2509,22 @@ export async function purgeProjectAction(
     return { error: "Slug confirmation does not match." };
   }
 
-  await purgeProjectResources(supabase, user.id, p);
+  const { request } = await createApprovalRequestRecord(supabase, {
+    requestType: "project_purge",
+    requestedBy: user.id,
+    context: {
+      project_id: p.id,
+      project_name: p.name,
+      project_slug: p.slug,
+      requester_email: user.email ?? null,
+    },
+  });
 
-  const { error } = await supabase
-    .from("projects")
-    .delete()
-    .eq("id", projectId);
-
-  if (error) return { error: error.message };
-
-  revalidatePath("/dashboard");
-  return {};
+  revalidatePath(`/dashboard/projects/${projectId}`);
+  return {
+    approval_required: true,
+    request_id: request.id,
+  };
 }
 
 export async function bulkArchiveProjectsAction(

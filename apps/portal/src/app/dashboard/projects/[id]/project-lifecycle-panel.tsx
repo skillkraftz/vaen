@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import type { ApprovalRequest } from "@/lib/types";
 import {
   archiveProjectAction,
   duplicateProjectAction,
@@ -13,10 +14,12 @@ export function ProjectLifecyclePanel({
   projectId,
   slug,
   archived,
+  purgeApproval,
 }: {
   projectId: string;
   slug: string;
   archived: boolean;
+  purgeApproval: ApprovalRequest | null;
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -25,6 +28,7 @@ export function ProjectLifecyclePanel({
   const [duplicateOpen, setDuplicateOpen] = useState(false);
   const [variantLabel, setVariantLabel] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
   function archive() {
     setError(null);
@@ -46,6 +50,10 @@ export function ProjectLifecyclePanel({
       const result = await purgeProjectAction(projectId, purgeSlug);
       if (result.error) {
         setError(result.error);
+        return;
+      }
+      if (result.approval_required) {
+        setNotice(`Purge request submitted${result.request_id ? ` (${result.request_id})` : ""}.`);
         return;
       }
       router.push("/dashboard");
@@ -179,6 +187,23 @@ export function ProjectLifecyclePanel({
             >
               {isPending ? "Purging..." : "Confirm Purge"}
             </button>
+          </div>
+        )}
+
+        {(notice || purgeApproval) && (
+          <div
+            className="card"
+            style={{ padding: "0.75rem", background: "var(--color-surface-subtle)" }}
+            data-testid="project-purge-approval-banner"
+          >
+            <p className="text-sm" style={{ color: "var(--color-warning)" }}>
+              {notice ?? `Purge approval request is ${purgeApproval?.status}.`}
+            </p>
+            {purgeApproval?.resolution_note && (
+              <p className="text-sm text-muted" style={{ marginTop: "0.35rem" }}>
+                {purgeApproval.resolution_note}
+              </p>
+            )}
           </div>
         )}
 

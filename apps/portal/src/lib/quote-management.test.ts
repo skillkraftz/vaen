@@ -44,14 +44,17 @@ describe("quote actions and UI", () => {
       actionSource.indexOf("/**\n * Get a single job by ID."),
     );
     expect(discountFn).toContain('requireRole("sales")');
+    expect(discountFn).toContain("createApprovalRequestRecord");
     expect(discountFn).toContain("approval_required");
+    expect(discountFn).toContain('requestType: "large_discount"');
     expect(helperSource).toContain('role === "sales"');
     expect(helperSource).toContain('role === "operator"');
     expect(helperSource).toContain('role === "admin"');
     expect(helperSource).toContain("maximum allowed for sales (10%)");
     expect(helperSource).toContain("maximum allowed for operators (25%)");
     expect(helperSource).toContain("maximum allowed (50%)");
-    expect(uiSource).toContain("requires approval");
+    expect(uiSource).toContain("requires admin approval");
+    expect(uiSource).toContain("quote-approval-banner");
   });
 
   it("snapshots revision and selected modules when creating a quote", () => {

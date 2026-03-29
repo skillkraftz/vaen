@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import type { Contract, Quote, QuoteLine, SelectedModule } from "@/lib/types";
+import type { ApprovalRequest, Contract, Quote, QuoteLine, SelectedModule } from "@/lib/types";
 import { formatCurrency, getQuoteOutdatedReasons } from "@/lib/quote-helpers";
 import {
   addQuoteLineAction,
@@ -97,12 +97,14 @@ function QuoteCard({
   currentModules,
   currentRevisionId,
   currentTemplateId,
+  approvalRequest,
 }: {
   quote: Quote & { lines: QuoteLine[] };
   contract: Contract | null;
   currentModules: SelectedModule[];
   currentRevisionId: string | null;
   currentTemplateId: string;
+  approvalRequest: ApprovalRequest | null;
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -112,6 +114,7 @@ function QuoteCard({
   const [addonRecurring, setAddonRecurring] = useState("0");
   const [discountPercent, setDiscountPercent] = useState(quote.discount_percent != null ? String(quote.discount_percent) : "");
   const [discountReason, setDiscountReason] = useState(quote.discount_reason ?? "");
+  const [notice, setNotice] = useState<string | null>(null);
   const editable = quote.status === "draft";
   const outdatedReasons = getQuoteOutdatedReasons({
     currentModules,
@@ -140,12 +143,14 @@ function QuoteCard({
 
   function saveDiscount() {
     startTransition(async () => {
+      setNotice(null);
       const result = await setQuoteDiscountAction(quote.id, {
         percent: discountPercent === "" ? 0 : Number(discountPercent),
         reason: discountReason,
       });
       if (result.approval_required) {
-        setError("Discount above 25% requires approval. This request was not applied.");
+        setError(null);
+        setNotice(`Discount above 25% requires admin approval. Request ${result.request_id ?? "submitted"}.`);
         return;
       }
       if (result.error) {
@@ -315,6 +320,24 @@ function QuoteCard({
         )}
       </div>
 
+      {(notice || approvalRequest) && (
+        <div
+          className="card"
+          style={{ marginTop: "0.75rem", padding: "0.75rem", background: "var(--color-surface-subtle)" }}
+          data-testid={`quote-approval-banner-${quote.id}`}
+        >
+          <p className="text-sm" style={{ color: "var(--color-warning)" }}>
+            {notice
+              ?? `Approval request is ${approvalRequest?.status}.`}
+          </p>
+          {approvalRequest?.resolution_note && (
+            <p className="text-sm text-muted" style={{ marginTop: "0.35rem" }}>
+              {approvalRequest.resolution_note}
+            </p>
+          )}
+        </div>
+      )}
+
       {quote.valid_until && (
         <p className="text-sm text-muted" style={{ marginTop: "0.5rem" }}>
           Valid until {new Date(quote.valid_until).toLocaleDateString("en-US")}
@@ -356,6 +379,7 @@ export function QuoteSection({
   currentModules,
   currentRevisionId,
   currentTemplateId,
+  approvalRequests,
 }: {
   projectId: string;
   quotes: Array<Quote & { lines: QuoteLine[] }>;
@@ -363,6 +387,7 @@ export function QuoteSection({
   currentModules: SelectedModule[];
   currentRevisionId: string | null;
   currentTemplateId: string;
+  approvalRequests: ApprovalRequest[];
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -408,6 +433,7 @@ export function QuoteSection({
               currentModules={currentModules}
               currentRevisionId={currentRevisionId}
               currentTemplateId={currentTemplateId}
+              approvalRequest={approvalRequests.find((request) => request.context?.quote_id === quote.id) ?? null}
             />
           ))}
         </div>

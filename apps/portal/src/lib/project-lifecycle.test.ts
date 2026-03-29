@@ -70,12 +70,15 @@ describe("project archive and purge actions", () => {
     expect(restoreFn).toContain("to_status: project.status");
   });
 
-  it("purge requires exact slug confirmation", () => {
+  it("project purge requires exact slug confirmation and creates an approval request", () => {
     const actionsPath = join(__dirname, "../app/dashboard/projects/[id]/actions.ts");
     const source = readFileSync(actionsPath, "utf-8");
     const purgeFn = source.slice(source.indexOf("export async function purgeProjectAction"));
     const bulkPurgeFn = source.slice(source.indexOf("export async function bulkPurgeProjectsAction"));
-    expect(purgeFn).toContain('requireRole("admin")');
+    expect(purgeFn).toContain('requireRole("operator")');
+    expect(purgeFn).toContain("createApprovalRequestRecord");
+    expect(purgeFn).toContain('requestType: "project_purge"');
+    expect(purgeFn).toContain("approval_required: true");
     expect(bulkPurgeFn).toContain('requireRole("admin")');
     expect(purgeFn).toContain("confirmSlug.trim() !== p.slug");
     expect(purgeFn).toContain("Slug confirmation does not match");
@@ -108,6 +111,7 @@ describe("project operations UI", () => {
     expect(source).toContain("Purge Project");
     expect(source).toContain('data-testid="project-purge-slug"');
     expect(source).toContain('data-testid="project-purge-confirm"');
+    expect(source).toContain('data-testid="project-purge-approval-banner"');
   });
 
   it("supports dashboard card actions and bulk selection", () => {

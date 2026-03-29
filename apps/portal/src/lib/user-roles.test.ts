@@ -49,6 +49,7 @@ describe("role integration", () => {
     const source = readFileSync(layoutPath, "utf-8");
     expect(source).toContain("bootstrapCurrentUserRole");
     expect(source).toContain('data-testid="current-user-role"');
+    expect(source).toContain("/dashboard/approvals");
   });
 
   it("exposes getUserRole and requireRole server helpers", () => {

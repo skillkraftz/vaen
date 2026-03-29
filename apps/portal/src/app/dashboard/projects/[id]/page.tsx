@@ -2,6 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import type {
+  ApprovalRequest,
   Project,
   Client,
   Asset,
@@ -12,6 +13,7 @@ import type {
   QuoteLine,
 } from "@/lib/types";
 import { detectMissingInfo } from "@/lib/intake-processor";
+import { listVisibleApprovalRequests } from "@/lib/approval-helpers";
 import { WorkflowPanel } from "./intake-actions";
 import { WorkflowStepIndicator } from "./workflow-steps";
 import { RevisionList } from "./revision-list";
@@ -138,6 +140,17 @@ export default async function ProjectDetailPage({
   const eventList = (events ?? []) as ProjectEvent[];
   const quoteList = (quotes ?? []) as Array<Quote & { lines: QuoteLine[] }>;
   const contractList = (contracts ?? []) as Array<import("@/lib/types").Contract>;
+  const approvalRequests = await listVisibleApprovalRequests(supabase, {
+    statuses: ["pending", "approved", "rejected", "expired"],
+    limit: 100,
+  });
+  const quoteIds = new Set(quoteList.map((quote) => quote.id));
+  const quoteApprovals = (approvalRequests as ApprovalRequest[]).filter(
+    (request) => request.request_type === "large_discount" && typeof request.context?.quote_id === "string" && quoteIds.has(request.context.quote_id as string),
+  );
+  const purgeApproval = (approvalRequests as ApprovalRequest[]).find(
+    (request) => request.request_type === "project_purge" && request.context?.project_id === id,
+  ) ?? null;
   const missingInfo = detectMissingInfo(p, assetList);
   const recommendations = p.recommendations as IntakeRecommendations | null;
   const selectedModules = Array.isArray(p.selected_modules) ? p.selected_modules : [];
@@ -214,7 +227,7 @@ export default async function ProjectDetailPage({
       </div>
 
       <div className="section">
-        <ProjectLifecyclePanel projectId={id} slug={p.slug} archived={p.archived_at != null} />
+        <ProjectLifecyclePanel projectId={id} slug={p.slug} archived={p.archived_at != null} purgeApproval={purgeApproval} />
       </div>
 
       {(p.variant_of || (lineageVariants?.length ?? 0) > 0) && (
@@ -321,11 +334,12 @@ export default async function ProjectDetailPage({
       <QuoteSection
         projectId={id}
         quotes={quoteList}
-        contracts={contractList}
-        currentModules={selectedModules}
-        currentRevisionId={p.current_revision_id}
-        currentTemplateId={templateId}
-      />
+            contracts={contractList}
+            currentModules={selectedModules}
+            currentRevisionId={p.current_revision_id}
+            currentTemplateId={templateId}
+            approvalRequests={quoteApprovals}
+          />
 
       {/* ── Business Details ───────────────────────────────────────── */}
       <div className="section">

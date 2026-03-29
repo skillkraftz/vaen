@@ -1,5 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
-import type { Contract, PackagePricing, Project, Quote, QuoteLine, SelectedModule } from "@/lib/types";
+import type { Contract, PackagePricing, Project, Quote, QuoteLine, SelectedModule, UserRole } from "@/lib/types";
 import {
   calculateQuoteTotals,
   resolveDiscountCents,
@@ -96,6 +96,7 @@ export async function recalculateQuote(
   supabase: PortalSupabase,
   quoteId: string,
   discountInput?: { discountPercent?: number | null; discountCents?: number | null; reason?: string | null },
+  options?: { role?: UserRole; approvalGranted?: boolean; discountApprovedBy?: string | null },
 ) {
   const [{ data: quote }, { data: lines }] = await Promise.all([
     supabase.from("quotes").select("*").eq("id", quoteId).single(),
@@ -117,7 +118,11 @@ export async function recalculateQuote(
     discountCents,
     calculateQuoteTotals({ lines: lineRows, discountCents: 0 }).setupSubtotalCents,
     discountInput?.reason ?? quoteRow.discount_reason,
+    options?.role ?? "operator",
   );
+  if (validation.approval_required && !options?.approvalGranted) {
+    throw new Error("Discount requires approval before it can be applied.");
+  }
   if (!validation.valid) throw new Error(validation.error);
 
   const totals = calculateQuoteTotals({ lines: lineRows, discountCents });
@@ -135,6 +140,7 @@ export async function recalculateQuote(
       discount_cents: discountCents,
       discount_percent: nextDiscountPercent,
       discount_reason: discountInput?.reason ?? quoteRow.discount_reason,
+      discount_approved_by: options?.discountApprovedBy ?? quoteRow.discount_approved_by,
       setup_total_cents: totals.setupTotalCents,
       recurring_total_cents: totals.recurringTotalCents,
     })

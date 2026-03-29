@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { CAMPAIGN_STATUSES, previewProspectImportRows } from "@/lib/prospect-campaigns";
 import { requireRole } from "@/lib/user-role-server";
+import { createApprovalRequestRecord } from "@/lib/approval-helpers";
 import type { Campaign, OutreachSend, Prospect } from "@/lib/types";
 import {
   analyzeProspectAction,
@@ -532,9 +533,11 @@ export async function batchRunCampaignAutomationAction(params: {
 export async function batchSendCampaignOutreachAction(params: {
   prospectIds: string[];
   confirmPhrase: string;
+  campaignId?: string | null;
 }): Promise<{
   error?: string;
   approval_required?: boolean;
+  request_id?: string;
   summary?: { sent: number; blocked: number; failed: number };
   results?: Array<{ prospectId: string; status: "sent" | "blocked" | "failed"; message: string }>;
 }> {
@@ -545,9 +548,20 @@ export async function batchSendCampaignOutreachAction(params: {
   if (!roleCheck.ok) return { error: roleCheck.error };
   if (params.prospectIds.length === 0) return { error: "Select at least one prospect." };
   if (params.prospectIds.length > 20) {
+    const { request } = await createApprovalRequestRecord(supabase, {
+      requestType: "batch_outreach",
+      requestedBy: user.id,
+      context: {
+        campaign_id: params.campaignId ?? null,
+        campaign_name: null,
+        prospect_count: params.prospectIds.length,
+        prospect_ids: [...new Set(params.prospectIds.filter(Boolean))],
+        requester_email: user.email ?? null,
+      },
+    });
     return {
       approval_required: true,
-      error: "Batch outreach above 20 recipients will require approval in the next phase.",
+      request_id: request.id,
     };
   }
 

@@ -45,6 +45,11 @@ export default async function DashboardLayout({
           <Link href="/dashboard/settings/outreach" className="text-sm text-muted">
             Outreach
           </Link>
+          {roleState.role === "admin" && (
+            <Link href="/dashboard/approvals" className="text-sm text-muted">
+              Approvals
+            </Link>
+          )}
           <span className="badge" data-testid="current-user-role">
             {roleState.role ?? "operator"}
           </span>

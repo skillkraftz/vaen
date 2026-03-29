@@ -10,6 +10,22 @@ export interface UserRoleRecord {
   created_at: string;
 }
 
+export type ApprovalRequestType = "large_discount" | "batch_outreach" | "project_purge";
+export type ApprovalStatus = "pending" | "approved" | "rejected" | "expired";
+
+export interface ApprovalRequest {
+  id: string;
+  request_type: ApprovalRequestType;
+  status: ApprovalStatus;
+  requested_by: string;
+  resolved_by: string | null;
+  context: Record<string, unknown>;
+  resolution_note: string | null;
+  expires_at: string | null;
+  resolved_at: string | null;
+  created_at: string;
+}
+
 export interface Client {
   id: string;
   user_id: string;

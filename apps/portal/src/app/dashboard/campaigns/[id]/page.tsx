@@ -1,7 +1,8 @@
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import type { Campaign, Prospect, ProspectOutreachPackage } from "@/lib/types";
+import type { ApprovalRequest, Campaign, Prospect, ProspectOutreachPackage } from "@/lib/types";
 import { CampaignDetailManager } from "./campaign-detail-manager";
+import { listVisibleApprovalRequests } from "@/lib/approval-helpers";
 
 export default async function CampaignDetailPage({
   params,
@@ -42,6 +43,15 @@ export default async function CampaignDetailPage({
     }
   }
 
+  const approvalRequests = await listVisibleApprovalRequests(supabase, {
+    statuses: ["pending", "approved", "rejected", "expired"],
+    requestType: "batch_outreach",
+    limit: 50,
+  });
+  const latestApproval = (approvalRequests as ApprovalRequest[]).find(
+    (request) => request.context?.campaign_id === id,
+  ) ?? null;
+
   return (
     <CampaignDetailManager
       campaign={campaign as Campaign}
@@ -49,6 +59,7 @@ export default async function CampaignDetailPage({
         prospect,
         latestPackage: latestPackageByProspect.get(prospect.id) ?? null,
       }))}
+      approvalRequest={latestApproval}
     />
   );
 }

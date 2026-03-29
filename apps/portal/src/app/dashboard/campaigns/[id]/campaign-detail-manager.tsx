@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { getProspectSendReadiness } from "@/lib/outreach-execution";
-import type { Campaign, Prospect, ProspectOutreachPackage } from "@/lib/types";
+import type { ApprovalRequest, Campaign, Prospect, ProspectOutreachPackage } from "@/lib/types";
 import {
   batchAnalyzeCampaignProspectsAction,
   batchConvertCampaignProspectsAction,
@@ -32,9 +32,11 @@ function computedReadiness(row: CampaignProspectRow) {
 export function CampaignDetailManager({
   campaign,
   rows,
+  approvalRequest,
 }: {
   campaign: Campaign;
   rows: CampaignProspectRow[];
+  approvalRequest: ApprovalRequest | null;
 }) {
   const router = useRouter();
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -47,6 +49,7 @@ export function CampaignDetailManager({
     summary?: { sent?: number; blocked?: number; failed: number; succeeded?: number; skipped?: number };
     results?: Array<{ prospectId: string; status: string; message: string }>;
   } | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
@@ -148,9 +151,14 @@ export function CampaignDetailManager({
       const result = await batchSendCampaignOutreachAction({
         prospectIds: selectedIds,
         confirmPhrase,
+        campaignId: campaign.id,
       });
       if (result.error) {
         setError(result.error);
+        return;
+      }
+      if (result.approval_required) {
+        setNotice(`Batch send requires admin approval. Request ${result.request_id ?? "submitted"}.`);
         return;
       }
       setConfirmPhrase("");
@@ -368,8 +376,24 @@ export function CampaignDetailManager({
                         </div>
                         <div style={{ textAlign: "right" }}>
                           <span className="badge">{readiness}</span>
-                        </div>
-                      </div>
+        </div>
+        {(notice || approvalRequest) && (
+          <div
+            className="card"
+            style={{ marginTop: "0.75rem", padding: "0.75rem", background: "var(--color-surface-subtle)" }}
+            data-testid="campaign-approval-banner"
+          >
+            <p className="text-sm" style={{ color: "var(--color-warning)" }}>
+              {notice ?? `Batch outreach approval is ${approvalRequest?.status}.`}
+            </p>
+            {approvalRequest?.resolution_note && (
+              <p className="text-sm text-muted" style={{ marginTop: "0.35rem" }}>
+                {approvalRequest.resolution_note}
+              </p>
+            )}
+          </div>
+        )}
+      </div>
                     </div>
                   </div>
                 </div>

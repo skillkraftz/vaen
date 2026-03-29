@@ -245,7 +245,8 @@ describe("prospect actions and ui", () => {
     expect(sendFn).toContain("computeNextFollowUpDate");
     expect(batchSendFn).toContain('requireRole("sales")');
     expect(batchSendFn).toContain("approval_required");
-    expect(batchSendFn).toContain("20 recipients");
+    expect(batchSendFn).toContain("createApprovalRequestRecord");
+    expect(batchSendFn).toContain('requestType: "batch_outreach"');
   });
 
   it("adds a dedicated prospects area in the dashboard", () => {
