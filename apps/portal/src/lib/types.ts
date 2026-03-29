@@ -1,5 +1,15 @@
 /** Database row types matching the migration schema. */
 
+export type UserRole = "viewer" | "sales" | "operator" | "admin";
+
+export interface UserRoleRecord {
+  user_id: string;
+  role: UserRole;
+  granted_by: string | null;
+  granted_at: string;
+  created_at: string;
+}
+
 export interface Client {
   id: string;
   user_id: string;

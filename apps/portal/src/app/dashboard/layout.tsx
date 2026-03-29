@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import Link from "next/link";
+import { bootstrapCurrentUserRole } from "@/lib/user-role-server";
 
 async function signOut() {
   "use server";
@@ -23,6 +24,8 @@ export default async function DashboardLayout({
     redirect("/login");
   }
 
+  const roleState = await bootstrapCurrentUserRole();
+
   return (
     <>
       <header className="header">
@@ -42,6 +45,9 @@ export default async function DashboardLayout({
           <Link href="/dashboard/settings/outreach" className="text-sm text-muted">
             Outreach
           </Link>
+          <span className="badge" data-testid="current-user-role">
+            {roleState.role ?? "operator"}
+          </span>
           <span className="header-email">{user.email}</span>
           <form action={signOut}>
             <button type="submit" className="btn btn-sm">
