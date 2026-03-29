@@ -2,7 +2,7 @@
 
 Authenticated operations portal for the vaen website factory. It now covers intake, project automation, pricing and quotes, prospects, campaigns, approvals, sequencing, and analytics.
 
-**Status:** Core portal workflow, sales ops, governance, and campaign sequencing foundations are implemented. The main remaining work is deeper automation continuation, richer analytics on campaign detail, and broader team-management polish.
+**Status:** Core portal workflow, sales ops, governance, campaign sequencing, campaign-detail analytics, and deployment/outreach readiness foundations are implemented. The main remaining work is deeper automation continuation, broader team-management polish, and real deployment trigger/orchestration.
 
 ## Tech Stack
 
@@ -23,6 +23,7 @@ Authenticated operations portal for the vaen website factory. It now covers inta
 | `/dashboard/campaigns` | Campaign list and campaign detail operations |
 | `/dashboard/settings/pricing` | Admin pricing settings |
 | `/dashboard/settings/outreach` | Outreach readiness and config status |
+| `/dashboard/settings/deployment` | Deployment readiness and production URL/callback checks |
 | `/dashboard/settings/team` | Admin team role management scaffold |
 | `/dashboard/approvals` | Admin approval queue |
 | `/dashboard/analytics` | Sales and campaign analytics dashboard |
@@ -64,6 +65,8 @@ Authenticated operations portal for the vaen website factory. It now covers inta
 | `OUTREACH_FROM_EMAIL` | No | Legacy fallback From address if `RESEND_FROM_EMAIL` is unset |
 
 Outbound outreach readiness is visible in the portal at `/dashboard/settings/outreach`. Missing config blocks send attempts before they reach Resend.
+
+Deployment readiness is visible in the portal at `/dashboard/settings/deployment`. It checks the base URL, auth callback expectation, webhook target expectation, Supabase runtime envs, and repo-level deployment payload support without pretending the actual deploy trigger is implemented yet.
 
 ## Database
 
@@ -147,7 +150,6 @@ New states: `intake_processing`, `intake_draft_ready`, `intake_needs_revision`, 
 
 ## Next Phase
 
-- Campaign-detail analytics row and deeper analytics breakdowns
 - Automation continuation after async generate/review boundaries
 - Broader team management and role administration UI
 - Deployment trigger and operational release controls

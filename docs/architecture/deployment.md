@@ -10,7 +10,7 @@ Vaen splits into two runtime contexts: the **portal** (web UI, database access) 
 
 ### Portal (Vercel)
 - **Runtime**: Next.js App Router
-- **URL**: `https://vaen.vercel.app` (or custom domain)
+- **URL**: `https://vaen.space` (production target)
 - **Database**: Supabase (hosted)
 - **Storage**: Supabase Storage (intake-assets, review-screenshots buckets)
 - **Responsibilities**:
@@ -78,6 +78,9 @@ Portal (localhost:3100)
 - Environment variables: `NEXT_PUBLIC_SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`
 - No filesystem access — all data goes through Supabase DB/Storage
 - Job dispatch: insert into `jobs` table (no child_process spawn)
+- Supabase auth callback should be configured as `https://vaen.space/auth/callback`
+- Resend webhook target should be `https://vaen.space/api/webhooks/resend`
+- Deployment trust depends on active revision request data and exported `client-request.json`, not just visible project fields
 
 ### Worker on VM (via Tailscale) — PLANNED
 - Install Tailscale on VM

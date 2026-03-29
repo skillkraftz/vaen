@@ -130,6 +130,36 @@ Required portal env vars for outreach:
 
 Operators can review current readiness in the portal at `/dashboard/settings/outreach`.
 
+### Deployment Readiness
+
+The portal is not fully deployment-automated yet, but the repo now includes a deployment readiness surface at `/dashboard/settings/deployment`.
+
+Production assumptions for the portal:
+
+- public base URL: `https://vaen.space`
+- auth callback URL: `https://vaen.space/auth/callback`
+- Resend webhook URL: `https://vaen.space/api/webhooks/resend`
+
+Required envs for a real hosted portal:
+
+- `NEXT_PUBLIC_SUPABASE_URL`
+- `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+- `SUPABASE_SERVICE_ROLE_KEY`
+- `NEXT_PUBLIC_PORTAL_URL=https://vaen.space`
+
+Recommended for live outreach/webhook behavior:
+
+- `RESEND_API_KEY`
+- `RESEND_FROM_EMAIL=support@skillkraftz.com`
+- `RESEND_FROM_NAME=Skillkraftz Support`
+- `RESEND_REPLY_TO`
+- `RESEND_WEBHOOK_SECRET`
+
+Important operational note:
+
+- downstream generation/export/deployment rely on the active revision request payload and exported `client-request.json`, not just visible project form state
+- verify Business Details and Request Data (JSON) are in sync on project detail before trusting deploy/generate artifacts
+
 ### Discord Notifications (Optional)
 
 1. Create a webhook in your Discord server (Server Settings > Integrations > Webhooks)
