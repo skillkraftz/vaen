@@ -22,7 +22,9 @@ import { ProjectLifecyclePanel } from "./project-lifecycle-panel";
 import { ModuleManager } from "./module-manager";
 import { QuoteSection } from "./quote-section";
 import { DeploymentRunsSection } from "./project-deployment-panel";
+import { ProjectJobArtifactViewer } from "./project-job-artifact-viewer";
 import { expirePastDueQuotes } from "./project-quote-helpers";
+import { readArtifactStatusFromDisk } from "./project-artifact-helpers";
 import {
   BuildInputsEditor,
   SummaryEditor,
@@ -145,11 +147,19 @@ export default async function ProjectDetailPage({
     .order("created_at", { ascending: false })
     .limit(10);
 
+  const { data: jobs } = await supabase
+    .from("jobs")
+    .select("*")
+    .eq("project_id", id)
+    .order("created_at", { ascending: false })
+    .limit(10);
+
   const assetList = (assets ?? []) as Asset[];
   const eventList = (events ?? []) as ProjectEvent[];
   const quoteList = (quotes ?? []) as Array<Quote & { lines: QuoteLine[] }>;
   const contractList = (contracts ?? []) as Array<import("@/lib/types").Contract>;
   const deploymentRunList = (deploymentRuns ?? []) as DeploymentRun[];
+  const jobList = (jobs ?? []) as import("@/lib/types").JobRecord[];
   const approvalRequests = await listVisibleApprovalRequests(supabase, {
     statuses: ["pending", "approved", "rejected", "expired"],
     limit: 100,
@@ -188,6 +198,7 @@ export default async function ProjectDetailPage({
     (a) => (a as { asset_type?: string }).asset_type !== "review_screenshot",
   );
   const hasDraft = !!p.client_summary;
+  const artifactSnapshot = await readArtifactStatusFromDisk(p.slug);
 
   return (
     <>
@@ -355,6 +366,11 @@ export default async function ProjectDetailPage({
         projectId={id}
         project={p}
         deploymentRuns={deploymentRunList}
+      />
+
+      <ProjectJobArtifactViewer
+        jobs={jobList}
+        artifacts={artifactSnapshot}
       />
 
       {/* ── Business Details ───────────────────────────────────────── */}

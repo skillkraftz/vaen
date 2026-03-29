@@ -12,6 +12,11 @@ export async function readArtifactStatusFromDisk(slug: string): Promise<Artifact
     hasClientRequest: false,
     hasWorkspace: false,
     hasSiteBuild: false,
+    hasBuildManifest: false,
+    hasClaudeBrief: false,
+    hasPromptTxt: false,
+    hasDeploymentPayload: false,
+    hasValidationReport: false,
     hasScreenshots: false,
     screenshotCount: 0,
     screenshotNames: [],
@@ -35,6 +40,41 @@ export async function readArtifactStatusFromDisk(slug: string): Promise<Artifact
   try {
     await access(join(repoRoot, "generated", slug, "site", ".next"));
     result.hasSiteBuild = true;
+  } catch {
+    // noop
+  }
+
+  try {
+    await access(join(repoRoot, "generated", slug, "build-manifest.json"));
+    result.hasBuildManifest = true;
+  } catch {
+    // noop
+  }
+
+  try {
+    await access(join(repoRoot, "generated", slug, "claude-brief.md"));
+    result.hasClaudeBrief = true;
+  } catch {
+    // noop
+  }
+
+  try {
+    await access(join(repoRoot, "generated", slug, "artifacts", "prompt.txt"));
+    result.hasPromptTxt = true;
+  } catch {
+    // noop
+  }
+
+  try {
+    await access(join(repoRoot, "generated", slug, "deployment-payload.json"));
+    result.hasDeploymentPayload = true;
+  } catch {
+    // noop
+  }
+
+  try {
+    await access(join(repoRoot, "generated", slug, "artifacts", "validation.json"));
+    result.hasValidationReport = true;
   } catch {
     // noop
   }

@@ -1810,6 +1810,11 @@ export async function getArtifactStatusAction(
   hasClientRequest: boolean;
   hasWorkspace: boolean;
   hasSiteBuild: boolean;
+  hasBuildManifest: boolean;
+  hasClaudeBrief: boolean;
+  hasPromptTxt: boolean;
+  hasDeploymentPayload: boolean;
+  hasValidationReport: boolean;
   hasScreenshots: boolean;
   screenshotCount: number;
   screenshotNames: string[];
