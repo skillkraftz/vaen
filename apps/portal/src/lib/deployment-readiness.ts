@@ -1,6 +1,3 @@
-import { existsSync } from "node:fs";
-import { resolve } from "node:path";
-import { fileURLToPath } from "node:url";
 import { normalizePortalBaseUrl } from "./outreach-config";
 
 export interface DeploymentReadinessCheck {
@@ -32,22 +29,17 @@ export interface DeploymentReadiness {
   };
 }
 
-const REPO_ROOT = resolve(fileURLToPath(new URL("../../../../", import.meta.url)));
+export interface DeploymentReadinessOptions {
+  deploymentPayloadSupport?: boolean;
+}
 
 function hasEnv(value: string | undefined) {
   return Boolean(value?.trim());
 }
 
-function hasDeploymentPayloadSupport() {
-  return (
-    existsSync(resolve(REPO_ROOT, "packages/generator/src/generate-deployment-payload.ts")) &&
-    existsSync(resolve(REPO_ROOT, "packages/schemas/src/deployment-payload.ts")) &&
-    existsSync(resolve(REPO_ROOT, "docs/architecture/deployment.md"))
-  );
-}
-
 export function getDeploymentReadiness(
   env: NodeJS.ProcessEnv = process.env,
+  options: DeploymentReadinessOptions = {},
 ): DeploymentReadiness {
   const expectedProductionHost = "vaen.space";
   const portalUrl = normalizePortalBaseUrl(env.NEXT_PUBLIC_PORTAL_URL);
@@ -56,7 +48,7 @@ export function getDeploymentReadiness(
     : false;
   const authCallbackUrl = portalUrl ? `${portalUrl}/auth/callback` : null;
   const resendWebhookUrl = portalUrl ? `${portalUrl}/api/webhooks/resend` : null;
-  const payloadSupport = hasDeploymentPayloadSupport();
+  const payloadSupport = options.deploymentPayloadSupport ?? true;
 
   const checks = {
     portalUrl: {

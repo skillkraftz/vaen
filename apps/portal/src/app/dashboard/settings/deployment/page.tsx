@@ -1,8 +1,8 @@
 import Link from "next/link";
-import { getDeploymentReadiness } from "@/lib/deployment-readiness";
+import { getServerDeploymentReadiness } from "@/lib/deployment-readiness-server";
 
 export default async function DeploymentSettingsPage() {
-  const readiness = getDeploymentReadiness();
+  const readiness = getServerDeploymentReadiness();
 
   return (
     <div className="section" data-testid="deployment-settings-page">

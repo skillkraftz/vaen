@@ -45,6 +45,19 @@ describe("deployment readiness helpers", () => {
     expect(envExample).toContain("https://vaen.space/api/webhooks/resend");
     expect(envExample).toContain("RESEND_WEBHOOK_SECRET");
   });
+
+  it("keeps the shared deployment readiness helper bundle-safe", () => {
+    const helperPath = join(__dirname, "deployment-readiness.ts");
+    const serverHelperPath = join(__dirname, "deployment-readiness-server.ts");
+    const helperSource = readFileSync(helperPath, "utf-8");
+    const serverHelperSource = readFileSync(serverHelperPath, "utf-8");
+
+    expect(helperSource).not.toContain('from "node:fs"');
+    expect(helperSource).not.toContain('from "node:path"');
+    expect(helperSource).not.toContain("import.meta.url");
+    expect(serverHelperSource).toContain('import "server-only"');
+    expect(serverHelperSource).toContain("hasDeploymentPayloadSupport");
+  });
 });
 
 describe("deployment readiness ui integration", () => {

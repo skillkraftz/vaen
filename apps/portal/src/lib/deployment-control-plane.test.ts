@@ -124,7 +124,7 @@ describe("deployment control plane integration", () => {
     const fnEnd = source.indexOf("export async function getProjectJobsAction");
     const fn = source.slice(fnStart, fnEnd);
 
-    expect(fn).toContain("getDeploymentReadiness()");
+    expect(fn).toContain("getServerDeploymentReadiness()");
     expect(fn).toContain("getDeploymentEligibility");
     expect(fn).toContain('job_type: "deploy_prepare"');
     expect(fn).toContain('from("deployment_runs")');

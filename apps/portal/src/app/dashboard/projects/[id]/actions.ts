@@ -62,7 +62,7 @@ import {
 import { calculateQuoteTotals, resolveDiscountCents, validateDiscount } from "@/lib/quote-helpers";
 import { requireRole } from "@/lib/user-role-server";
 import { createApprovalRequestRecord } from "@/lib/approval-helpers";
-import { getDeploymentReadiness } from "@/lib/deployment-readiness";
+import { getServerDeploymentReadiness } from "@/lib/deployment-readiness-server";
 import { getDeploymentEligibility } from "@/lib/deployment-control-plane";
 import type { ModuleManifest } from "@vaen/module-registry";
 import {
@@ -1142,7 +1142,7 @@ export async function createDeploymentRunAction(
   if (!project) return { error: "Project not found" };
 
   const p = project as Project;
-  const readiness = getDeploymentReadiness();
+  const readiness = getServerDeploymentReadiness();
   const eligibility = getDeploymentEligibility(p, readiness);
   if (!eligibility.allowed) {
     return { error: eligibility.reason ?? "Deployment run cannot be created yet." };
