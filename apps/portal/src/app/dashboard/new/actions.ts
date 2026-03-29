@@ -3,14 +3,13 @@
 import { createClient } from "@/lib/supabase/server";
 import { notifyDiscord } from "@/lib/discord";
 import { redirect } from "next/navigation";
-
-function categorizeFile(mimeType: string): string {
-  if (mimeType.startsWith("audio/")) return "audio";
-  if (mimeType.startsWith("image/")) return "image";
-  if (mimeType.startsWith("text/") || mimeType === "application/pdf")
-    return "document";
-  return "general";
-}
+import { categorizeFile } from "../projects/[id]/project-asset-helpers";
+import { createRevisionAndSetCurrent } from "../projects/[id]/project-revision-helpers";
+import {
+  asNullableString,
+  buildInitialRequestSnapshot,
+  type ClientSeed,
+} from "./client-intake-helpers";
 
 export async function createIntake(
   _prevState: { error: string } | null,
@@ -25,36 +24,117 @@ export async function createIntake(
     return { error: "Not authenticated" };
   }
 
-  const name = formData.get("name") as string;
-  const slug = formData.get("slug") as string;
-  const contactName = formData.get("contactName") as string;
-  const contactEmail = formData.get("contactEmail") as string;
-  const contactPhone = formData.get("contactPhone") as string;
-  const businessType = formData.get("businessType") as string;
-  const notes = formData.get("notes") as string;
+  const clientMode = ((formData.get("clientMode") as string) || "new") as "new" | "existing";
+
+  const name = (formData.get("name") as string)?.trim();
+  const slug = (formData.get("slug") as string)?.trim();
+  const contactName = asNullableString(formData.get("contactName"));
+  const contactEmail = asNullableString(formData.get("contactEmail"));
+  const contactPhone = asNullableString(formData.get("contactPhone"));
+  const businessType = asNullableString(formData.get("businessType"));
+  const notes = asNullableString(formData.get("notes"));
 
   if (!name || !slug) {
     return { error: "Project name and slug are required." };
   }
 
-  // Validate slug format
   if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug)) {
     return { error: "Slug must be lowercase letters, numbers, and hyphens only." };
   }
 
-  // Create project record
+  let clientId: string | null = null;
+  let clientSeed: ClientSeed;
+
+  if (clientMode === "existing") {
+    const existingClientId = (formData.get("existingClientId") as string)?.trim();
+    if (!existingClientId) {
+      return { error: "Select an existing client." };
+    }
+
+    const { data: existingClient, error: clientError } = await supabase
+      .from("clients")
+      .select("*")
+      .eq("id", existingClientId)
+      .eq("user_id", user.id)
+      .single();
+
+    if (clientError || !existingClient) {
+      return { error: "Selected client was not found." };
+    }
+
+    clientId = existingClient.id;
+    clientSeed = {
+      name: existingClient.name,
+      businessType: existingClient.business_type,
+      contactName: existingClient.contact_name,
+      contactEmail: existingClient.contact_email,
+      contactPhone: existingClient.contact_phone,
+      notes: existingClient.notes,
+    };
+  } else {
+    const clientName = asNullableString(formData.get("clientName")) ?? name;
+    const clientBusinessType = asNullableString(formData.get("clientBusinessType")) ?? businessType;
+    const clientContactName = asNullableString(formData.get("clientContactName")) ?? contactName;
+    const clientContactEmail = asNullableString(formData.get("clientContactEmail")) ?? contactEmail;
+    const clientContactPhone = asNullableString(formData.get("clientContactPhone")) ?? contactPhone;
+    const clientNotes = asNullableString(formData.get("clientNotes")) ?? notes;
+
+    if (!clientName) {
+      return { error: "Client name is required." };
+    }
+
+    const { data: createdClient, error: clientInsertError } = await supabase
+      .from("clients")
+      .insert({
+        user_id: user.id,
+        name: clientName,
+        contact_name: clientContactName,
+        contact_email: clientContactEmail,
+        contact_phone: clientContactPhone,
+        business_type: clientBusinessType,
+        notes: clientNotes,
+      })
+      .select("id, name, contact_name, contact_email, contact_phone, business_type, notes")
+      .single();
+
+    if (clientInsertError || !createdClient) {
+      return { error: clientInsertError?.message ?? "Failed to create client." };
+    }
+
+    clientId = createdClient.id;
+    clientSeed = {
+      name: createdClient.name,
+      businessType: createdClient.business_type,
+      contactName: createdClient.contact_name,
+      contactEmail: createdClient.contact_email,
+      contactPhone: createdClient.contact_phone,
+      notes: createdClient.notes,
+    };
+  }
+
+  const initialSnapshot = buildInitialRequestSnapshot({
+    name,
+    businessType,
+    contactName,
+    contactEmail,
+    contactPhone,
+    notes,
+  });
+
   const { data: project, error: insertError } = await supabase
     .from("projects")
     .insert({
       user_id: user.id,
+      client_id: clientId,
       name,
       slug,
       status: "intake_received",
-      contact_name: contactName || null,
-      contact_email: contactEmail || null,
-      contact_phone: contactPhone || null,
-      business_type: businessType || null,
-      notes: notes || null,
+      contact_name: contactName,
+      contact_email: contactEmail,
+      contact_phone: contactPhone,
+      business_type: businessType,
+      notes,
+      draft_request: initialSnapshot,
     })
     .select()
     .single();
@@ -66,7 +146,15 @@ export async function createIntake(
     return { error: insertError.message };
   }
 
-  // Upload files
+  await createRevisionAndSetCurrent(
+    supabase,
+    project.id,
+    "manual",
+    initialSnapshot,
+    null,
+    "Initial project creation snapshot",
+  );
+
   const files = formData.getAll("files") as File[];
   for (const file of files) {
     if (!file || file.size === 0) continue;
@@ -92,15 +180,19 @@ export async function createIntake(
     });
   }
 
-  // Create initial event
   await supabase.from("project_events").insert({
     project_id: project.id,
     event_type: "intake_submitted",
     to_status: "intake_received",
-    metadata: { source: "portal", file_count: files.filter((f) => f.size > 0).length },
+    metadata: {
+      source: "portal",
+      file_count: files.filter((file) => file.size > 0).length,
+      client_id: clientId,
+      client_mode: clientMode,
+      client_name: clientSeed.name,
+    },
   });
 
-  // Notify Discord
   await notifyDiscord({
     name: project.name,
     slug: project.slug,

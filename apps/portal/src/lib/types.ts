@@ -1,8 +1,23 @@
 /** Database row types matching the migration schema. */
 
+export interface Client {
+  id: string;
+  user_id: string;
+  name: string;
+  contact_name: string | null;
+  contact_email: string | null;
+  contact_phone: string | null;
+  business_type: string | null;
+  notes: string | null;
+  metadata: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface Project {
   id: string;
   user_id: string;
+  client_id: string | null;
   name: string;
   slug: string;
   status: string;

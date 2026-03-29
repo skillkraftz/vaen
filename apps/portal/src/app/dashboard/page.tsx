@@ -1,6 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import Link from "next/link";
-import type { Project } from "@/lib/types";
+import type { Project, Client } from "@/lib/types";
 import { formatStatusLabel } from "@/lib/workflow-steps";
 
 function statusBadge(status: string) {
@@ -36,10 +36,10 @@ export default async function DashboardPage() {
   const supabase = await createClient();
   const { data: projects } = await supabase
     .from("projects")
-    .select("*")
+    .select("*, client:clients(id, name)")
     .order("created_at", { ascending: false });
 
-  const items = (projects ?? []) as Project[];
+  const items = (projects ?? []) as Array<Project & { client?: Pick<Client, "id" | "name"> | null }>;
 
   return (
     <>
@@ -90,6 +90,11 @@ export default async function DashboardPage() {
               </div>
               {project.business_type && (
                 <p className="text-sm text-muted mt-1">{project.business_type}</p>
+              )}
+              {project.client?.name && (
+                <p className="text-sm text-muted" style={{ marginTop: "0.2rem" }}>
+                  Client: {project.client.name}
+                </p>
               )}
             </Link>
           ))}

@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import type {
   Project,
+  Client,
   Asset,
   ProjectEvent,
   MissingInfoItem,
@@ -74,13 +75,15 @@ export default async function ProjectDetailPage({
 
   const { data: project } = await supabase
     .from("projects")
-    .select("*")
+    .select("*, client:clients(id, name, contact_name, contact_email, contact_phone, business_type)")
     .eq("id", id)
     .single();
 
   if (!project) notFound();
 
-  const p = project as Project;
+  const p = project as Project & {
+    client?: Pick<Client, "id" | "name" | "contact_name" | "contact_email" | "contact_phone" | "business_type"> | null;
+  };
 
   const { data: assets } = await supabase
     .from("assets")
@@ -130,6 +133,11 @@ export default async function ProjectDetailPage({
           {(p.business_type || p.contact_name) && (
             <p className="text-sm text-muted" style={{ fontSize: "0.8rem" }}>
               {[p.business_type, p.contact_name].filter(Boolean).join(" \u00b7 ")}
+            </p>
+          )}
+          {p.client?.name && (
+            <p className="text-sm text-muted" style={{ fontSize: "0.8rem", marginTop: "0.2rem" }}>
+              Client: {p.client.name}
             </p>
           )}
         </div>
