@@ -31,6 +31,14 @@ export function resetStepIndex() {
   stepIndex = 0;
 }
 
+export function resetAuditSession() {
+  stepIndex = 0;
+  stepLog.length = 0;
+  blockers.length = 0;
+  observations.length = 0;
+  failures.length = 0;
+}
+
 /**
  * Take a full-page screenshot with an ordered filename.
  * Also records metadata for the notes artifact.
@@ -339,6 +347,63 @@ The ScreenshotViewer filters by \`last_reviewed_revision_id\`, but stale
 screenshots from prior revisions remain in storage. Needs a storage cleanup
 step or revision-prefixed paths.
 `;
+
+  writeFileSync(join(outputDir, "notes.md"), md);
+}
+
+export function writeBusinessAuditNotes(
+  outputDir: string,
+  opts: {
+    portalUrl: string;
+    startTime: Date;
+    title: string;
+    covered: string[];
+    skipped?: string[];
+  },
+): void {
+  const elapsed = ((Date.now() - opts.startTime.getTime()) / 1000).toFixed(1);
+
+  let md = `# ${opts.title}
+**Date:** ${opts.startTime.toISOString().slice(0, 10)}
+**Portal:** ${opts.portalUrl}
+**Duration:** ${elapsed}s
+**Screenshots:** ${stepLog.length}
+
+## Covered Surfaces
+`;
+
+  for (const item of opts.covered) md += `- ${item}\n`;
+
+  if ((opts.skipped?.length ?? 0) > 0) {
+    md += `\n## Skipped / Conditional Surfaces\n`;
+    for (const item of opts.skipped ?? []) md += `- ${item}\n`;
+  }
+
+  md += `\n## Screenshot Log
+| # | File | Status | Primary CTA | Notes |
+|---|------|--------|-------------|-------|
+`;
+
+  for (const step of stepLog) {
+    md += `| ${step.index} | \`${step.filename}\` | ${step.status ?? "-"} | ${step.cta ?? "-"} | ${step.note ?? "-"} |\n`;
+  }
+
+  if (blockers.length > 0) {
+    md += `\n## Blockers\n`;
+    for (const b of blockers) md += `- ${b}\n`;
+  }
+
+  if (failures.length > 0) {
+    md += `\n## Failure Classification\n`;
+    for (const failure of failures) {
+      md += `- ${failure.stage}: ${failure.reason} — ${failure.detail}\n`;
+    }
+  }
+
+  if (observations.length > 0) {
+    md += `\n## Observations\n`;
+    for (const o of observations) md += `- ${o}\n`;
+  }
 
   writeFileSync(join(outputDir, "notes.md"), md);
 }

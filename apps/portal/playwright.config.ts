@@ -1,9 +1,16 @@
 import { defineConfig, devices } from "@playwright/test";
 
 /**
- * Playwright config for portal UX audit flow.
+ * Playwright config for the portal audit harness.
  *
- * Captures full-page screenshots at each workflow milestone.
+ * `pnpm portal:audit` runs the modular `portal-*.spec.ts` suite:
+ * - the original project workflow audit
+ * - broader business-surface coverage across sales, delivery, and admin pages
+ *
+ * Hosted deployment verification remains a separate explicit path via:
+ * `pnpm --filter @vaen/portal smoke:hosted`
+ *
+ * The audit specs capture full-page screenshots at each major milestone.
  * Run with: pnpm portal:audit
  */
 export default defineConfig({

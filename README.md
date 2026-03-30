@@ -165,6 +165,14 @@ Optional:
 - `PORTAL_SMOKE_WAIT_FOR_PROVIDER_REFERENCE=1` to wait for a provider URL to appear after queueing provider execution
 - `PORTAL_SMOKE_PROVIDER_REFERENCE_TIMEOUT_MS=90000` to control that wait window
 
+Broader portal audit harness:
+
+```bash
+pnpm portal:audit
+```
+
+That command now runs the modular `portal-*.spec.ts` Playwright audit suite. It covers the original project workflow plus broader portal business surfaces such as prospects, campaigns, pricing, deployment readiness, project delivery screens, and admin/settings pages when the signed-in role can reach them.
+
 For tomorrow's real hosted test, use the operator pack at `docs/architecture/hosted-testing-pack.md`.
 It includes:
 - exact setup order

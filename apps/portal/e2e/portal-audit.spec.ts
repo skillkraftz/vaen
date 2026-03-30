@@ -1,7 +1,7 @@
 import { test as base, expect, BrowserContext, Page } from "@playwright/test";
 import {
   createOutputDir,
-  resetStepIndex,
+  resetAuditSession,
   snap,
   snapLocator,
   getStatusText,
@@ -67,21 +67,23 @@ test.beforeAll(() => {
     );
   }
   outputDir = createOutputDir();
-  resetStepIndex();
+  resetAuditSession();
   console.log(`\n  Audit output → ${outputDir}\n`);
 });
 
 test.afterAll(async () => {
-  writeAuditNotes(outputDir, {
-    portalUrl: PORTAL_URL,
-    projectName: PROJECT_NAME,
-    slug: SLUG,
-    startTime,
-    reachedGenerate,
-    reachedReview,
-    reachedScreenshots,
-  });
-  console.log(`\n  Audit complete → ${outputDir}\n`);
+  if (outputDir) {
+    writeAuditNotes(outputDir, {
+      portalUrl: PORTAL_URL,
+      projectName: PROJECT_NAME,
+      slug: SLUG,
+      startTime,
+      reachedGenerate,
+      reachedReview,
+      reachedScreenshots,
+    });
+    console.log(`\n  Audit complete → ${outputDir}\n`);
+  }
   await ctx?.close();
 });
 

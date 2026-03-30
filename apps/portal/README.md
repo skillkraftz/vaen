@@ -105,6 +105,20 @@ The smoke flow verifies:
 5. provider execution can be queued
 6. provider reference visibility can be awaited when desired
 
+For the broader portal business audit harness:
+
+```bash
+pnpm ux-audit
+```
+
+From the repo root, this is:
+
+```bash
+pnpm portal:audit
+```
+
+That suite now runs the modular `portal-*.spec.ts` Playwright audit path. It keeps the original project workflow audit and adds broader coverage for dashboard navigation, prospects, campaigns, pricing, deployment readiness, project delivery surfaces, and admin/settings pages when the current role can access them.
+
 Project pages now also support tracked deployment runs from authoritative revision/export/build state. Those runs validate `deployment-payload.json` and record history without pretending provider automation is finished.
 
 The first real provider adapters are now GitHub, Vercel, and managed-domain attachment: a validated deployment run can create or reuse a GitHub repository, create or reuse a Vercel project and trigger a preview deployment URL, then attach a managed subdomain under `VAEN_BASE_DOMAIN` to that Vercel deployment for testing.
