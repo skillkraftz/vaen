@@ -136,6 +136,8 @@ This smoke path checks:
 5. provider execution queueing
 6. provider reference visibility when the optional wait is enabled
 
+For the exact tomorrow setup order, preflight commands, and troubleshooting matrix, use [hosted-testing-pack.md](/home/andy/projects/vaen/docs/architecture/hosted-testing-pack.md).
+
 ### Worker on VM (via Tailscale) — NEXT
 - Install Tailscale on VM
 - Worker polls `jobs` table for pending work

@@ -48,7 +48,9 @@ describe("deployment readiness helpers", () => {
 
   it("documents the worker vm runbook with real setup steps", () => {
     const runbookPath = join(REPO_ROOT, "docs/architecture/worker-vm-runbook.md");
+    const tomorrowPackPath = join(REPO_ROOT, "docs/architecture/hosted-testing-pack.md");
     const runbook = readFileSync(runbookPath, "utf-8");
+    const tomorrowPack = readFileSync(tomorrowPackPath, "utf-8");
 
     expect(runbook).toContain("SUPABASE_URL");
     expect(runbook).toContain("SUPABASE_SERVICE_ROLE_KEY");
@@ -61,6 +63,13 @@ describe("deployment readiness helpers", () => {
     expect(runbook).toContain("systemd");
     expect(runbook).toContain("pm2");
     expect(runbook).toContain("/dashboard/settings/deployment");
+    expect(tomorrowPack).toContain("Tomorrow Setup Order");
+    expect(tomorrowPack).toContain("Preflight Commands");
+    expect(tomorrowPack).toContain("Failure Matrix");
+    expect(tomorrowPack).toContain("PORTAL_SMOKE_PROJECT_ID");
+    expect(tomorrowPack).toContain("Worker heartbeat is missing");
+    expect(tomorrowPack).toContain("Vercel project already linked to the wrong repo");
+    expect(tomorrowPack).toContain("Resend webhook verification fails");
   });
 
   it("keeps the shared deployment readiness helper bundle-safe", () => {
@@ -96,6 +105,7 @@ describe("deployment readiness ui integration", () => {
     expect(pageSource).toContain('data-testid="deployment-warnings"');
     expect(pageSource).toContain('testId="deployment-worker-health"');
     expect(pageSource).toContain('data-testid="deployment-hosted-testing-checklist"');
+    expect(pageSource).toContain('data-testid="deployment-tomorrow-pack"');
     expect(pageSource).toContain('data-testid="deployment-env-ownership"');
     expect(pageSource).toContain('data-testid="deployment-worker-vm-checklist"');
     expect(pageSource).toContain("Hosted testing checklist");
@@ -109,6 +119,8 @@ describe("deployment readiness ui integration", () => {
     expect(pageSource).toContain("OPENAI_API_KEY");
     expect(pageSource).toContain("generator-backed jobs");
     expect(pageSource).toContain("Worker VM checklist");
+    expect(pageSource).toContain("Tomorrow setup pack");
+    expect(pageSource).toContain("hosted-testing-pack.md");
     expect(pageSource).toContain("docs/architecture/worker-vm-runbook.md");
     expect(pageSource).toContain("pnpm --filter @vaen/worker poll");
     expect(pageSource).toContain("active revision request payload");
@@ -117,6 +129,7 @@ describe("deployment readiness ui integration", () => {
     expect(layoutSource).toContain("Deployment");
     expect(readmeSource).toContain("/dashboard/settings/deployment");
     expect(readmeSource).toContain("worker-vm-runbook.md");
+    expect(rootReadmeSource).toContain("hosted-testing-pack.md");
     expect(workerReadmeSource).toContain("managed subdomain attachment");
     expect(workerReadmeSource).toContain("OPENAI_API_KEY");
     expect(workerReadmeSource).toContain("customer custom-domain onboarding");

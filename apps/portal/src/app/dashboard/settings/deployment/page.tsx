@@ -63,6 +63,23 @@ export default async function DeploymentSettingsPage() {
         </div>
       </div>
 
+      <div className="card" style={{ marginBottom: "1rem" }} data-testid="deployment-tomorrow-pack">
+        <h2 style={{ fontSize: "1rem", fontWeight: 600, marginBottom: "0.75rem" }}>Tomorrow setup pack</h2>
+        <div className="detail-grid">
+          <p className="text-sm text-muted">
+            Use <code>docs/architecture/hosted-testing-pack.md</code> for the exact setup order, preflight commands,
+            and failure matrix for tomorrow&apos;s hosted test.
+          </p>
+          <ul className="text-sm text-muted" style={{ margin: 0, paddingLeft: "1.25rem" }}>
+            <li>Portal on Vercel first</li>
+            <li>Worker VM second</li>
+            <li>Heartbeat before any deployment run</li>
+            <li>Deployment run before provider execution</li>
+            <li>GitHub, Vercel, then managed subdomain verification</li>
+          </ul>
+        </div>
+      </div>
+
       <div className="card" style={{ marginBottom: "1rem" }} data-testid="deployment-env-ownership">
         <h2 style={{ fontSize: "1rem", fontWeight: 600, marginBottom: "0.75rem" }}>Environment ownership</h2>
         <div className="detail-grid">

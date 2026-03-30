@@ -137,6 +137,8 @@ PORTAL_SMOKE_PROJECT_ID=<ready-project-id> \
 pnpm --filter @vaen/portal smoke:hosted
 ```
 
+For the full operator sequence and troubleshooting matrix, use [hosted-testing-pack.md](/home/andy/projects/vaen/docs/architecture/hosted-testing-pack.md).
+
 ## Run continuously with systemd
 
 Example unit file:

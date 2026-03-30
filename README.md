@@ -165,6 +165,12 @@ Optional:
 - `PORTAL_SMOKE_WAIT_FOR_PROVIDER_REFERENCE=1` to wait for a provider URL to appear after queueing provider execution
 - `PORTAL_SMOKE_PROVIDER_REFERENCE_TIMEOUT_MS=90000` to control that wait window
 
+For tomorrow's real hosted test, use the operator pack at `docs/architecture/hosted-testing-pack.md`.
+It includes:
+- exact setup order
+- exact preflight commands
+- exact failure matrix / troubleshooting table
+
 Production assumptions for the portal:
 
 - public base URL: `https://vaen.space`
