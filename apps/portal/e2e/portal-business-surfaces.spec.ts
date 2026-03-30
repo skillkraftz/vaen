@@ -40,13 +40,22 @@ const test = base.extend<{ shared: Page }>({
 
 test.describe.configure({ mode: "serial" });
 
-test.beforeAll(() => {
+test.beforeAll(async ({ browser }) => {
   if (!EMAIL || !PASSWORD) {
     throw new Error("Set PORTAL_EMAIL and PORTAL_PASSWORD before running portal:audit.");
   }
   outputDir = createOutputDir();
   resetAuditSession();
   console.log(`\n  Business audit output → ${outputDir}\n`);
+
+  if (!ctx) {
+    ctx = await browser.newContext({
+      viewport: { width: 1440, height: 900 },
+    });
+    pg = await ctx.newPage();
+  }
+
+  await login(pg);
 });
 
 test.afterAll(async () => {
@@ -63,13 +72,42 @@ test.afterAll(async () => {
 });
 
 async function login(page: Page) {
-  await page.goto("/login");
+  await page.goto("/dashboard", { waitUntil: "domcontentloaded" });
+  if (await page.getByTestId("dashboard-header").isVisible().catch(() => false)) {
+    return;
+  }
+
+  await page.goto("/login", { waitUntil: "domcontentloaded" });
+  if (await page.getByTestId("dashboard-header").isVisible().catch(() => false)) {
+    return;
+  }
+
   await expect(page.getByTestId("login-page")).toBeVisible();
   await page.fill("#email", EMAIL);
   await page.fill("#password", PASSWORD);
   await page.getByTestId("login-submit").click();
-  await page.waitForURL("**/dashboard**", { timeout: 20_000 });
+
+  try {
+    await Promise.race([
+      page.waitForURL("**/dashboard**", {
+        timeout: 20_000,
+        waitUntil: "domcontentloaded",
+      }),
+      page.getByTestId("dashboard-header").waitFor({ timeout: 20_000 }),
+      page.locator(".alert-error").waitFor({ timeout: 20_000 }).then(async () => {
+        const msg = await page.locator(".alert-error").textContent();
+        throw new Error(`Login failed: ${msg} — check PORTAL_EMAIL and PORTAL_PASSWORD`);
+      }),
+    ]);
+  } catch (err) {
+    throw err;
+  }
+
   await expect(page.getByTestId("dashboard-header")).toBeVisible();
+}
+
+async function navigate(page: Page, path: string) {
+  await page.goto(path, { waitUntil: "domcontentloaded" });
 }
 
 async function readCurrentRole(page: Page) {
@@ -78,16 +116,15 @@ async function readCurrentRole(page: Page) {
 
 test("01 — core portal surfaces", async ({ shared: page }) => {
   console.log("  [audit] core portal surfaces");
-  await login(page);
 
-  await page.goto("/dashboard");
+  await navigate(page, "/dashboard");
   await expect(page.getByTestId("dashboard-header")).toBeVisible();
   await expect(page.getByTestId("dashboard-prospect-section")).toBeVisible();
   await snap(page, outputDir, "core-dashboard", {
     note: "Dashboard with project list and prospect section",
   });
 
-  await page.goto("/dashboard/settings/deployment");
+  await navigate(page, "/dashboard/settings/deployment");
   await expect(page.getByTestId("deployment-settings-page")).toBeVisible();
   await expect(page.getByTestId("deployment-worker-health")).toBeVisible();
   await expect(page.getByTestId("deployment-hosted-testing-checklist")).toBeVisible();
@@ -95,7 +132,7 @@ test("01 — core portal surfaces", async ({ shared: page }) => {
     note: "Portal hosting readiness and worker heartbeat",
   });
 
-  await page.goto("/dashboard/settings/outreach");
+  await navigate(page, "/dashboard/settings/outreach");
   await expect(page.getByTestId("outreach-settings-page")).toBeVisible();
   await expect(page.getByTestId("outreach-readiness-badge")).toBeVisible();
   await snap(page, outputDir, "core-outreach-settings", {
@@ -107,9 +144,8 @@ test("01 — core portal surfaces", async ({ shared: page }) => {
 
 test("02 — prospects, clients, and campaign assignment surfaces", async ({ shared: page }) => {
   console.log("  [audit] prospects, clients, campaigns");
-  await login(page);
 
-  await page.goto("/dashboard/prospects/new");
+  await navigate(page, "/dashboard/prospects/new");
   await expect(page.getByTestId("new-prospect-form")).toBeVisible();
   await page.fill("#companyName", PROSPECT_NAME);
   await page.fill("#websiteUrl", PROSPECT_WEBSITE);
@@ -144,7 +180,7 @@ test("02 — prospects, clients, and campaign assignment surfaces", async ({ sha
     note: "Prospect conversion creates linked client and project surfaces",
   });
 
-  await page.goto("/dashboard/new");
+  await navigate(page, "/dashboard/new");
   await expect(page.getByTestId("new-intake-form")).toBeVisible();
   await page.locator('input[name="clientModeToggle"]').nth(1).check();
   await expect(page.locator('input[name="clientModeToggle"]').nth(1)).toBeChecked();
@@ -153,7 +189,7 @@ test("02 — prospects, clients, and campaign assignment surfaces", async ({ sha
     note: "Client surface is currently exercised through existing-client intake reuse",
   });
 
-  await page.goto("/dashboard/campaigns");
+  await navigate(page, "/dashboard/campaigns");
   await expect(page.getByTestId("campaign-list-page")).toBeVisible();
   await page.getByTestId("campaign-name-input").fill(CAMPAIGN_NAME);
   await page.getByTestId("campaign-description-input").fill("Audit campaign for broader portal coverage.");
@@ -167,7 +203,7 @@ test("02 — prospects, clients, and campaign assignment surfaces", async ({ sha
   });
 
   if (prospectId && campaignId) {
-    await page.goto("/dashboard/prospects");
+    await navigate(page, "/dashboard/prospects");
     await expect(page.getByTestId("prospect-list-page")).toBeVisible();
     await page.getByTestId(`prospect-select-${prospectId}`).check();
     await page.getByTestId("prospect-bulk-campaign-select").selectOption(campaignId);
@@ -177,7 +213,7 @@ test("02 — prospects, clients, and campaign assignment surfaces", async ({ sha
       note: "Prospect list with bulk campaign assignment",
     });
 
-    await page.goto(`/dashboard/campaigns/${campaignId}`);
+    await navigate(page, `/dashboard/campaigns/${campaignId}`);
     await expect(page.getByTestId("campaign-detail-page")).toBeVisible();
     await expect(page.getByTestId("campaign-analytics-row")).toBeVisible();
     await expect(page.getByTestId("campaign-analytics-needs-attention")).toBeVisible();
@@ -193,10 +229,9 @@ test("02 — prospects, clients, and campaign assignment surfaces", async ({ sha
 
 test("03 — project quotes and deployment surfaces", async ({ shared: page }) => {
   console.log("  [audit] project delivery surfaces");
-  await login(page);
   test.skip(!projectId, "No converted project available from prospect flow.");
 
-  await page.goto(`/dashboard/projects/${projectId}`);
+  await navigate(page, `/dashboard/projects/${projectId}`);
   await expect(page.getByTestId("project-header")).toBeVisible();
   await expect(page.getByTestId("quote-section")).toBeVisible();
   await expect(page.getByTestId("deployment-runs-section")).toBeVisible();
@@ -223,12 +258,11 @@ test("03 — project quotes and deployment surfaces", async ({ shared: page }) =
 
 test("04 — analytics and admin/settings surfaces", async ({ shared: page }) => {
   console.log("  [audit] analytics and admin surfaces");
-  await login(page);
 
   const role = await readCurrentRole(page);
   addObservation(`Audit running as role: ${role}`);
 
-  await page.goto("/dashboard/settings/pricing");
+  await navigate(page, "/dashboard/settings/pricing");
   await expect(page.getByTestId("pricing-settings-page")).toBeVisible();
   await expect(page.getByTestId("pricing-history-list")).toBeVisible();
   await snap(page, outputDir, "settings-pricing", {
@@ -237,7 +271,7 @@ test("04 — analytics and admin/settings surfaces", async ({ shared: page }) =>
   covered.push("Pricing settings");
 
   if (role === "admin" || role === "sales" || role === "operator") {
-    await page.goto("/dashboard/analytics");
+    await navigate(page, "/dashboard/analytics");
     await expect(page.getByTestId("analytics-page")).toBeVisible();
     await expect(page.getByTestId("analytics-funnel-metrics")).toBeVisible();
     await expect(page.getByTestId("analytics-campaign-rollups")).toBeVisible();

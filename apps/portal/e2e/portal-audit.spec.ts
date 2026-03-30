@@ -493,8 +493,11 @@ test("11 — screenshot viewer", async ({ shared: page }) => {
     : null;
   const manifestPath = await viewer.getAttribute("data-manifest-path");
   const verification = page.getByTestId("screenshot-verification");
-  const verificationText = await verification.textContent();
-  const verificationState = await verification.getAttribute("data-verification-state");
+  const verificationVisible = await verification.isVisible().catch(() => false);
+  const verificationText = verificationVisible ? await verification.textContent() : null;
+  const verificationState = verificationVisible
+    ? await verification.getAttribute("data-verification-state")
+    : null;
   const contentVerification = page.getByTestId("screenshot-content-verification");
   const contentVerificationText = await contentVerification.isVisible().catch(() => false)
     ? await contentVerification.textContent()
