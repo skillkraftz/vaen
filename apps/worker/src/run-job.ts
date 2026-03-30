@@ -27,7 +27,7 @@
 // so it works regardless of cwd.
 import { config } from "dotenv";
 import { fileURLToPath } from "node:url";
-import { dirname, join, relative } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 
 const __workerDir = dirname(fileURLToPath(import.meta.url));
 config({ path: join(__workerDir, "..", ".env") });
@@ -376,6 +376,12 @@ async function main() {
   }
 
   await runJobById(jobId, { claimIfPending: true });
+}
+
+function isRunJobCliEntrypoint() {
+  const entryPath = process.argv[1];
+  if (!entryPath) return false;
+  return resolve(entryPath) === resolve(fileURLToPath(import.meta.url));
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────
@@ -2088,7 +2094,9 @@ async function notifyDiscordTransition(
 
 // ── Run ───────────────────────────────────────────────────────────────
 
-main().catch((err) => {
-  console.error("[worker] Fatal:", err);
-  process.exit(1);
-});
+if (isRunJobCliEntrypoint()) {
+  main().catch((err) => {
+    console.error("[worker] Fatal:", err);
+    process.exit(1);
+  });
+}

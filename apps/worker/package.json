@@ -8,7 +8,8 @@
     "clean": "rm -rf dist",
     "start": "node dist/poll.js",
     "poll": "node dist/poll.js",
-    "run-job": "node dist/run-job.js"
+    "run-job": "node dist/run-job.js",
+    "test:entrypoints": "node --test test/entrypoints.test.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.49.1",

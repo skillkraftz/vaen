@@ -40,6 +40,12 @@ pnpm --filter @vaen/worker poll
 pnpm --filter @vaen/worker run-job -- <job-id>
 ```
 
+Entrypoint split:
+
+- `poll` is the long-running worker loop and should start without a job id
+- `run-job` is the single-job CLI and requires an explicit `<job-id>`
+- `src/poll.ts` imports `runJobById()` from `src/run-job.ts`, so `src/run-job.ts` must keep its CLI path guarded and import-safe
+
 ## VM runbook
 
 For a real remote worker setup, use:
