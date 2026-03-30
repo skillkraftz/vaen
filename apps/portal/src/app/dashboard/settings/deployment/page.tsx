@@ -51,7 +51,7 @@ export default async function DeploymentSettingsPage() {
             <li>Set the Resend webhook target to <code>https://vaen.space/api/webhooks/resend</code> if live outreach/webhook testing is in scope.</li>
             <li>Confirm this page shows a healthy worker heartbeat before trusting pending jobs.</li>
             <li>Create a deployment run from a project whose active revision is already exported and generated.</li>
-            <li>Execute providers, then verify the GitHub repo URL and Vercel preview URL on the project deployment history.</li>
+            <li>Execute providers, then verify the GitHub repo URL, Vercel preview URL, and managed subdomain URL on the project deployment history when domain testing is configured.</li>
           </ul>
           <p className="text-sm text-muted" data-testid="deployment-hosted-smoke-command">
             Repeat this with the lightweight hosted smoke audit:
@@ -71,8 +71,14 @@ export default async function DeploymentSettingsPage() {
             alone is not enough for generation, review, or provider execution.
           </p>
           <p className="text-sm text-muted">
-            GitHub and Vercel provider execution depend on worker-side credentials. This page can verify the portal-side URL
-            assumptions, while the worker heartbeat is the live signal that remote execution is available.
+            GitHub and Vercel provider execution depend on worker-side credentials. The current domain provider also runs on the
+            worker and uses <code>DNS_PROVIDER_TOKEN</code> for Vercel domain and alias API calls under <code>VAEN_BASE_DOMAIN</code>;
+            it is not generic registrar automation yet.
+          </p>
+          <p className="text-sm text-muted">
+            <code>OPENAI_API_KEY</code> is required for generator-backed jobs. If tomorrow&apos;s testing is limited to review,
+            deployment run creation, and provider execution on an already generated project, missing OpenAI credentials will not
+            block those deployment-only steps.
           </p>
         </div>
       </div>
@@ -86,6 +92,7 @@ export default async function DeploymentSettingsPage() {
           </p>
           <ul className="text-sm text-muted" style={{ margin: 0, paddingLeft: "1.25rem" }}>
             <li>Set <code>SUPABASE_URL</code>, <code>SUPABASE_SERVICE_ROLE_KEY</code>, <code>WORKER_ID</code>, and <code>NEXT_PUBLIC_PORTAL_URL=https://vaen.space</code>.</li>
+            <li>Add <code>OPENAI_API_KEY</code> only if the worker must run generator-backed jobs.</li>
             <li>Build the repo and install Chromium with <code>pnpm --filter @vaen/review-tools exec playwright install --with-deps chromium</code>.</li>
             <li>Run <code>pnpm --filter @vaen/worker poll</code> under <code>systemd</code> or <code>pm2</code>.</li>
             <li>Confirm this page shows a healthy worker heartbeat before trusting pending jobs.</li>
@@ -157,8 +164,8 @@ export default async function DeploymentSettingsPage() {
         <div className="detail-grid">
           <p className="text-sm text-muted">
             The repo already contains deployment-payload schema/generator support, deploy statuses in the workflow model,
-            and a real Resend webhook route. GitHub and Vercel provider execution are now wired for hosted testing.
-            What is still missing is domain automation, production promotion flow, and richer worker/deployment orchestration.
+            and a real Resend webhook route. GitHub, Vercel, and managed-subdomain provider execution are now wired for hosted testing.
+            What is still missing is customer custom-domain onboarding, production promotion flow, and richer worker/deployment orchestration.
           </p>
           <p className="text-sm text-muted">
             For a real worker VM setup, use the repo runbook at <code>docs/architecture/worker-vm-runbook.md</code>.

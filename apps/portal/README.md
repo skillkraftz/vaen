@@ -55,6 +55,7 @@ Authenticated operations portal for the vaen website factory. It now covers inta
 |----------|----------|-------------|
 | `NEXT_PUBLIC_SUPABASE_URL` | Yes | Supabase project URL |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Yes | Supabase anonymous key |
+| `SUPABASE_SERVICE_ROLE_KEY` | Yes | Supabase service role key for privileged portal server actions |
 | `DISCORD_WEBHOOK_URL` | No | Discord webhook for notifications |
 | `NEXT_PUBLIC_PORTAL_URL` | No | Portal URL for links in notifications |
 | `RESEND_API_KEY` | No | Required for outbound outreach execution via Resend |
@@ -78,6 +79,7 @@ For first real hosted testing, use that page to confirm:
 4. the remote worker heartbeat is healthy
 5. deployment runs can be created from exported/generated revisions
 6. provider execution produces GitHub and Vercel references in project deployment history
+7. if managed-domain testing is configured, provider execution also produces a `https://<slug>.<base-domain>` reference
 
 For a repeatable hosted smoke pass against the live portal:
 
@@ -106,6 +108,11 @@ The smoke flow verifies:
 Project pages now also support tracked deployment runs from authoritative revision/export/build state. Those runs validate `deployment-payload.json` and record history without pretending provider automation is finished.
 
 The first real provider adapters are now GitHub, Vercel, and managed-domain attachment: a validated deployment run can create or reuse a GitHub repository, create or reuse a Vercel project and trigger a preview deployment URL, then attach a managed subdomain under `VAEN_BASE_DOMAIN` to that Vercel deployment for testing.
+
+Important env truth:
+
+- `OPENAI_API_KEY` is only needed on the worker for generator-backed jobs
+- `DNS_PROVIDER_TOKEN` is currently used for Vercel domain/alias API access, not generic registrar automation
 
 ## Request Truth Model
 

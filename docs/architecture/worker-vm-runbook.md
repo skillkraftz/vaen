@@ -55,7 +55,7 @@ SUPABASE_URL=https://<project>.supabase.co
 SUPABASE_SERVICE_ROLE_KEY=<service-role-key>
 WORKER_ID=worker-prod-1
 NEXT_PUBLIC_PORTAL_URL=https://vaen.space
-OPENAI_API_KEY=<required for generator-backed jobs>
+OPENAI_API_KEY=<required only for generator-backed jobs>
 ```
 
 ### Optional notification env
@@ -75,11 +75,12 @@ GITHUB_ORG=<github-org>
 VERCEL_TOKEN=<vercel-token>
 VERCEL_TEAM_ID=<optional-vercel-team-id>
 
-DNS_PROVIDER_TOKEN=<dns-api-token>
+DNS_PROVIDER_TOKEN=<currently a Vercel domain-management token>
 VAEN_BASE_DOMAIN=vaen.space
 ```
 
 If these are not set, provider execution will truthfully report `not_configured`.
+If you are only testing deployment runs and provider execution against an already generated project, `OPENAI_API_KEY` is not required for that deployment-only path.
 
 ## Workspace expectations
 
@@ -234,12 +235,13 @@ Real now:
 - portal shows worker heartbeat state
 - deployment runs and `deploy_prepare` are tracked
 - provider execution jobs can be queued and recorded
+- GitHub can create or reuse a repository and push generated source
+- Vercel can create or reuse a project and trigger a preview deployment
+- the domain provider can attach a managed subdomain under `VAEN_BASE_DOMAIN` and alias the Vercel deployment
 
 Not finished yet:
 
-- real GitHub deployment automation
-- real Vercel deployment automation
-- real DNS/domain automation
+- customer custom-domain onboarding and registrar-level automation
 - VM provisioning automation
 - heartbeat alerting/notifications
 - multi-worker operational dashboard

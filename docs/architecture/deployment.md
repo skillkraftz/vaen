@@ -85,7 +85,7 @@ Worker poller +---> claim_next_job() -> status: running
 
 ### Portal on Vercel — READY IN PRINCIPLE
 - Deploy `apps/portal` to Vercel
-- Environment variables: `NEXT_PUBLIC_SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`
+- Environment variables: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `NEXT_PUBLIC_PORTAL_URL`
 - No filesystem access — all data goes through Supabase DB/Storage
 - Job dispatch: insert into `jobs` table (normal path no longer depends on `child_process.spawn`)
 - Deployment control plane: project pages can create tracked deployment runs backed by worker jobs
@@ -106,6 +106,7 @@ Worker poller +---> claim_next_job() -> status: running
 9. verify:
    - GitHub repo reference
    - Vercel preview deployment URL
+   - managed subdomain URL when `DNS_PROVIDER_TOKEN` and `VAEN_BASE_DOMAIN` are configured
    - any failure summary if provider execution is rejected
 
 ### Hosted smoke audit — CURRENT PATH
@@ -169,7 +170,7 @@ RESEND_WEBHOOK_SECRET=whsec_...
 SUPABASE_URL=https://xxx.supabase.co
 SUPABASE_SERVICE_ROLE_KEY=eyJ...
 WORKER_ID=worker-prod-1
-OPENAI_API_KEY=sk-...  # for generator AI calls
+OPENAI_API_KEY=sk-...  # required only for generator-backed jobs
 ```
 
 ## Migration Path
@@ -238,7 +239,7 @@ Each adapter implements `DeploymentProviderAdapter` from `@vaen/shared`:
 2. If a required adapter fails, subsequent adapters are skipped
 3. Results are recorded in `deployment_run.payload_metadata.provider_execution`
 4. Portal can queue a `deploy_execute` job from a validated deployment run
-5. No adapter fakes success — unconfigured adapters return `{ status: "not_configured" }`, and configured-but-stubbed adapters return `{ status: "not_implemented" }`
+5. No adapter fakes success — unconfigured adapters return `{ status: "not_configured" }`, unsupported paths return `{ status: "unsupported" }`, and unfinished adapters return `{ status: "not_implemented" }`
 
 ### Result Statuses
 
@@ -276,7 +277,7 @@ Each adapter implements `DeploymentProviderAdapter` from `@vaen/shared`:
 
 - GitHub API calls (repo creation, code push)
 - Vercel API calls (project creation, deployment trigger, managed subdomain attachment)
-- Managed subdomains now require the domain to already be configured in the Vercel scope addressed by the provider token
+- Managed subdomains now require the domain to already be configured in the Vercel scope addressed by `DNS_PROVIDER_TOKEN`
 
 ## GitHub Provider — STATUS: REAL REPO PUSH IMPLEMENTED
 
@@ -346,7 +347,7 @@ VERCEL_TEAM_ID=<optional-team-id>
 
 - This triggers a real preview deployment URL for testing, not full production promotion.
 - Existing projects linked to a different GitHub repo are treated as `unsupported` rather than being silently relinked.
-- Domain automation is still pending, so custom-domain cutover is not included.
+- Customer custom-domain cutover is still pending.
 
 ## Domain Provider — STATUS: REAL MANAGED SUBDOMAIN ATTACHMENT IMPLEMENTED
 
@@ -382,7 +383,8 @@ VERCEL_TEAM_ID=<optional-team-id>
 
 - This currently supports managed subdomains under `VAEN_BASE_DOMAIN`, not arbitrary customer custom domains.
 - If `payload.domain.customDomain` is set to something outside the managed base domain, the provider returns `unsupported`.
-- This assumes the managed base domain is already added to the Vercel scope targeted by the token.
+- This assumes the managed base domain is already added to the Vercel scope targeted by `DNS_PROVIDER_TOKEN`.
+- `DNS_PROVIDER_TOKEN` is currently used against Vercel project-domain and alias APIs; it is not a generic registrar-token abstraction yet.
 - It does not verify final DNS propagation beyond successful API attachment/alias creation.
 
 ## Remaining Work For True VM Deployment

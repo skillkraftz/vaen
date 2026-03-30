@@ -49,11 +49,14 @@ For a real remote worker setup, use:
 That runbook covers:
 
 - required env vars
+- `OPENAI_API_KEY` only for generator-backed jobs
 - Playwright/Chromium setup
 - writable workspace expectations under `generated/`
 - `systemd` and `pm2` examples
 - portal heartbeat verification steps
 - GitHub provider setup for real repository creation/push
+- Vercel preview deployment setup
+- managed subdomain attachment under `VAEN_BASE_DOMAIN`
 
 ## Usage (programmatic)
 
@@ -69,5 +72,5 @@ const pipeline = await runPipeline(
 ## Remaining deployment work
 - run the poller under a real process supervisor on a VM
 - provision Playwright/build dependencies on that VM
-- implement real provider adapters on top of the current deployment control plane
+- add customer custom-domain onboarding and registrar-level automation on top of the current provider control plane
 - add deploy-target orchestration on top of the job backbone

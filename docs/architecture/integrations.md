@@ -26,6 +26,11 @@ packages/review-tools/
 
 vaen.space is the deployment and hosting platform.
 
+Current repo reality:
+- hosted testing today uses the worker-side GitHub + Vercel provider chain
+- managed subdomains under `VAEN_BASE_DOMAIN` are attached through the current domain provider
+- the flow below is still future platform work, not the current hosted-testing path
+
 ### How it ingests deployment-payload.json:
 1. Generator produces deployment-payload.json with site source, build config, and metadata
 2. Portal (future) uploads payload to vaen.space API

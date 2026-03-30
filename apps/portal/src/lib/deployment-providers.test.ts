@@ -756,5 +756,7 @@ describe("deployment docs", () => {
     expect(source).toContain("repository URL");
     expect(source).toContain("preview deployment URL");
     expect(source).toContain("managed subdomain");
+    expect(source).toContain("Vercel domain-management access");
+    expect(source).toContain("not a generic registrar-token abstraction yet");
   });
 });

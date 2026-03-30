@@ -94,7 +94,7 @@ pnpm build
 |----------|----------|-------------|
 | `NEXT_PUBLIC_SUPABASE_URL` | Yes | Supabase project URL |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Yes | Supabase anonymous/public key |
-| `SUPABASE_SERVICE_ROLE_KEY` | Yes | Supabase service role key (passed to spawned worker) |
+| `SUPABASE_SERVICE_ROLE_KEY` | Yes | Supabase service role key for privileged portal server actions |
 | `DISCORD_WEBHOOK_URL` | No | Discord webhook for lifecycle notifications |
 | `NEXT_PUBLIC_PORTAL_URL` | No | Portal URL for notification links (default: http://localhost:3100) |
 | `RESEND_API_KEY` | No | Required for outbound prospect outreach via Resend |
@@ -113,7 +113,7 @@ pnpm build
 | `DISCORD_WEBHOOK_URL` | No | Discord webhook for build/review notifications |
 | `NEXT_PUBLIC_PORTAL_URL` | No | Portal URL for notification links |
 
-When launched from the portal, the worker inherits env vars from the portal process. When run manually (`node apps/worker/dist/run-job.js <id>`), it loads `apps/worker/.env`.
+In the normal remote-worker path, the worker reads its own env on the VM. Direct local execution only exists as a debugging fallback; when run manually (`node apps/worker/dist/run-job.js <id>`), it loads `apps/worker/.env`.
 
 ### Outreach Readiness
 
@@ -148,6 +148,7 @@ First real hosted-testing path:
 5. start the remote worker and confirm the heartbeat on `/dashboard/settings/deployment`
 6. create a deployment run from a project whose active revision is already exported and generated
 7. execute providers and verify the GitHub repo URL plus Vercel preview URL in project deployment history
+8. if `DNS_PROVIDER_TOKEN` and `VAEN_BASE_DOMAIN` are configured, verify the managed subdomain URL too
 
 Repeatable hosted smoke audit:
 
@@ -184,7 +185,7 @@ Required envs for a real remote worker VM:
 - `SUPABASE_SERVICE_ROLE_KEY`
 - `WORKER_ID`
 - `NEXT_PUBLIC_PORTAL_URL=https://vaen.space`
-- `OPENAI_API_KEY` for generator-backed jobs
+- `OPENAI_API_KEY` only if the worker needs to run generator-backed jobs
 
 Optional provider envs for `deploy_execute` testing:
 
@@ -192,7 +193,7 @@ Optional provider envs for `deploy_execute` testing:
 - `GITHUB_ORG`
 - `VERCEL_TOKEN`
 - `VERCEL_TEAM_ID`
-- `DNS_PROVIDER_TOKEN`
+- `DNS_PROVIDER_TOKEN` (currently a Vercel domain-management token for the same scope as the Vercel project)
 - `VAEN_BASE_DOMAIN`
 
 Important env ownership split:
@@ -206,6 +207,7 @@ Current real provider support:
 - GitHub is implemented enough to create or reuse a repository and push generated `site/` source from a validated deployment run
 - Vercel is implemented enough to create or reuse a project and trigger a real preview deployment URL from that GitHub repo
 - Domain provider is implemented enough to attach a managed subdomain under `VAEN_BASE_DOMAIN` and alias the current Vercel deployment for hosted testing
+- Domain provider currently uses Vercel project-domain and alias APIs; it is not registrar/DNS-host automation for arbitrary customer domains
 
 Recommended for live outreach/webhook behavior:
 
@@ -220,6 +222,7 @@ Important operational note:
 - downstream generation/export/deployment rely on the active revision request payload and exported `client-request.json`, not just visible project form state
 - verify Business Details and Request Data (JSON) are in sync on project detail before trusting deploy/generate artifacts
 - deployment runs validate `deployment-payload.json`, GitHub can push source, Vercel can trigger preview deployments, and the domain provider can attach managed subdomains under `VAEN_BASE_DOMAIN`
+- deployment-only testing on an already generated project does not require `OPENAI_API_KEY`; generating a fresh site still does
 - real VM setup guidance lives in `docs/architecture/worker-vm-runbook.md`
 
 ### Request Truth Model

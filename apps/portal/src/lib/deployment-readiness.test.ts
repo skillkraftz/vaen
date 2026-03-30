@@ -54,6 +54,9 @@ describe("deployment readiness helpers", () => {
     expect(runbook).toContain("SUPABASE_SERVICE_ROLE_KEY");
     expect(runbook).toContain("WORKER_ID");
     expect(runbook).toContain("OPENAI_API_KEY");
+    expect(runbook).toContain("required only for generator-backed jobs");
+    expect(runbook).toContain("DNS_PROVIDER_TOKEN");
+    expect(runbook).toContain("Vercel domain-management token");
     expect(runbook).toContain("pnpm --filter @vaen/worker poll");
     expect(runbook).toContain("systemd");
     expect(runbook).toContain("pm2");
@@ -79,10 +82,12 @@ describe("deployment readiness ui integration", () => {
     const pagePath = join(__dirname, "../app/dashboard/settings/deployment/page.tsx");
     const layoutPath = join(__dirname, "../app/dashboard/layout.tsx");
     const readmePath = join(REPO_ROOT, "apps/portal/README.md");
+    const workerReadmePath = join(REPO_ROOT, "apps/worker/README.md");
     const rootReadmePath = join(REPO_ROOT, "README.md");
     const pageSource = readFileSync(pagePath, "utf-8");
     const layoutSource = readFileSync(layoutPath, "utf-8");
     const readmeSource = readFileSync(readmePath, "utf-8");
+    const workerReadmeSource = readFileSync(workerReadmePath, "utf-8");
     const rootReadmeSource = readFileSync(rootReadmePath, "utf-8");
 
     expect(pageSource).toContain('data-testid="deployment-settings-page"');
@@ -96,9 +101,13 @@ describe("deployment readiness ui integration", () => {
     expect(pageSource).toContain("Hosted testing checklist");
     expect(pageSource).toContain("Configure the Supabase auth callback as");
     expect(pageSource).toContain("https://vaen.space/api/webhooks/resend");
-    expect(pageSource).toContain("verify the GitHub repo URL and Vercel preview URL");
+    expect(pageSource).toContain("verify the GitHub repo URL, Vercel preview URL, and managed subdomain URL");
     expect(pageSource).toContain("Portal env vars live on Vercel");
     expect(pageSource).toContain("Worker and provider env vars live on the remote worker VM");
+    expect(pageSource).toContain("DNS_PROVIDER_TOKEN");
+    expect(pageSource).toContain("not generic registrar automation yet");
+    expect(pageSource).toContain("OPENAI_API_KEY");
+    expect(pageSource).toContain("generator-backed jobs");
     expect(pageSource).toContain("Worker VM checklist");
     expect(pageSource).toContain("docs/architecture/worker-vm-runbook.md");
     expect(pageSource).toContain("pnpm --filter @vaen/worker poll");
@@ -108,9 +117,14 @@ describe("deployment readiness ui integration", () => {
     expect(layoutSource).toContain("Deployment");
     expect(readmeSource).toContain("/dashboard/settings/deployment");
     expect(readmeSource).toContain("worker-vm-runbook.md");
+    expect(workerReadmeSource).toContain("managed subdomain attachment");
+    expect(workerReadmeSource).toContain("OPENAI_API_KEY");
+    expect(workerReadmeSource).toContain("customer custom-domain onboarding");
     expect(rootReadmeSource).toContain("https://vaen.space/auth/callback");
     expect(rootReadmeSource).toContain("https://vaen.space/api/webhooks/resend");
     expect(rootReadmeSource).toContain("worker-vm-runbook.md");
     expect(rootReadmeSource).toContain("Vercel is implemented enough to create or reuse a project");
+    expect(rootReadmeSource).toContain("Vercel domain-management token");
+    expect(rootReadmeSource).toContain("OPENAI_API_KEY");
   });
 });
