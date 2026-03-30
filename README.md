@@ -149,6 +149,21 @@ First real hosted-testing path:
 6. create a deployment run from a project whose active revision is already exported and generated
 7. execute providers and verify the GitHub repo URL plus Vercel preview URL in project deployment history
 
+Repeatable hosted smoke audit:
+
+```bash
+PORTAL_URL=https://vaen.space \
+PORTAL_EMAIL=<operator-email> \
+PORTAL_PASSWORD=<operator-password> \
+PORTAL_SMOKE_PROJECT_ID=<ready-project-id> \
+pnpm --filter @vaen/portal smoke:hosted
+```
+
+Optional:
+
+- `PORTAL_SMOKE_WAIT_FOR_PROVIDER_REFERENCE=1` to wait for a provider URL to appear after queueing provider execution
+- `PORTAL_SMOKE_PROVIDER_REFERENCE_TIMEOUT_MS=90000` to control that wait window
+
 Production assumptions for the portal:
 
 - public base URL: `https://vaen.space`

@@ -79,6 +79,30 @@ For first real hosted testing, use that page to confirm:
 5. deployment runs can be created from exported/generated revisions
 6. provider execution produces GitHub and Vercel references in project deployment history
 
+For a repeatable hosted smoke pass against the live portal:
+
+```bash
+PORTAL_URL=https://vaen.space \
+PORTAL_EMAIL=<operator-email> \
+PORTAL_PASSWORD=<operator-password> \
+PORTAL_SMOKE_PROJECT_ID=<ready-project-id> \
+pnpm smoke:hosted
+```
+
+Optional:
+
+- `PORTAL_SMOKE_WAIT_FOR_PROVIDER_REFERENCE=1`
+- `PORTAL_SMOKE_PROVIDER_REFERENCE_TIMEOUT_MS=90000`
+
+The smoke flow verifies:
+
+1. portal login works
+2. deployment settings are reachable
+3. worker heartbeat is visible
+4. a deployment run can be created for the selected project
+5. provider execution can be queued
+6. provider reference visibility can be awaited when desired
+
 Project pages now also support tracked deployment runs from authoritative revision/export/build state. Those runs validate `deployment-payload.json` and record history without pretending provider automation is finished.
 
 The first real provider adapters are now GitHub and Vercel: a validated deployment run can create or reuse a GitHub repository, then create or reuse a Vercel project and trigger a preview deployment URL. Domain provider execution remains explicitly incomplete.

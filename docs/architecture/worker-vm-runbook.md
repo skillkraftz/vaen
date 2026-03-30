@@ -126,6 +126,16 @@ Expected behavior:
 - `/dashboard/settings/deployment` shows the worker as healthy
 - project job surfaces stop looking mysteriously idle when a worker is actually running
 
+For a fuller hosted smoke pass from your local machine against the live portal:
+
+```bash
+PORTAL_URL=https://vaen.space \
+PORTAL_EMAIL=<operator-email> \
+PORTAL_PASSWORD=<operator-password> \
+PORTAL_SMOKE_PROJECT_ID=<ready-project-id> \
+pnpm --filter @vaen/portal smoke:hosted
+```
+
 ## Run continuously with systemd
 
 Example unit file:

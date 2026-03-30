@@ -53,6 +53,13 @@ export default async function DeploymentSettingsPage() {
             <li>Create a deployment run from a project whose active revision is already exported and generated.</li>
             <li>Execute providers, then verify the GitHub repo URL and Vercel preview URL on the project deployment history.</li>
           </ul>
+          <p className="text-sm text-muted" data-testid="deployment-hosted-smoke-command">
+            Repeat this with the lightweight hosted smoke audit:
+            {" "}
+            <code>pnpm --filter @vaen/portal smoke:hosted</code>
+            {" "}
+            after setting <code>PORTAL_URL</code>, <code>PORTAL_EMAIL</code>, <code>PORTAL_PASSWORD</code>, and <code>PORTAL_SMOKE_PROJECT_ID</code>.
+          </p>
         </div>
       </div>
 

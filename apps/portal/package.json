@@ -9,7 +9,8 @@
     "clean": "rm -rf .next",
     "test": "vitest run",
     "test:watch": "vitest",
-    "ux-audit": "npx playwright test --config playwright.config.ts"
+    "ux-audit": "npx playwright test --config playwright.config.ts",
+    "smoke:hosted": "npx playwright test --config playwright.config.ts e2e/hosted-smoke.spec.ts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.6.1",

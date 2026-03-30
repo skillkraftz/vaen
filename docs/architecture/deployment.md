@@ -108,6 +108,33 @@ Worker poller +---> claim_next_job() -> status: running
    - Vercel preview deployment URL
    - any failure summary if provider execution is rejected
 
+### Hosted smoke audit — CURRENT PATH
+
+Use the lightweight Playwright smoke audit when you want a repeatable operator check
+against the hosted portal without running the full UX audit:
+
+```bash
+PORTAL_URL=https://vaen.space \
+PORTAL_EMAIL=<operator-email> \
+PORTAL_PASSWORD=<operator-password> \
+PORTAL_SMOKE_PROJECT_ID=<ready-project-id> \
+pnpm --filter @vaen/portal smoke:hosted
+```
+
+Optional:
+
+- `PORTAL_SMOKE_WAIT_FOR_PROVIDER_REFERENCE=1` waits for a provider URL to appear after queueing provider execution
+- `PORTAL_SMOKE_PROVIDER_REFERENCE_TIMEOUT_MS=90000` controls that wait window
+
+This smoke path checks:
+
+1. portal login
+2. deployment settings reachability
+3. worker heartbeat visibility
+4. deployment run creation
+5. provider execution queueing
+6. provider reference visibility when the optional wait is enabled
+
 ### Worker on VM (via Tailscale) — NEXT
 - Install Tailscale on VM
 - Worker polls `jobs` table for pending work
