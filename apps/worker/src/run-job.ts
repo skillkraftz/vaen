@@ -1836,6 +1836,11 @@ async function executeDeploymentProviders(
   });
 
   const completedAt = new Date().toISOString();
+  const liveProviderSucceeded = result.steps.some(
+    (step) =>
+      (step.provider === "vercel" || step.provider === "domain") &&
+      step.status === "succeeded",
+  );
 
   if (
     result.status === "not_configured" ||
@@ -1898,7 +1903,6 @@ async function executeDeploymentProviders(
       .map((s) => `${s.provider}: ${s.providerReference}`)
       .join(", ");
 
-    await db.from("projects").update({ status: "deployed" }).eq("id", project.id);
     await db
       .from("jobs")
       .update({
@@ -1933,13 +1937,29 @@ async function executeDeploymentProviders(
       })
       .eq("id", deploymentRun.id);
 
-    await db.from("project_events").insert({
-      project_id: project.id,
-      event_type: "deployment_completed",
-      from_status: project.status,
-      to_status: "deployed",
-      metadata: { job_id: job.id, deployment_run_id: deploymentRun.id, provider_references: providerRefs },
-    });
+    if (liveProviderSucceeded) {
+      await db.from("projects").update({ status: "deployed" }).eq("id", project.id);
+      await db.from("project_events").insert({
+        project_id: project.id,
+        event_type: "deployment_completed",
+        from_status: project.status,
+        to_status: "deployed",
+        metadata: { job_id: job.id, deployment_run_id: deploymentRun.id, provider_references: providerRefs },
+      });
+    } else {
+      await db.from("project_events").insert({
+        project_id: project.id,
+        event_type: "deployment_provider_executed",
+        from_status: project.status,
+        to_status: project.status,
+        metadata: {
+          job_id: job.id,
+          deployment_run_id: deploymentRun.id,
+          provider_references: providerRefs,
+          summary: result.summary,
+        },
+      });
+    }
     return;
   }
 

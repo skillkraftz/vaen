@@ -2,6 +2,11 @@ import { describe, expect, it } from "vitest";
 import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { summarizeProviderExecutionFromRun } from "./deployment-control-plane";
+import {
+  deriveGitHubRepoName,
+  ensureGitHubRepository,
+  GitHubProviderAdapter,
+} from "../../../worker/src/providers/github";
 
 const REPO_ROOT = resolve(__dirname, "../../../..");
 const SRC_ROOT = resolve(__dirname, "..");
@@ -125,7 +130,7 @@ describe("provider execution summary from deployment run", () => {
 /* ── Worker adapter stubs ───────────────────────────────────────── */
 
 describe("worker provider adapter stubs", () => {
-  it("has GitHub adapter stub", () => {
+  it("has GitHub adapter implementation", () => {
     const adapterPath = join(REPO_ROOT, "apps/worker/src/providers/github.ts");
     expect(existsSync(adapterPath)).toBe(true);
     const source = readFileSync(adapterPath, "utf-8");
@@ -135,7 +140,9 @@ describe("worker provider adapter stubs", () => {
     expect(source).toContain("isConfigured()");
     expect(source).toContain("GITHUB_TOKEN");
     expect(source).toContain("GITHUB_ORG");
-    expect(source).toContain('"not_implemented"');
+    expect(source).toContain("createRepository");
+    expect(source).toContain("pushSiteSourceToGitHubRepo");
+    expect(source).toContain('status: "succeeded"');
   });
 
   it("has Vercel adapter stub", () => {
@@ -201,6 +208,7 @@ describe("worker deploy_execute integration", () => {
     expect(source).toContain("deployment_providers_not_implemented");
     expect(source).toContain("deployment_providers_unsupported");
     expect(source).toContain("deployment_completed");
+    expect(source).toContain("deployment_provider_executed");
     expect(source).toContain("deployment_provider_failed");
   });
 
@@ -220,7 +228,125 @@ describe("deployment panel provider display", () => {
     const source = readFileSync(panelPath, "utf-8");
     expect(source).toContain("summarizeProviderExecutionFromRun");
     expect(source).toContain("deployment-run-provider-summary");
+    expect(source).toContain("deployment-run-provider-reference");
     expect(source).toContain("Execute Providers");
+  });
+});
+
+describe("github provider helpers", () => {
+  it("derives sane repo names from target slugs", () => {
+    expect(deriveGitHubRepoName("flower-city-painting")).toBe("vaen-flower-city-painting");
+    expect(deriveGitHubRepoName("Flower City Painting!!")).toBe("vaen-flower-city-painting");
+    expect(deriveGitHubRepoName("vaen-existing-slug")).toBe("vaen-existing-slug");
+  });
+
+  it("reuses an existing repo instead of creating a duplicate", async () => {
+    const calls: string[] = [];
+    const repo = await ensureGitHubRepository(
+      {
+        async getRepository() {
+          calls.push("get");
+          return {
+            name: "vaen-flower-city-painting",
+            htmlUrl: "https://github.com/acme/vaen-flower-city-painting",
+            cloneUrl: "https://github.com/acme/vaen-flower-city-painting.git",
+            defaultBranch: "main",
+            existed: true,
+          };
+        },
+        async createRepository() {
+          calls.push("create");
+          throw new Error("should not create");
+        },
+      },
+      "acme",
+      "vaen-flower-city-painting",
+      "flower-city-painting",
+    );
+
+    expect(repo.existed).toBe(true);
+    expect(calls).toEqual(["get"]);
+  });
+
+  it("creates a repo when missing and returns a real provider reference", async () => {
+    process.env.GITHUB_TOKEN = "gh-test";
+    process.env.GITHUB_ORG = "acme";
+
+    const adapter = new GitHubProviderAdapter({
+      apiClient: {
+        async getRepository() {
+          return null;
+        },
+        async createRepository(_org, name) {
+          return {
+            name,
+            htmlUrl: `https://github.com/acme/${name}`,
+            cloneUrl: `https://github.com/acme/${name}.git`,
+            defaultBranch: "main",
+            existed: false,
+          };
+        },
+      },
+      resolveSiteDir: () => "/tmp/generated/site",
+      pushSiteSource: async () => ({
+        commitSha: "abc123",
+        pushedFilesCount: 14,
+      }),
+    });
+
+    const result = await adapter.execute({
+      deploymentRunId: "run-1",
+      projectId: "project-1",
+      targetSlug: "flower-city-painting",
+      payload: { framework: "nextjs", sitePath: "generated/flower-city-painting/site" },
+      payloadSummary: {},
+    });
+
+    expect(result.status).toBe("succeeded");
+    expect(result.providerReference).toBe("https://github.com/acme/vaen-flower-city-painting");
+    expect(result.metadata).toMatchObject({
+      repoName: "vaen-flower-city-painting",
+      existed: false,
+      commitSha: "abc123",
+      pushedFilesCount: 14,
+    });
+
+    delete process.env.GITHUB_TOKEN;
+    delete process.env.GITHUB_ORG;
+  });
+
+  it("returns unsupported instead of faking success for non-nextjs payloads", async () => {
+    process.env.GITHUB_TOKEN = "gh-test";
+    process.env.GITHUB_ORG = "acme";
+
+    const adapter = new GitHubProviderAdapter({
+      apiClient: {
+        async getRepository() {
+          throw new Error("should not query");
+        },
+        async createRepository() {
+          throw new Error("should not create");
+        },
+      },
+      resolveSiteDir: () => null,
+      pushSiteSource: async () => {
+        throw new Error("should not push");
+      },
+    });
+
+    const result = await adapter.execute({
+      deploymentRunId: "run-1",
+      projectId: "project-1",
+      targetSlug: "flower-city-painting",
+      payload: { framework: "static" },
+      payloadSummary: {},
+    });
+
+    expect(result.status).toBe("unsupported");
+    expect(result.providerReference).toBeNull();
+
+    delete process.env.GITHUB_TOKEN;
+    delete process.env.GITHUB_ORG;
   });
 });
 
@@ -240,5 +366,7 @@ describe("deployment docs", () => {
     expect(source).toContain("GITHUB_TOKEN");
     expect(source).toContain("VERCEL_TOKEN");
     expect(source).toContain("DNS_PROVIDER_TOKEN");
+    expect(source).toContain("GitHub Provider — STATUS: REAL REPO PUSH IMPLEMENTED");
+    expect(source).toContain("repository URL");
   });
 });

@@ -233,6 +233,39 @@ Each adapter implements `DeploymentProviderAdapter` from `@vaen/shared`:
 - DNS API calls (subdomain creation, custom domain wiring)
 - Each of these is a separate future PR with real integration tests
 
+## GitHub Provider — STATUS: REAL REPO PUSH IMPLEMENTED
+
+The GitHub provider is the first real provider adapter. It can:
+
+1. derive a repository name from the deployment target slug
+2. create the repository in the configured GitHub organization if it does not exist
+3. reuse the repository if it already exists
+4. push the generated `site/` source into that repository's default branch
+5. record the repository URL back into `deployment_runs.provider_reference`
+
+### Required GitHub env
+
+```bash
+GITHUB_TOKEN=<token with repo create/push access>
+GITHUB_ORG=<organization-name>
+```
+
+### Practical setup steps
+
+1. set `GITHUB_TOKEN` and `GITHUB_ORG` on the worker VM
+2. ensure the deployment run is already in `validated` state
+3. click `Execute Providers` on the project deployment panel
+4. inspect the latest deployment run for:
+   - provider summary
+   - provider reference (repo URL)
+   - any failure summary
+
+### Honest limits
+
+- A successful GitHub push does **not** yet mean the site is live on Vercel or DNS.
+- If GitHub succeeds but Vercel/domain remain unconfigured, the deployment run stays `validated` and records provider execution honestly.
+- Real Vercel and domain automation are still future work.
+
 ## Remaining Work For True VM Deployment
 
 1. Run the worker poller under a persistent supervisor on the VM

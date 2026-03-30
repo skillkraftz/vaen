@@ -215,6 +215,20 @@ export function DeploymentRunsSection({
                     </p>
                   )}
 
+                  {run.provider_reference && (
+                    <p className="text-sm text-muted" style={{ marginTop: "0.5rem" }}>
+                      Provider reference:{" "}
+                      <a
+                        href={run.provider_reference}
+                        target="_blank"
+                        rel="noreferrer"
+                        data-testid={`deployment-run-provider-reference-${run.id}`}
+                      >
+                        {run.provider_reference}
+                      </a>
+                    </p>
+                  )}
+
                   {run.error_summary && (
                     <p className="text-sm" style={{ color: "var(--color-error)", marginTop: "0.5rem" }}>
                       {run.error_summary}

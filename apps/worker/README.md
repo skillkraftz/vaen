@@ -53,6 +53,7 @@ That runbook covers:
 - writable workspace expectations under `generated/`
 - `systemd` and `pm2` examples
 - portal heartbeat verification steps
+- GitHub provider setup for real repository creation/push
 
 ## Usage (programmatic)
 

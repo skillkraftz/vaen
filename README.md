@@ -169,6 +169,11 @@ Optional provider envs for `deploy_execute` testing:
 - `DNS_PROVIDER_TOKEN`
 - `VAEN_BASE_DOMAIN`
 
+Current real provider support:
+
+- GitHub is implemented enough to create or reuse a repository and push generated `site/` source from a validated deployment run
+- Vercel and domain providers remain honest stubs
+
 Recommended for live outreach/webhook behavior:
 
 - `RESEND_API_KEY`
