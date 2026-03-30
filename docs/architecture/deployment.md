@@ -136,6 +136,12 @@ This smoke path checks:
 5. provider execution queueing
 6. provider reference visibility when the optional wait is enabled
 
+This smoke path does **not** prove:
+
+- GitHub repository contents were pushed correctly
+- the live Vercel project/deployment state beyond the portal-visible reference
+- final DNS propagation for managed subdomains
+
 For the exact tomorrow setup order, preflight commands, and troubleshooting matrix, use [hosted-testing-pack.md](/home/andy/projects/vaen/docs/architecture/hosted-testing-pack.md).
 
 ### Worker on VM (via Tailscale) — NEXT

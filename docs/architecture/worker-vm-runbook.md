@@ -138,6 +138,16 @@ PORTAL_SMOKE_PROJECT_ID=<ready-project-id> \
 pnpm --filter @vaen/portal smoke:hosted
 ```
 
+That smoke path gives fast confirmation of:
+
+- portal reachability
+- portal login
+- worker heartbeat visibility
+- deployment run creation
+- provider execution queue visibility
+
+It does **not** replace manual checks for GitHub repo contents, live Vercel deployment state, or final DNS propagation.
+
 For the full operator sequence and troubleshooting matrix, use [hosted-testing-pack.md](/home/andy/projects/vaen/docs/architecture/hosted-testing-pack.md).
 
 ## Run continuously with systemd

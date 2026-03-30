@@ -170,6 +170,7 @@ It includes:
 - exact setup order
 - exact preflight commands
 - exact failure matrix / troubleshooting table
+- what the hosted smoke audit covers vs what still needs manual confirmation
 
 Production assumptions for the portal:
 

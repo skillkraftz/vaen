@@ -61,6 +61,11 @@ export default async function DeploymentSettingsPage() {
             {" "}
             after setting <code>PORTAL_URL</code>, <code>PORTAL_EMAIL</code>, <code>PORTAL_PASSWORD</code>, and <code>PORTAL_SMOKE_PROJECT_ID</code>.
           </p>
+          <p className="text-sm text-muted" data-testid="deployment-hosted-smoke-coverage">
+            The hosted smoke audit covers portal reachability, auth, worker heartbeat visibility, deployment run creation,
+            and provider execution queue visibility. It does not prove GitHub repo contents, live Vercel deployment health,
+            or final DNS propagation for managed subdomains.
+          </p>
         </div>
       </div>
 

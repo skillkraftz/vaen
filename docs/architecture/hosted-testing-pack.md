@@ -159,6 +159,18 @@ Expected signals:
 - provider execution can be queued
 - provider reference can be awaited when enabled
 
+Covered by this smoke path:
+- portal is reachable
+- auth works
+- worker heartbeat is visible
+- deployment run creation works
+- provider execution can be queued from the portal
+
+Not covered by this smoke path:
+- verifying pushed GitHub repo contents
+- verifying the live Vercel deployment state outside the portal reference
+- verifying final DNS propagation for managed subdomains
+
 ## Portal Verification Signals
 
 On `/dashboard/settings/deployment`:
@@ -202,6 +214,9 @@ Still manual tomorrow:
 - ensuring `VAEN_BASE_DOMAIN` is already present in the Vercel scope
 - creating any registrar or DNS-host records that Vercel still requires for the base domain
 - choosing the project used for deployment testing
+- manually confirming GitHub repo contents if provider execution reports success
+- manually confirming the Vercel deployment in the Vercel UI if provider execution reports success
+- manually confirming managed subdomain resolution after Vercel alias creation
 
 Still not automated:
 - customer custom-domain onboarding

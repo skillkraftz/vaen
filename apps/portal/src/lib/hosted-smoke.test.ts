@@ -42,6 +42,10 @@ describe("hosted smoke audit path", () => {
       join(REPO_ROOT, "docs/architecture/deployment.md"),
       "utf-8",
     );
+    const hostedPack = readFileSync(
+      join(REPO_ROOT, "docs/architecture/hosted-testing-pack.md"),
+      "utf-8",
+    );
     const deploymentPage = readFileSync(
       join(
         REPO_ROOT,
@@ -56,7 +60,19 @@ describe("hosted smoke audit path", () => {
     expect(portalReadme).toContain("PORTAL_SMOKE_PROJECT_ID");
     expect(deploymentDoc).toContain("smoke:hosted");
     expect(deploymentDoc).toContain("PORTAL_SMOKE_PROJECT_ID");
+    expect(deploymentDoc).toContain("does **not** prove");
+    expect(hostedPack).toContain("Covered by this smoke path");
+    expect(hostedPack).toContain("Not covered by this smoke path");
+    expect(hostedPack).toContain("manually confirming GitHub repo contents");
+    expect(hostedPack).toContain("manually confirming the Vercel deployment");
+    expect(hostedPack).toContain("manually confirming managed subdomain resolution");
     expect(deploymentPage).toContain('data-testid="deployment-hosted-smoke-command"');
+    expect(deploymentPage).toContain('data-testid="deployment-hosted-smoke-coverage"');
     expect(deploymentPage).toContain("pnpm --filter @vaen/portal smoke:hosted");
+    expect(deploymentPage).toContain("portal reachability, auth, worker heartbeat visibility, deployment run creation");
+    expect(deploymentPage).toContain("provider execution queue visibility");
+    expect(deploymentPage).toContain("does not prove GitHub repo contents");
+    expect(deploymentPage).toContain("live Vercel deployment health");
+    expect(deploymentPage).toContain("final DNS propagation");
   });
 });
