@@ -190,6 +190,7 @@ describe("prospect actions and ui", () => {
     const campaignSource = readFileSync(campaignActionsPath, "utf-8");
     expect(source).toContain("export async function createProspectAction");
     expect(source).toContain("export async function analyzeProspectAction");
+    expect(source).toContain("export async function updateProspectDetailsAction");
     expect(source).toContain("export async function convertProspectAction");
     expect(source).toContain("export async function continueProspectAutomationAction");
     expect(source).toContain("export async function generateProspectEnrichmentAction");
@@ -351,8 +352,10 @@ describe("prospect actions and ui", () => {
     expect(detailSource).toContain('data-testid="prospect-email-body"');
     expect(detailSource).toContain("/dashboard/settings/outreach");
     expect(actionsSource).toContain('data-testid="prospect-actions"');
+    expect(actionsSource).toContain('data-testid="prospect-edit-form"');
     expect(actionsSource).toContain('className="responsive-actions"');
     expect(actionsSource).toContain('data-testid="prospect-analyze-button"');
+    expect(actionsSource).toContain('data-testid="prospect-save-details-button"');
     expect(actionsSource).toContain('data-testid="prospect-convert-button"');
     expect(actionsSource).toContain('data-testid="prospect-automation-level"');
     expect(actionsSource).toContain('data-testid="prospect-continue-automation-button"');

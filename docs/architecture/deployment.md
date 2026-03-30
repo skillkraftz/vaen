@@ -6,6 +6,10 @@
 
 Vaen splits into two runtime contexts: the **portal** (web UI, database access) and the **worker** (site generation, build, screenshot capture). This split allows the portal to run on Vercel while heavy compute runs on a local/cloud VM.
 
+This doc covers two related but distinct deployment concerns:
+- **Portal hosting** — operating `vaen.space`, auth callbacks, webhooks, and worker/provider readiness.
+- **Client-site deployment** — creating deployment runs for generated client sites, then executing GitHub, Vercel, and managed-subdomain provider steps from project pages.
+
 ## Components
 
 ### Portal (Vercel)
@@ -20,7 +24,8 @@ Vaen splits into two runtime contexts: the **portal** (web UI, database access) 
   - File upload to Supabase Storage
   - Job dispatch (creates job record in DB)
   - Worker heartbeat visibility
-  - Deployment run creation and history
+  - Portal hosting readiness visibility
+  - Client-site deployment run creation and history
   - Status display, screenshot viewing
 
 ### Worker (VM / local machine)

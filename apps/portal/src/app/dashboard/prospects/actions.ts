@@ -365,6 +365,62 @@ export async function analyzeProspectAction(
   return { analysisId: analysis.id };
 }
 
+export async function updateProspectDetailsAction(
+  prospectId: string,
+  updates: {
+    companyName?: string;
+    websiteUrl?: string;
+    contactName?: string | null;
+    contactEmail?: string | null;
+    contactPhone?: string | null;
+    source?: string | null;
+    campaign?: string | null;
+    outreachSummary?: string | null;
+    notes?: string | null;
+  },
+): Promise<{ error?: string }> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated" };
+
+  const { data: prospect } = await supabase
+    .from("prospects")
+    .select("*")
+    .eq("id", prospectId)
+    .single();
+
+  if (!prospect) return { error: "Prospect not found." };
+
+  const companyName = updates.companyName?.trim();
+  const websiteUrl = updates.websiteUrl?.trim();
+  if (!companyName) return { error: "Company name is required." };
+  if (!websiteUrl) return { error: "Website URL is required." };
+
+  const { error } = await supabase
+    .from("prospects")
+    .update({
+      company_name: companyName,
+      website_url: normalizeWebsiteUrl(websiteUrl),
+      contact_name: updates.contactName?.trim() || null,
+      contact_email: updates.contactEmail?.trim() || null,
+      contact_phone: updates.contactPhone?.trim() || null,
+      source: updates.source?.trim() || null,
+      campaign: updates.campaign?.trim() || null,
+      outreach_summary: updates.outreachSummary?.trim() || null,
+      notes: updates.notes?.trim() || null,
+    })
+    .eq("id", prospectId);
+
+  if (error) {
+    return { error: error.message };
+  }
+
+  revalidatePath("/dashboard");
+  revalidatePath("/dashboard/prospects");
+  revalidatePath(`/dashboard/prospects/${prospectId}`);
+  return {};
+}
+
 export async function convertProspectAction(
   prospectId: string,
   options?: { automationLevel?: ProspectAutomationLevel },

@@ -370,6 +370,38 @@ export function BuildInputsEditor({
               }
             />
 
+            <FieldInput
+              label="Primary Brand Color"
+              initialValue={String(((preferences.branding as Record<string, unknown> | undefined)?.primaryColor as string) ?? "")}
+              onSave={(v) =>
+                saveDraftField(["preferences", "branding", "primaryColor"], v || undefined)
+              }
+            />
+
+            <FieldInput
+              label="Secondary Brand Color"
+              initialValue={String(((preferences.branding as Record<string, unknown> | undefined)?.secondaryColor as string) ?? "")}
+              onSave={(v) =>
+                saveDraftField(["preferences", "branding", "secondaryColor"], v || undefined)
+              }
+            />
+
+            <FieldInput
+              label="Accent Color"
+              initialValue={String(((preferences.branding as Record<string, unknown> | undefined)?.accentColor as string) ?? "")}
+              onSave={(v) =>
+                saveDraftField(["preferences", "branding", "accentColor"], v || undefined)
+              }
+            />
+
+            <FieldInput
+              label="Google Font Family"
+              initialValue={String(((preferences.branding as Record<string, unknown> | undefined)?.googleFontFamily as string) ?? "")}
+              onSave={(v) =>
+                saveDraftField(["preferences", "branding", "googleFontFamily"], v || undefined)
+              }
+            />
+
             <FieldTextarea
               label="Target Customer"
               hint="Who is this site for?"

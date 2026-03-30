@@ -49,8 +49,10 @@ describe("deployment readiness helpers", () => {
   it("documents the worker vm runbook with real setup steps", () => {
     const runbookPath = join(REPO_ROOT, "docs/architecture/worker-vm-runbook.md");
     const tomorrowPackPath = join(REPO_ROOT, "docs/architecture/hosted-testing-pack.md");
+    const deploymentDocPath = join(REPO_ROOT, "docs/architecture/deployment.md");
     const runbook = readFileSync(runbookPath, "utf-8");
     const tomorrowPack = readFileSync(tomorrowPackPath, "utf-8");
+    const deploymentDoc = readFileSync(deploymentDocPath, "utf-8");
 
     expect(runbook).toContain("SUPABASE_URL");
     expect(runbook).toContain("SUPABASE_SERVICE_ROLE_KEY");
@@ -74,6 +76,8 @@ describe("deployment readiness helpers", () => {
     expect(tomorrowPack).toContain("Vercel project already linked to the wrong repo");
     expect(tomorrowPack).toContain("Resend webhook verification fails");
     expect(tomorrowPack).toContain("registrar or DNS host");
+    expect(deploymentDoc).toContain("Portal hosting");
+    expect(deploymentDoc).toContain("Client-site deployment");
   });
 
   it("keeps the shared deployment readiness helper bundle-safe", () => {

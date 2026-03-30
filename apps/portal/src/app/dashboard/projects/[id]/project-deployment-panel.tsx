@@ -95,11 +95,11 @@ export function DeploymentRunsSection({
           <div className="wrap-between" style={{ gap: "0.75rem" }}>
             <div>
               <h2 style={{ fontSize: "1rem", fontWeight: 600, marginBottom: "0.25rem" }}>
-                Deployment Control
+                Client Site Deployment
               </h2>
               <p className="text-sm text-muted">
-                Creates a tracked deployment run from the authoritative revision/export state and validates the generated deployment payload.
-                Provider automation remains a separate future layer.
+                Creates a tracked deployment run for this client website from the authoritative revision/export state, then queues GitHub, Vercel, and managed-subdomain provider execution when the run is validated.
+                Portal hosting readiness lives under Settings, not here.
               </p>
             </div>
             <button

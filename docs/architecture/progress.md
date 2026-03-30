@@ -114,6 +114,8 @@
 - [x] Project-level deployment history UI
 - [x] Worker `deploy_prepare` handler validates `deployment-payload.json`
 - [x] Deployment readiness remains separate from provider automation
+- [x] Portal hosting readiness surface and worker heartbeat visibility at `/dashboard/settings/deployment`
+- [x] Client-site provider execution path for GitHub, Vercel preview deployments, and managed Vercel-side subdomain aliasing
 
 ### Phase 3b Fix — Target Path Resolution
 - [x] Canonical path fix — `resolveTarget()` defaults to `generated/<slug>/client-request.json` (was `examples/fake-clients/`)
@@ -147,6 +149,18 @@
 - [x] Campaign-detail analytics card row
 - [x] Manual reply workflow foundation with reply history and sequence-safe pause behavior
 - [x] AI prospect enrichment foundation with persisted business summary, package recommendation, opportunity analysis, and reusable offer positioning
+- [x] Prospect detail editing path for operator-corrected source data
+- [x] Client-sendable quote summary / email draft helper on project quotes
+- [x] Structured branding hooks for primary/secondary/accent colors and Google Font family
+
+## Current Alignment Notes
+
+- Deployment is now split in product language:
+  - `/dashboard/settings/deployment` covers **portal hosting and worker/provider readiness**
+  - project deployment panels cover **client-site deployment**
+- The current domain step is Vercel-side project-domain attachment and aliasing, not registrar DNS automation.
+- Quote and contract foundations are complete, but richer send-to-client workflow polish still remains.
+- Prospect, project, and deployment automation continue to depend on authoritative revision/export data rather than display-only form state.
 
 ## Developer Commands
 

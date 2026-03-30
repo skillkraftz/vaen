@@ -236,6 +236,8 @@ describe("deployment panel provider display", () => {
   it("shows provider execution summary on deployment runs", () => {
     const panelPath = join(SRC_ROOT, "app/dashboard/projects/[id]/project-deployment-panel.tsx");
     const source = readFileSync(panelPath, "utf-8");
+    expect(source).toContain("Client Site Deployment");
+    expect(source).toContain("Portal hosting readiness lives under Settings");
     expect(source).toContain("summarizeProviderExecutionFromRun");
     expect(source).toContain("deployment-run-provider-summary");
     expect(source).toContain("deployment-run-provider-reference");

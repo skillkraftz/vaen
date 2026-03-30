@@ -4,6 +4,10 @@
 
 vaen is a website factory that takes messy client intake and turns it into deployed local business websites through a deterministic build pipeline.
 
+Two deployment tracks have to stay explicit:
+- **Portal hosting** — operating `vaen.space` itself.
+- **Client-site deployment** — launching generated client websites and later monitoring or maintaining them.
+
 ## Architecture Layers
 
 ### 1. Shared Layer (`packages/shared`)
@@ -210,9 +214,11 @@ Branch states:
 | Screenshot viewer in portal (inline base64 PNGs) | Complete |
 | Intake field enrichment in generator (_intake.* → siteConfig) | Complete |
 | Discord multi-event notifications (5 portal + 4 worker events) | Complete |
-| Deployment control plane (portal-triggered deploy runs + history) | Complete |
-| Provider deploy automation (GitHub/Vercel/domain adapters) | Planned |
+| Deployment control plane (portal-triggered client-site deploy runs + history) | Complete |
+| Portal hosting readiness surface (`/dashboard/settings/deployment`) | Complete |
+| Provider deploy automation (GitHub/Vercel/domain adapters) | Partial |
 | Worker VM for isolated builds | Planned |
+| Client-site monitoring / maintenance loop | Planned |
 | Additional templates and modules | Planned |
 
 ### Phase 4 — Sales Ops & Governance (mostly complete)
@@ -224,8 +230,10 @@ Branch states:
 | Project variants / duplication lineage | Complete |
 | Authoritative module management | Complete |
 | Pricing, quotes, contracts | Complete |
+| Client-sendable quote / contract outputs | Partial |
 | Audited pricing settings | Complete |
 | Prospects and website analysis | Complete |
+| Prospect detail CRUD / editability | Partial |
 | Outreach package generation + Resend execution | Complete |
 | Outreach readiness/config hardening | Complete |
 | Campaigns + bulk import + batch outreach | Complete |
@@ -238,6 +246,13 @@ Branch states:
 | Campaign-detail analytics row | Complete |
 | Manual reply workflow foundation | Complete |
 | AI prospect enrichment foundation | Complete |
+| Structured branding controls (colors + Google Fonts hooks) | Partial |
+
+## Alignment Notes
+
+- Project pages use **deployment** to mean **client-site deployment**.
+- `/dashboard/settings/deployment` is the runtime/readiness surface for **portal hosting** plus worker/provider setup.
+- Authoritative request/revision/export data stays the source of truth for downstream generation, outreach, and deployment work.
 
 ## Assumptions
 - Templates use Next.js (App Router) with top-level `app/` directory for SSG/SSR flexibility

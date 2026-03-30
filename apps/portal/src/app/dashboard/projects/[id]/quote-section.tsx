@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import type { ApprovalRequest, Contract, Quote, QuoteLine, SelectedModule } from "@/lib/types";
 import { formatCurrency, getQuoteOutdatedReasons } from "@/lib/quote-helpers";
+import { buildClientSendableQuoteSummary } from "@/lib/quote-client-summary";
 import {
   addQuoteLineAction,
   createQuoteAction,
@@ -125,6 +126,7 @@ function QuoteCard({
     quoteTemplateId: quote.template_id,
   });
   const outdated = outdatedReasons.length > 0;
+  const clientSummary = buildClientSendableQuoteSummary(quote, quote.lines);
 
   function addAddon() {
     startTransition(async () => {
@@ -220,6 +222,45 @@ function QuoteCard({
           </div>
         </div>
       )}
+
+      <div
+        className="card"
+        style={{ marginTop: "0.75rem", padding: "0.75rem", background: "var(--color-surface-subtle)" }}
+        data-testid={`quote-client-send-summary-${quote.id}`}
+      >
+        <div style={{ display: "grid", gap: "0.5rem" }}>
+          <div>
+            <strong>Client Send Summary</strong>
+            <p
+              className="text-sm text-muted"
+              style={{ marginTop: "0.25rem" }}
+              data-testid={`quote-client-summary-${quote.id}`}
+            >
+              {clientSummary.summary}
+            </p>
+          </div>
+          <div>
+            <strong>Email Subject</strong>
+            <p
+              className="text-sm text-muted"
+              style={{ marginTop: "0.25rem" }}
+              data-testid={`quote-client-subject-${quote.id}`}
+            >
+              {clientSummary.subject}
+            </p>
+          </div>
+          <div>
+            <strong>Email Draft</strong>
+            <pre
+              className="mobile-code-block"
+              style={{ marginTop: "0.25rem" }}
+              data-testid={`quote-client-body-${quote.id}`}
+            >
+              {clientSummary.body}
+            </pre>
+          </div>
+        </div>
+      </div>
 
       <table className="info-table" style={{ marginTop: "0.75rem" }}>
         <thead>

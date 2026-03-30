@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { buildClientSendableQuoteSummary } from "./quote-client-summary";
 
 const REPO_ROOT = resolve(__dirname, "../../../..");
 
@@ -15,6 +16,12 @@ describe("pricing and quote schema", () => {
     expect(source).toContain("create table if not exists public.contracts");
     expect(source).toContain("Service Core Website");
     expect(source).toContain("Online Booking");
+  });
+});
+
+describe("quote client-send summary", () => {
+  it("keeps a reusable client-send helper for quote output", () => {
+    expect(typeof buildClientSendableQuoteSummary).toBe("function");
   });
 });
 
@@ -97,6 +104,10 @@ describe("quote actions and UI", () => {
     expect(source).toContain('data-testid="btn-accept-quote"');
     expect(source).toContain('data-testid="btn-reject-quote"');
     expect(source).toContain('data-testid="contract-badge"');
+    expect(source).toContain('data-testid={`quote-client-send-summary-${quote.id}`}');
+    expect(source).toContain('data-testid={`quote-client-summary-${quote.id}`}');
+    expect(source).toContain('data-testid={`quote-client-subject-${quote.id}`}');
+    expect(source).toContain('data-testid={`quote-client-body-${quote.id}`}');
   });
 
   it("places the quote section on the project page", () => {

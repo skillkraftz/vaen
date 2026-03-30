@@ -1099,6 +1099,19 @@ describe("reprocessIntakeAction invalidates downstream state", () => {
 
     expect(fn).toContain("invalidated:");
   });
+
+  it("restores structured branding hooks for colors and Google Fonts", () => {
+    const editorPath = join(__dirname, "../app/dashboard/projects/[id]/project-editor.tsx");
+    const source = readFileSync(editorPath, "utf-8");
+    expect(source).toContain("Primary Brand Color");
+    expect(source).toContain("Secondary Brand Color");
+    expect(source).toContain("Accent Color");
+    expect(source).toContain("Google Font Family");
+    expect(source).toContain('["preferences", "branding", "primaryColor"]');
+    expect(source).toContain('["preferences", "branding", "secondaryColor"]');
+    expect(source).toContain('["preferences", "branding", "accentColor"]');
+    expect(source).toContain('["preferences", "branding", "googleFontFamily"]');
+  });
 });
 
 // ── RevisionAssetManager does not call server actions during render ──

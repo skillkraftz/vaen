@@ -40,8 +40,8 @@ scripts/
 | v0 Architecture | Shared target/job/state/artifact model, app scaffolding | Complete |
 | Phase 1 Portal | vaen.space intake front door: auth, dashboard, intake form, file uploads, Discord notifications | Complete |
 | Phase 2 Processing | Intake processing, approval workflow, generator export, missing-info detection, recommendations | Complete |
-| Phase 3 Automation | Worker-oriented job execution, job status/logs, screenshot viewer, review/audit hardening | Complete |
-| **Phase 4 Sales Ops** | **Clients, lifecycle controls, variants, modules, pricing, quotes, contracts, prospects, campaigns, roles, approvals, sequencing, analytics dashboard** | **In Progress** |
+| Phase 3 Automation | Worker-oriented job execution, client-site deployment control plane, provider execution, portal hosting readiness, screenshot/audit hardening | Complete |
+| **Phase 4 Sales Ops** | **Clients, lifecycle controls, variants, modules, pricing, quotes/contracts, prospects, campaigns, roles, approvals, sequencing, analytics dashboard, branding hooks, client-send workflow polish** | **In Progress** |
 
 ## Setup
 

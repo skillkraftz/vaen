@@ -13,6 +13,7 @@ import {
   prepareProspectEmailDraftAction,
   resumeProspectSequenceAction,
   sendProspectOutreachAction,
+  updateProspectDetailsAction,
 } from "./actions";
 import { PROSPECT_AUTOMATION_LEVELS } from "@/lib/prospect-outreach";
 import { readProspectSequenceState } from "@/lib/campaign-sequences";
@@ -31,6 +32,15 @@ export function ProspectDetailActions({
       : "process_intake";
   })();
   const [automationLevel, setAutomationLevel] = useState<ProspectAutomationLevel>(initialLevel);
+  const [companyName, setCompanyName] = useState(prospect.company_name);
+  const [websiteUrl, setWebsiteUrl] = useState(prospect.website_url);
+  const [contactName, setContactName] = useState(prospect.contact_name ?? "");
+  const [contactEmail, setContactEmail] = useState(prospect.contact_email ?? "");
+  const [contactPhone, setContactPhone] = useState(prospect.contact_phone ?? "");
+  const [source, setSource] = useState(prospect.source ?? "");
+  const [campaignLabel, setCampaignLabel] = useState(prospect.campaign ?? "");
+  const [outreachSummary, setOutreachSummary] = useState(prospect.outreach_summary ?? "");
+  const [notes, setNotes] = useState(prospect.notes ?? "");
   const [confirmSend, setConfirmSend] = useState(false);
   const [replySummary, setReplySummary] = useState("");
   const [replyNote, setReplyNote] = useState("");
@@ -38,11 +48,43 @@ export function ProspectDetailActions({
   const [isPending, startTransition] = useTransition();
   const sequenceState = readProspectSequenceState(prospect.metadata);
   const sequencePaused = sequenceState?.paused === true;
+  const detailDirty =
+    companyName !== prospect.company_name
+    || websiteUrl !== prospect.website_url
+    || contactName !== (prospect.contact_name ?? "")
+    || contactEmail !== (prospect.contact_email ?? "")
+    || contactPhone !== (prospect.contact_phone ?? "")
+    || source !== (prospect.source ?? "")
+    || campaignLabel !== (prospect.campaign ?? "")
+    || outreachSummary !== (prospect.outreach_summary ?? "")
+    || notes !== (prospect.notes ?? "");
 
   function analyze() {
     setError(null);
     startTransition(async () => {
       const result = await analyzeProspectAction(prospect.id);
+      if (result.error) {
+        setError(result.error);
+        return;
+      }
+      router.refresh();
+    });
+  }
+
+  function saveDetails() {
+    setError(null);
+    startTransition(async () => {
+      const result = await updateProspectDetailsAction(prospect.id, {
+        companyName,
+        websiteUrl,
+        contactName,
+        contactEmail,
+        contactPhone,
+        source,
+        campaign: campaignLabel,
+        outreachSummary,
+        notes,
+      });
       if (result.error) {
         setError(result.error);
         return;
@@ -157,6 +199,71 @@ export function ProspectDetailActions({
 
   return (
     <div className="card" data-testid="prospect-actions">
+      <div style={{ display: "grid", gap: "0.75rem", marginBottom: "1rem" }} data-testid="prospect-edit-form">
+        <div className="responsive-field-row">
+          <label className="responsive-field-row-label">Company</label>
+          <input className="form-input" value={companyName} onChange={(e) => setCompanyName(e.target.value)} />
+        </div>
+        <div className="responsive-field-row">
+          <label className="responsive-field-row-label">Website</label>
+          <input className="form-input" value={websiteUrl} onChange={(e) => setWebsiteUrl(e.target.value)} />
+        </div>
+        <div className="responsive-field-row">
+          <label className="responsive-field-row-label">Contact</label>
+          <input className="form-input" value={contactName} onChange={(e) => setContactName(e.target.value)} />
+        </div>
+        <div className="responsive-field-row">
+          <label className="responsive-field-row-label">Email</label>
+          <input className="form-input" value={contactEmail} onChange={(e) => setContactEmail(e.target.value)} />
+        </div>
+        <div className="responsive-field-row">
+          <label className="responsive-field-row-label">Phone</label>
+          <input className="form-input" value={contactPhone} onChange={(e) => setContactPhone(e.target.value)} />
+        </div>
+        <div className="responsive-field-row">
+          <label className="responsive-field-row-label">Source</label>
+          <input className="form-input" value={source} onChange={(e) => setSource(e.target.value)} />
+        </div>
+        <div className="responsive-field-row">
+          <label className="responsive-field-row-label">Campaign Label</label>
+          <input className="form-input" value={campaignLabel} onChange={(e) => setCampaignLabel(e.target.value)} />
+        </div>
+        <div style={{ display: "grid", gap: "0.35rem" }}>
+          <label className="form-label" htmlFor="prospectOutreachSummary">Outreach Summary</label>
+          <textarea
+            id="prospectOutreachSummary"
+            className="form-input"
+            rows={3}
+            value={outreachSummary}
+            onChange={(e) => setOutreachSummary(e.target.value)}
+          />
+        </div>
+        <div style={{ display: "grid", gap: "0.35rem" }}>
+          <label className="form-label" htmlFor="prospectNotes">Internal Notes</label>
+          <textarea
+            id="prospectNotes"
+            className="form-input"
+            rows={3}
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+          />
+        </div>
+        <div className="responsive-actions">
+          <button
+            type="button"
+            className="btn btn-sm btn-primary"
+            onClick={saveDetails}
+            disabled={isPending || !detailDirty}
+            data-testid="prospect-save-details-button"
+          >
+            {isPending ? "Saving..." : "Save Prospect Details"}
+          </button>
+          <p className="text-sm text-muted">
+            Keep prospect details editable here so outreach, enrichment, and conversion use the current source data.
+          </p>
+        </div>
+      </div>
+
       <div style={{ marginBottom: "0.75rem" }}>
         <label className="form-label" htmlFor="prospectAutomationLevel">Automation Level</label>
         <select
