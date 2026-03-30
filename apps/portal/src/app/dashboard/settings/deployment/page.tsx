@@ -52,6 +52,7 @@ export default async function DeploymentSettingsPage() {
             <li>Confirm this page shows a healthy worker heartbeat before trusting pending jobs.</li>
             <li>Create a deployment run from a project whose active revision is already exported and generated.</li>
             <li>Execute providers, then verify the GitHub repo URL, Vercel preview URL, and managed subdomain URL on the project deployment history when domain testing is configured.</li>
+            <li>For managed subdomain testing, make sure the base domain is already added in Vercel. This flow does not create Namecheap or Cloudflare DNS records for you.</li>
           </ul>
           <p className="text-sm text-muted" data-testid="deployment-hosted-smoke-command">
             Repeat this with the lightweight hosted smoke audit:
@@ -89,8 +90,13 @@ export default async function DeploymentSettingsPage() {
           </p>
           <p className="text-sm text-muted">
             GitHub and Vercel provider execution depend on worker-side credentials. The current domain provider also runs on the
-            worker and uses <code>DNS_PROVIDER_TOKEN</code> for Vercel domain and alias API calls under <code>VAEN_BASE_DOMAIN</code>;
-            it is not generic registrar automation yet.
+            worker and uses <code>DNS_PROVIDER_TOKEN</code> for Vercel project-domain and alias API calls under <code>VAEN_BASE_DOMAIN</code>.
+            It attaches and aliases domains on the Vercel side only; it does not create Namecheap or Cloudflare DNS records yet.
+          </p>
+          <p className="text-sm text-muted">
+            If the managed base domain is not already configured in the target Vercel scope, finish that manually first in Vercel
+            and at the registrar or DNS host. Look in the Vercel Domains UI for the exact TXT, CNAME, or nameserver values that still
+            need to be created outside vaen.
           </p>
           <p className="text-sm text-muted">
             <code>OPENAI_API_KEY</code> is required for generator-backed jobs. If tomorrow&apos;s testing is limited to review,

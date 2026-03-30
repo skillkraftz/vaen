@@ -59,6 +59,9 @@ describe("deployment readiness helpers", () => {
     expect(runbook).toContain("required only for generator-backed jobs");
     expect(runbook).toContain("DNS_PROVIDER_TOKEN");
     expect(runbook).toContain("Vercel domain-management token");
+    expect(runbook).toContain("registrar or DNS host");
+    expect(runbook).toContain("Cloudflare");
+    expect(runbook).toContain("Namecheap");
     expect(runbook).toContain("pnpm --filter @vaen/worker poll");
     expect(runbook).toContain("systemd");
     expect(runbook).toContain("pm2");
@@ -70,6 +73,7 @@ describe("deployment readiness helpers", () => {
     expect(tomorrowPack).toContain("Worker heartbeat is missing");
     expect(tomorrowPack).toContain("Vercel project already linked to the wrong repo");
     expect(tomorrowPack).toContain("Resend webhook verification fails");
+    expect(tomorrowPack).toContain("registrar or DNS host");
   });
 
   it("keeps the shared deployment readiness helper bundle-safe", () => {
@@ -112,10 +116,13 @@ describe("deployment readiness ui integration", () => {
     expect(pageSource).toContain("Configure the Supabase auth callback as");
     expect(pageSource).toContain("https://vaen.space/api/webhooks/resend");
     expect(pageSource).toContain("verify the GitHub repo URL, Vercel preview URL, and managed subdomain URL");
+    expect(pageSource).toContain("This flow does not create Namecheap or Cloudflare DNS records for you");
     expect(pageSource).toContain("Portal env vars live on Vercel");
     expect(pageSource).toContain("Worker and provider env vars live on the remote worker VM");
     expect(pageSource).toContain("DNS_PROVIDER_TOKEN");
-    expect(pageSource).toContain("not generic registrar automation yet");
+    expect(pageSource).toContain("Vercel project-domain and alias API calls");
+    expect(pageSource).toContain("does not create Namecheap or Cloudflare DNS records yet");
+    expect(pageSource).toContain("Look in the Vercel Domains UI");
     expect(pageSource).toContain("OPENAI_API_KEY");
     expect(pageSource).toContain("generator-backed jobs");
     expect(pageSource).toContain("Worker VM checklist");
@@ -138,6 +145,7 @@ describe("deployment readiness ui integration", () => {
     expect(rootReadmeSource).toContain("worker-vm-runbook.md");
     expect(rootReadmeSource).toContain("Vercel is implemented enough to create or reuse a project");
     expect(rootReadmeSource).toContain("Vercel domain-management token");
+    expect(rootReadmeSource).toContain("Namecheap or Cloudflare DNS records");
     expect(rootReadmeSource).toContain("OPENAI_API_KEY");
   });
 });

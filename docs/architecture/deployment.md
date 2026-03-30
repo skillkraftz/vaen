@@ -381,6 +381,16 @@ VERCEL_TEAM_ID=<optional-team-id>
    - provider reference (`https://<slug>.vaen.space`)
    - failure summary if the Vercel domain API rejects the attachment or alias
 
+### Manual DNS reality for tomorrow
+
+- The current domain step automates Vercel-side project-domain attachment and deployment aliasing only.
+- It does **not** create registrar or DNS-host records in Namecheap, Cloudflare, or any other provider.
+- If Vercel says the base domain is not fully configured yet, finish that manually first:
+  1. open the Vercel Domains UI for the base domain
+  2. copy the required TXT, CNAME, A, or nameserver values shown there
+  3. add those values at the registrar or DNS host
+  4. rerun provider execution after Vercel recognizes the domain
+
 ### Honest limits
 
 - This currently supports managed subdomains under `VAEN_BASE_DOMAIN`, not arbitrary customer custom domains.
@@ -388,6 +398,12 @@ VERCEL_TEAM_ID=<optional-team-id>
 - This assumes the managed base domain is already added to the Vercel scope targeted by `DNS_PROVIDER_TOKEN`.
 - `DNS_PROVIDER_TOKEN` is currently used against Vercel project-domain and alias APIs; it is not a generic registrar-token abstraction yet.
 - It does not verify final DNS propagation beyond successful API attachment/alias creation.
+
+### Future DNS-provider automation boundary
+
+- **Cloudflare** is the most likely next automation target because it provides a stronger API surface for zone discovery, record upserts, and propagation-aware workflows.
+- **Namecheap** would be a separate integration path with its own credential model and record-management behavior.
+- Neither path is implemented today. The current domain provider should be treated as a Vercel-side attachment layer, not a registrar abstraction.
 
 ## Remaining Work For True VM Deployment
 

@@ -758,5 +758,8 @@ describe("deployment docs", () => {
     expect(source).toContain("managed subdomain");
     expect(source).toContain("Vercel domain-management access");
     expect(source).toContain("not a generic registrar-token abstraction yet");
+    expect(source).toContain("Manual DNS reality for tomorrow");
+    expect(source).toContain("Cloudflare");
+    expect(source).toContain("Namecheap");
   });
 });

@@ -213,7 +213,9 @@ Current real provider support:
 - GitHub is implemented enough to create or reuse a repository and push generated `site/` source from a validated deployment run
 - Vercel is implemented enough to create or reuse a project and trigger a real preview deployment URL from that GitHub repo
 - Domain provider is implemented enough to attach a managed subdomain under `VAEN_BASE_DOMAIN` and alias the current Vercel deployment for hosted testing
-- Domain provider currently uses Vercel project-domain and alias APIs; it is not registrar/DNS-host automation for arbitrary customer domains
+- Domain provider currently uses Vercel project-domain and alias APIs only; it does not create Namecheap or Cloudflare DNS records for arbitrary customer domains
+- If the base domain is not already configured in the target Vercel scope, finish that manually first and copy any required TXT, CNAME, A, or nameserver values from the Vercel Domains UI
+- Future registrar/DNS-host automation will likely target Cloudflare first, with Namecheap as a separate integration path if needed
 
 Recommended for live outreach/webhook behavior:
 

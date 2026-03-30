@@ -81,6 +81,7 @@ VAEN_BASE_DOMAIN=vaen.space
 
 If these are not set, provider execution will truthfully report `not_configured`.
 If you are only testing deployment runs and provider execution against an already generated project, `OPENAI_API_KEY` is not required for that deployment-only path.
+`DNS_PROVIDER_TOKEN` is currently used for Vercel project-domain and alias API access only. If Vercel still requires TXT, CNAME, A, or nameserver changes for the base domain, those remain manual at the registrar or DNS host.
 
 ## Workspace expectations
 
@@ -244,6 +245,9 @@ Real now:
 Not finished yet:
 
 - customer custom-domain onboarding and registrar-level automation
+- manual DNS setup is still required when the base domain is not already configured in Vercel
+- a real Cloudflare automation path is not implemented yet
+- a separate Namecheap automation path is not implemented yet
 - VM provisioning automation
 - heartbeat alerting/notifications
 - multi-worker operational dashboard

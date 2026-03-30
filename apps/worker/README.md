@@ -57,6 +57,7 @@ That runbook covers:
 - GitHub provider setup for real repository creation/push
 - Vercel preview deployment setup
 - managed subdomain attachment under `VAEN_BASE_DOMAIN`
+- the current limit that domain attachment uses Vercel APIs only, with manual registrar or DNS-host changes still required when the base domain is not already configured there
 
 ## Usage (programmatic)
 
@@ -73,4 +74,5 @@ const pipeline = await runPipeline(
 - run the poller under a real process supervisor on a VM
 - provision Playwright/build dependencies on that VM
 - add customer custom-domain onboarding and registrar-level automation on top of the current provider control plane
+- add a real DNS-provider integration boundary, likely Cloudflare first and Namecheap separately if needed
 - add deploy-target orchestration on top of the job backbone

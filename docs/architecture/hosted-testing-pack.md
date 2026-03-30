@@ -93,6 +93,7 @@ Important:
 - `DNS_PROVIDER_TOKEN` is currently used against Vercel project-domain and alias APIs.
 - It is not a generic registrar-token abstraction.
 - Managed-domain testing assumes `VAEN_BASE_DOMAIN` is already added to the Vercel account or team.
+- If Vercel still shows required TXT, CNAME, A, or nameserver values for the base domain, copy those from the Vercel Domains UI and create them manually at the registrar or DNS host before testing the managed subdomain step.
 
 ## Preflight Commands
 
@@ -199,10 +200,13 @@ Still manual tomorrow:
 - setting worker VM env vars
 - ensuring the worker runs under `systemd` or `pm2`
 - ensuring `VAEN_BASE_DOMAIN` is already present in the Vercel scope
+- creating any registrar or DNS-host records that Vercel still requires for the base domain
 - choosing the project used for deployment testing
 
 Still not automated:
 - customer custom-domain onboarding
 - registrar/DNS-host automation outside Vercel's domain APIs
+- Cloudflare record automation
+- Namecheap record automation
 - production promotion/alias strategy beyond preview + managed subdomain testing
 - provider webhooks or long-running deployment-status polling

@@ -224,7 +224,8 @@ export class DomainProviderAdapter implements DeploymentProviderAdapter {
       return {
         provider: "domain",
         status: "not_configured",
-        message: "Domain provider is not configured. Set DNS_PROVIDER_TOKEN and VAEN_BASE_DOMAIN environment variables.",
+        message:
+          "Domain provider is not configured. Set DNS_PROVIDER_TOKEN (currently used for Vercel domain-management API access) and VAEN_BASE_DOMAIN.",
         providerReference: null,
         executedAt: now,
         metadata: {

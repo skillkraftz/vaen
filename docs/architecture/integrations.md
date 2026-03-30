@@ -29,6 +29,8 @@ vaen.space is the deployment and hosting platform.
 Current repo reality:
 - hosted testing today uses the worker-side GitHub + Vercel provider chain
 - managed subdomains under `VAEN_BASE_DOMAIN` are attached through the current domain provider
+- that current domain provider talks to Vercel project-domain and alias APIs only
+- registrar/DNS-host record creation in Cloudflare or Namecheap is still future work
 - the flow below is still future platform work, not the current hosted-testing path
 
 ### How it ingests deployment-payload.json:

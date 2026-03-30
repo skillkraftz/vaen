@@ -112,7 +112,9 @@ The first real provider adapters are now GitHub, Vercel, and managed-domain atta
 Important env truth:
 
 - `OPENAI_API_KEY` is only needed on the worker for generator-backed jobs
-- `DNS_PROVIDER_TOKEN` is currently used for Vercel domain/alias API access, not generic registrar automation
+- `DNS_PROVIDER_TOKEN` is currently used for Vercel project-domain and alias API access, not generic registrar automation
+- current managed-domain testing assumes `VAEN_BASE_DOMAIN` is already configured in the target Vercel scope
+- if Vercel still asks for TXT, CNAME, A, or nameserver changes, those remain manual tomorrow
 
 ## Request Truth Model
 
