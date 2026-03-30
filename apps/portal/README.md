@@ -70,6 +70,15 @@ Deployment readiness is visible in the portal at `/dashboard/settings/deployment
 
 That page now also shows worker heartbeat status and a small VM setup checklist. The full operational runbook for a remote worker lives at `docs/architecture/worker-vm-runbook.md`.
 
+For first real hosted testing, use that page to confirm:
+
+1. `NEXT_PUBLIC_PORTAL_URL=https://vaen.space`
+2. Supabase auth callback is set to `https://vaen.space/auth/callback`
+3. Resend webhook target is `https://vaen.space/api/webhooks/resend` if outreach webhook testing is needed
+4. the remote worker heartbeat is healthy
+5. deployment runs can be created from exported/generated revisions
+6. provider execution produces GitHub and Vercel references in project deployment history
+
 Project pages now also support tracked deployment runs from authoritative revision/export/build state. Those runs validate `deployment-payload.json` and record history without pretending provider automation is finished.
 
 The first real provider adapters are now GitHub and Vercel: a validated deployment run can create or reuse a GitHub repository, then create or reuse a Vercel project and trigger a preview deployment URL. Domain provider execution remains explicitly incomplete.

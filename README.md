@@ -139,6 +139,16 @@ The portal is not fully deployment-automated yet, but the repo now includes:
 - worker heartbeat visibility in the portal
 - a worker VM runbook at `docs/architecture/worker-vm-runbook.md`
 
+First real hosted-testing path:
+
+1. deploy `apps/portal` to Vercel
+2. set the portal env vars listed below
+3. configure the Supabase auth callback as `https://vaen.space/auth/callback`
+4. configure the Resend webhook target as `https://vaen.space/api/webhooks/resend` if live outreach testing is in scope
+5. start the remote worker and confirm the heartbeat on `/dashboard/settings/deployment`
+6. create a deployment run from a project whose active revision is already exported and generated
+7. execute providers and verify the GitHub repo URL plus Vercel preview URL in project deployment history
+
 Production assumptions for the portal:
 
 - public base URL: `https://vaen.space`
@@ -151,6 +161,7 @@ Required envs for a real hosted portal:
 - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
 - `SUPABASE_SERVICE_ROLE_KEY`
 - `NEXT_PUBLIC_PORTAL_URL=https://vaen.space`
+- `RESEND_WEBHOOK_SECRET` if webhook verification should work in the hosted environment
 
 Required envs for a real remote worker VM:
 
@@ -168,6 +179,12 @@ Optional provider envs for `deploy_execute` testing:
 - `VERCEL_TEAM_ID`
 - `DNS_PROVIDER_TOKEN`
 - `VAEN_BASE_DOMAIN`
+
+Important env ownership split:
+
+- portal env vars live on Vercel
+- worker env vars and provider credentials live on the remote worker VM
+- a healthy Vercel deployment without a healthy worker heartbeat is not enough for generate/review/deploy execution
 
 Current real provider support:
 

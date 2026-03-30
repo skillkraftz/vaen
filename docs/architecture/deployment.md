@@ -93,6 +93,21 @@ Worker poller +---> claim_next_job() -> status: running
 - Resend webhook target should be `https://vaen.space/api/webhooks/resend`
 - Deployment trust depends on active revision request data and exported `client-request.json`, not just visible project fields
 
+### Hosted testing checklist — CURRENT PATH
+
+1. deploy the portal to Vercel at `https://vaen.space`
+2. set `NEXT_PUBLIC_PORTAL_URL=https://vaen.space`
+3. configure the Supabase auth callback as `https://vaen.space/auth/callback`
+4. configure the Resend webhook target as `https://vaen.space/api/webhooks/resend` if webhook-backed outreach testing is needed
+5. start the remote worker and confirm the heartbeat in `/dashboard/settings/deployment`
+6. open a project whose active revision is already exported and generated
+7. create a deployment run
+8. execute providers
+9. verify:
+   - GitHub repo reference
+   - Vercel preview deployment URL
+   - any failure summary if provider execution is rejected
+
 ### Worker on VM (via Tailscale) — NEXT
 - Install Tailscale on VM
 - Worker polls `jobs` table for pending work
@@ -118,6 +133,8 @@ NEXT_PUBLIC_SUPABASE_URL=https://xxx.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJ...
 SUPABASE_SERVICE_ROLE_KEY=eyJ...
 DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/...
+NEXT_PUBLIC_PORTAL_URL=https://vaen.space
+RESEND_WEBHOOK_SECRET=whsec_...
 ```
 
 ### Worker (VM)

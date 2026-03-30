@@ -90,7 +90,15 @@ describe("deployment readiness ui integration", () => {
     expect(pageSource).toContain('data-testid="deployment-blockers"');
     expect(pageSource).toContain('data-testid="deployment-warnings"');
     expect(pageSource).toContain('testId="deployment-worker-health"');
+    expect(pageSource).toContain('data-testid="deployment-hosted-testing-checklist"');
+    expect(pageSource).toContain('data-testid="deployment-env-ownership"');
     expect(pageSource).toContain('data-testid="deployment-worker-vm-checklist"');
+    expect(pageSource).toContain("Hosted testing checklist");
+    expect(pageSource).toContain("Configure the Supabase auth callback as");
+    expect(pageSource).toContain("https://vaen.space/api/webhooks/resend");
+    expect(pageSource).toContain("verify the GitHub repo URL and Vercel preview URL");
+    expect(pageSource).toContain("Portal env vars live on Vercel");
+    expect(pageSource).toContain("Worker and provider env vars live on the remote worker VM");
     expect(pageSource).toContain("Worker VM checklist");
     expect(pageSource).toContain("docs/architecture/worker-vm-runbook.md");
     expect(pageSource).toContain("pnpm --filter @vaen/worker poll");
@@ -103,5 +111,6 @@ describe("deployment readiness ui integration", () => {
     expect(rootReadmeSource).toContain("https://vaen.space/auth/callback");
     expect(rootReadmeSource).toContain("https://vaen.space/api/webhooks/resend");
     expect(rootReadmeSource).toContain("worker-vm-runbook.md");
+    expect(rootReadmeSource).toContain("Vercel is implemented enough to create or reuse a project");
   });
 });

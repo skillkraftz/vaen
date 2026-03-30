@@ -16,7 +16,8 @@ export default async function DeploymentSettingsPage() {
           <h1 style={{ marginBottom: "0.25rem" }}>Deployment Readiness</h1>
           <p className="text-sm text-muted">
             This surface documents the runtime assumptions for hosting the portal on <strong>vaen.space</strong>.
-            It does not trigger deployments itself. Project pages can now create tracked deployment runs, while provider automation remains a separate future layer.
+            It does not trigger deployments itself. Use it to verify the hosted-testing path: deploy the portal to Vercel,
+            confirm auth and webhook URLs, confirm the remote worker heartbeat, then use project pages to create deployment runs and execute providers.
           </p>
         </div>
         <span className="badge" data-testid="deployment-readiness-badge">
@@ -39,6 +40,34 @@ export default async function DeploymentSettingsPage() {
           title="Worker heartbeat"
           testId="deployment-worker-health"
         />
+      </div>
+
+      <div className="card" style={{ marginBottom: "1rem" }} data-testid="deployment-hosted-testing-checklist">
+        <h2 style={{ fontSize: "1rem", fontWeight: 600, marginBottom: "0.75rem" }}>Hosted testing checklist</h2>
+        <div className="detail-grid">
+          <ul className="text-sm text-muted" style={{ margin: 0, paddingLeft: "1.25rem" }}>
+            <li>Deploy <code>apps/portal</code> to Vercel with <code>NEXT_PUBLIC_PORTAL_URL=https://vaen.space</code>.</li>
+            <li>Configure the Supabase auth callback as <code>https://vaen.space/auth/callback</code>.</li>
+            <li>Set the Resend webhook target to <code>https://vaen.space/api/webhooks/resend</code> if live outreach/webhook testing is in scope.</li>
+            <li>Confirm this page shows a healthy worker heartbeat before trusting pending jobs.</li>
+            <li>Create a deployment run from a project whose active revision is already exported and generated.</li>
+            <li>Execute providers, then verify the GitHub repo URL and Vercel preview URL on the project deployment history.</li>
+          </ul>
+        </div>
+      </div>
+
+      <div className="card" style={{ marginBottom: "1rem" }} data-testid="deployment-env-ownership">
+        <h2 style={{ fontSize: "1rem", fontWeight: 600, marginBottom: "0.75rem" }}>Environment ownership</h2>
+        <div className="detail-grid">
+          <p className="text-sm text-muted">
+            Portal env vars live on Vercel. Worker and provider env vars live on the remote worker VM. A ready portal build
+            alone is not enough for generation, review, or provider execution.
+          </p>
+          <p className="text-sm text-muted">
+            GitHub and Vercel provider execution depend on worker-side credentials. This page can verify the portal-side URL
+            assumptions, while the worker heartbeat is the live signal that remote execution is available.
+          </p>
+        </div>
       </div>
 
       <div className="card" style={{ marginBottom: "1rem" }} data-testid="deployment-worker-vm-checklist">
@@ -121,8 +150,8 @@ export default async function DeploymentSettingsPage() {
         <div className="detail-grid">
           <p className="text-sm text-muted">
             The repo already contains deployment-payload schema/generator support, deploy statuses in the workflow model,
-            and a real Resend webhook route. What is still missing is provider automation for GitHub, Vercel, domains,
-            and richer worker/deployment orchestration.
+            and a real Resend webhook route. GitHub and Vercel provider execution are now wired for hosted testing.
+            What is still missing is domain automation, production promotion flow, and richer worker/deployment orchestration.
           </p>
           <p className="text-sm text-muted">
             For a real worker VM setup, use the repo runbook at <code>docs/architecture/worker-vm-runbook.md</code>.
