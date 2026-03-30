@@ -205,7 +205,7 @@ Current real provider support:
 
 - GitHub is implemented enough to create or reuse a repository and push generated `site/` source from a validated deployment run
 - Vercel is implemented enough to create or reuse a project and trigger a real preview deployment URL from that GitHub repo
-- Domain provider remains an honest stub
+- Domain provider is implemented enough to attach a managed subdomain under `VAEN_BASE_DOMAIN` and alias the current Vercel deployment for hosted testing
 
 Recommended for live outreach/webhook behavior:
 
@@ -219,7 +219,7 @@ Important operational note:
 
 - downstream generation/export/deployment rely on the active revision request payload and exported `client-request.json`, not just visible project form state
 - verify Business Details and Request Data (JSON) are in sync on project detail before trusting deploy/generate artifacts
-- deployment runs validate `deployment-payload.json`, GitHub can push source, and Vercel can trigger preview deployments; domain automation is still pending
+- deployment runs validate `deployment-payload.json`, GitHub can push source, Vercel can trigger preview deployments, and the domain provider can attach managed subdomains under `VAEN_BASE_DOMAIN`
 - real VM setup guidance lives in `docs/architecture/worker-vm-runbook.md`
 
 ### Request Truth Model

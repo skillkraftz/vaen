@@ -257,7 +257,7 @@ Each adapter implements `DeploymentProviderAdapter` from `@vaen/shared`:
 |----------|--------------------|--------|
 | GitHub | `GITHUB_TOKEN`, `GITHUB_ORG` | Real repo creation/reuse and source push implemented |
 | Vercel | `VERCEL_TOKEN`, `VERCEL_TEAM_ID` (optional) | Real project creation/reuse and preview deployment trigger implemented |
-| Domain | `DNS_PROVIDER_TOKEN`, `VAEN_BASE_DOMAIN` | Adapter registered, execution pending |
+| Domain | `DNS_PROVIDER_TOKEN`, `VAEN_BASE_DOMAIN` | Real managed subdomain attachment and deployment aliasing implemented |
 
 ### What is implemented
 
@@ -267,7 +267,7 @@ Each adapter implements `DeploymentProviderAdapter` from `@vaen/shared`:
 - Portal action to queue provider execution from a validated deployment run
 - GitHub adapter that creates or reuses a repository and pushes generated `site/` source
 - Vercel adapter that creates or reuses a project and triggers a preview deployment from the GitHub repo
-- Domain adapter stub (returns `not_configured` or `not_implemented` honestly)
+- Domain adapter that attaches a managed subdomain and aliases the current Vercel deployment
 - Worker `deploy_execute` job handler that routes through adapters
 - `deploy_execute` job type added to shared pipeline definitions
 - Results stored in deployment run metadata for audit
@@ -275,9 +275,8 @@ Each adapter implements `DeploymentProviderAdapter` from `@vaen/shared`:
 ### What requires real provider credentials
 
 - GitHub API calls (repo creation, code push)
-- Vercel API calls (project creation, deployment trigger)
-- DNS API calls (subdomain creation, custom domain wiring)
-- Domain automation is still a separate future PR with real integration tests
+- Vercel API calls (project creation, deployment trigger, managed subdomain attachment)
+- Managed subdomains now require the domain to already be configured in the Vercel scope addressed by the provider token
 
 ## GitHub Provider — STATUS: REAL REPO PUSH IMPLEMENTED
 
@@ -310,7 +309,7 @@ GITHUB_ORG=<organization-name>
 
 - A successful GitHub push does **not** yet mean the site is live on Vercel or DNS.
 - If GitHub succeeds but Vercel/domain remain unconfigured, the deployment run stays `validated` and records provider execution honestly.
-- Real Vercel and domain automation are still future work.
+- Real Vercel preview deployment is available for hosted testing.
 
 ## Vercel Provider — STATUS: REAL PREVIEW DEPLOYMENT IMPLEMENTED
 
@@ -349,11 +348,48 @@ VERCEL_TEAM_ID=<optional-team-id>
 - Existing projects linked to a different GitHub repo are treated as `unsupported` rather than being silently relinked.
 - Domain automation is still pending, so custom-domain cutover is not included.
 
+## Domain Provider — STATUS: REAL MANAGED SUBDOMAIN ATTACHMENT IMPLEMENTED
+
+The domain provider now handles the first usable subdomain path for testing deployments under a managed base domain.
+
+It can:
+
+1. derive a predictable managed subdomain from the target slug or validated payload subdomain
+2. attach that subdomain to the Vercel project from the prior Vercel provider step
+3. alias the current Vercel deployment to that managed subdomain
+4. record the subdomain URL back into `deployment_runs.provider_reference`
+
+### Required domain env
+
+```bash
+DNS_PROVIDER_TOKEN=<token with Vercel domain-management access>
+VAEN_BASE_DOMAIN=vaen.space
+VERCEL_TEAM_ID=<optional-team-id>
+```
+
+### Practical setup steps
+
+1. ensure the Vercel provider step can create or reuse the project and deployment first
+2. ensure `VAEN_BASE_DOMAIN` is already configured in the Vercel account or team
+3. set `DNS_PROVIDER_TOKEN` on the worker VM
+4. execute providers from a validated deployment run
+5. inspect the latest deployment run for:
+   - provider summary
+   - provider reference (`https://<slug>.vaen.space`)
+   - failure summary if the Vercel domain API rejects the attachment or alias
+
+### Honest limits
+
+- This currently supports managed subdomains under `VAEN_BASE_DOMAIN`, not arbitrary customer custom domains.
+- If `payload.domain.customDomain` is set to something outside the managed base domain, the provider returns `unsupported`.
+- This assumes the managed base domain is already added to the Vercel scope targeted by the token.
+- It does not verify final DNS propagation beyond successful API attachment/alias creation.
+
 ## Remaining Work For True VM Deployment
 
 1. Run the worker poller under a persistent supervisor on the VM
 2. Provision Playwright/build dependencies on that VM
 3. Decide the shared/generated workspace location and retention policy
 4. Decide when preview deployments should be promoted or aliased for production use
-5. Implement real domain provider (DNS API, TLS verification)
+5. Add custom-domain onboarding, ownership verification, and richer propagation checks
 6. Add deployment webhooks or polling for richer Vercel status tracking

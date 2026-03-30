@@ -7,6 +7,10 @@ import {
   ensureGitHubRepository,
   GitHubProviderAdapter,
 } from "../../../worker/src/providers/github";
+import {
+  deriveManagedDomain,
+  DomainProviderAdapter,
+} from "../../../worker/src/providers/domain";
 import { VercelProviderAdapter } from "../../../worker/src/providers/vercel";
 
 const REPO_ROOT = resolve(__dirname, "../../../..");
@@ -128,7 +132,7 @@ describe("provider execution summary from deployment run", () => {
   });
 });
 
-/* ── Worker adapter stubs ───────────────────────────────────────── */
+/* ── Worker provider adapters ───────────────────────────────────── */
 
 describe("worker provider adapter stubs", () => {
   it("has GitHub adapter implementation", () => {
@@ -146,7 +150,7 @@ describe("worker provider adapter stubs", () => {
     expect(source).toContain('status: "succeeded"');
   });
 
-  it("has Vercel adapter stub", () => {
+  it("has Vercel adapter implementation", () => {
     const adapterPath = join(REPO_ROOT, "apps/worker/src/providers/vercel.ts");
     expect(existsSync(adapterPath)).toBe(true);
     const source = readFileSync(adapterPath, "utf-8");
@@ -159,7 +163,7 @@ describe("worker provider adapter stubs", () => {
     expect(source).toContain('status: "succeeded"');
   });
 
-  it("has Domain adapter stub", () => {
+  it("has Domain adapter implementation", () => {
     const adapterPath = join(REPO_ROOT, "apps/worker/src/providers/domain.ts");
     expect(existsSync(adapterPath)).toBe(true);
     const source = readFileSync(adapterPath, "utf-8");
@@ -168,7 +172,9 @@ describe("worker provider adapter stubs", () => {
     expect(source).toContain('type = "domain"');
     expect(source).toContain("DNS_PROVIDER_TOKEN");
     expect(source).toContain("VAEN_BASE_DOMAIN");
-    expect(source).toContain('"not_implemented"');
+    expect(source).toContain("createDeploymentAlias");
+    expect(source).toContain("addProjectDomain");
+    expect(source).toContain('status: "succeeded"');
   });
 
   it("has provider registry with execution function", () => {
@@ -567,6 +573,167 @@ describe("vercel provider helpers", () => {
   });
 });
 
+describe("domain provider helpers", () => {
+  it("derives a managed subdomain from the target slug and payload domain settings", () => {
+    expect(
+      deriveManagedDomain(
+        "flower-city-painting",
+        { domain: { subdomain: "flower-city-painting" } },
+        "vaen.space",
+      ),
+    ).toBe("flower-city-painting.vaen.space");
+    expect(
+      deriveManagedDomain(
+        "Flower City Painting",
+        { domain: { subdomain: "Flower City Painting!!" } },
+        "vaen.space",
+      ),
+    ).toBe("flower-city-painting.vaen.space");
+  });
+
+  it("returns not_configured when dns env is missing", async () => {
+    delete process.env.DNS_PROVIDER_TOKEN;
+    delete process.env.VAEN_BASE_DOMAIN;
+    delete process.env.VERCEL_TEAM_ID;
+
+    const adapter = new DomainProviderAdapter();
+    const result = await adapter.execute({
+      deploymentRunId: "run-1",
+      projectId: "project-1",
+      targetSlug: "flower-city-painting",
+      payload: { framework: "nextjs", domain: { subdomain: "flower-city-painting" } },
+      payloadSummary: {},
+    });
+
+    expect(result.status).toBe("not_configured");
+    expect(result.providerReference).toBeNull();
+  });
+
+  it("returns unsupported for custom domains outside the managed base domain", async () => {
+    process.env.DNS_PROVIDER_TOKEN = "dns-test";
+    process.env.VAEN_BASE_DOMAIN = "vaen.space";
+
+    const adapter = new DomainProviderAdapter({
+      apiClient: {
+        async getProjectDomain() {
+          throw new Error("should not query");
+        },
+        async addProjectDomain() {
+          throw new Error("should not create");
+        },
+        async createDeploymentAlias() {
+          throw new Error("should not alias");
+        },
+      },
+    });
+
+    const result = await adapter.execute({
+      deploymentRunId: "run-1",
+      projectId: "project-1",
+      targetSlug: "flower-city-painting",
+      payload: {
+        framework: "nextjs",
+        domain: {
+          subdomain: "flower-city-painting",
+          customDomain: "www.customer-site.com",
+        },
+      },
+      payloadSummary: {},
+      priorSteps: [
+        {
+          provider: "vercel",
+          status: "succeeded",
+          message: "ok",
+          providerReference: "https://flower-city-painting-preview.vercel.app",
+          executedAt: new Date().toISOString(),
+          metadata: {
+            projectName: "flower-city-painting",
+            projectId: "prj_123",
+            deploymentId: "dpl_123",
+          },
+        },
+      ],
+    });
+
+    expect(result.status).toBe("unsupported");
+    expect(result.providerReference).toBeNull();
+
+    delete process.env.DNS_PROVIDER_TOKEN;
+    delete process.env.VAEN_BASE_DOMAIN;
+  });
+
+  it("attaches a managed domain and aliases the current vercel deployment", async () => {
+    process.env.DNS_PROVIDER_TOKEN = "dns-test";
+    process.env.VAEN_BASE_DOMAIN = "vaen.space";
+    process.env.VERCEL_TEAM_ID = "team_123";
+
+    const adapter = new DomainProviderAdapter({
+      apiClient: {
+        async getProjectDomain() {
+          return null;
+        },
+        async addProjectDomain(projectName, domain) {
+          expect(projectName).toBe("flower-city-painting");
+          expect(domain).toBe("flower-city-painting.vaen.space");
+          return {
+            name: domain,
+            verified: true,
+          };
+        },
+        async createDeploymentAlias(deploymentId, domain) {
+          expect(deploymentId).toBe("dpl_123");
+          expect(domain).toBe("flower-city-painting.vaen.space");
+          return {
+            alias: domain,
+            deploymentId,
+          };
+        },
+      },
+    });
+
+    const result = await adapter.execute({
+      deploymentRunId: "run-1",
+      projectId: "project-1",
+      targetSlug: "flower-city-painting",
+      payload: {
+        framework: "nextjs",
+        domain: { subdomain: "flower-city-painting" },
+      },
+      payloadSummary: {},
+      priorSteps: [
+        {
+          provider: "vercel",
+          status: "succeeded",
+          message: "ok",
+          providerReference: "https://flower-city-painting-preview.vercel.app",
+          executedAt: new Date().toISOString(),
+          metadata: {
+            projectName: "flower-city-painting",
+            projectId: "prj_123",
+            deploymentId: "dpl_123",
+            deploymentUrl: "https://flower-city-painting-preview.vercel.app",
+          },
+        },
+      ],
+    });
+
+    expect(result.status).toBe("succeeded");
+    expect(result.providerReference).toBe("https://flower-city-painting.vaen.space");
+    expect(result.metadata).toMatchObject({
+      managedDomain: "flower-city-painting.vaen.space",
+      projectName: "flower-city-painting",
+      projectId: "prj_123",
+      deploymentId: "dpl_123",
+      createdProjectDomain: true,
+      teamId: "team_123",
+    });
+
+    delete process.env.DNS_PROVIDER_TOKEN;
+    delete process.env.VAEN_BASE_DOMAIN;
+    delete process.env.VERCEL_TEAM_ID;
+  });
+});
+
 /* ── Documentation ──────────────────────────────────────────────── */
 
 describe("deployment docs", () => {
@@ -585,7 +752,9 @@ describe("deployment docs", () => {
     expect(source).toContain("DNS_PROVIDER_TOKEN");
     expect(source).toContain("GitHub Provider — STATUS: REAL REPO PUSH IMPLEMENTED");
     expect(source).toContain("Vercel Provider — STATUS: REAL PREVIEW DEPLOYMENT IMPLEMENTED");
+    expect(source).toContain("Domain Provider — STATUS: REAL MANAGED SUBDOMAIN ATTACHMENT IMPLEMENTED");
     expect(source).toContain("repository URL");
     expect(source).toContain("preview deployment URL");
+    expect(source).toContain("managed subdomain");
   });
 });

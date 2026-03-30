@@ -1159,7 +1159,7 @@ describe("deployment doc has clear implementation status labels", () => {
     expect(source).toContain("Remaining Work For True VM Deployment");
     expect(source).toContain("persistent supervisor");
     expect(source).toContain("preview deployments should be promoted or aliased");
-    expect(source).toContain("Implement real domain provider");
+    expect(source).toContain("custom-domain onboarding, ownership verification, and richer propagation checks");
     expect(source).toContain("worker-vm-runbook.md");
   });
 

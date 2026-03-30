@@ -105,7 +105,7 @@ The smoke flow verifies:
 
 Project pages now also support tracked deployment runs from authoritative revision/export/build state. Those runs validate `deployment-payload.json` and record history without pretending provider automation is finished.
 
-The first real provider adapters are now GitHub and Vercel: a validated deployment run can create or reuse a GitHub repository, then create or reuse a Vercel project and trigger a preview deployment URL. Domain provider execution remains explicitly incomplete.
+The first real provider adapters are now GitHub, Vercel, and managed-domain attachment: a validated deployment run can create or reuse a GitHub repository, create or reuse a Vercel project and trigger a preview deployment URL, then attach a managed subdomain under `VAEN_BASE_DOMAIN` to that Vercel deployment for testing.
 
 ## Request Truth Model
 

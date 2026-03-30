@@ -5,7 +5,7 @@ This runbook describes the current, real way to run the vaen worker on a separat
 It is intentionally narrow:
 - the portal creates jobs in Supabase
 - the worker polls Supabase and claims jobs
-- provider deployment adapters are still stubs unless you implement the real GitHub/Vercel/domain integrations later
+- provider deployment adapters now include real GitHub repo push, Vercel preview deployment, and managed-domain attachment under `VAEN_BASE_DOMAIN`
 
 ## Production assumptions
 
