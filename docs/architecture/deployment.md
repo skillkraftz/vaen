@@ -211,8 +211,8 @@ Each adapter implements `DeploymentProviderAdapter` from `@vaen/shared`:
 
 | Provider | Required Variables | Status |
 |----------|--------------------|--------|
-| GitHub | `GITHUB_TOKEN`, `GITHUB_ORG` | Adapter registered, execution pending |
-| Vercel | `VERCEL_TOKEN`, `VERCEL_TEAM_ID` (optional) | Adapter registered, execution pending |
+| GitHub | `GITHUB_TOKEN`, `GITHUB_ORG` | Real repo creation/reuse and source push implemented |
+| Vercel | `VERCEL_TOKEN`, `VERCEL_TEAM_ID` (optional) | Real project creation/reuse and preview deployment trigger implemented |
 | Domain | `DNS_PROVIDER_TOKEN`, `VAEN_BASE_DOMAIN` | Adapter registered, execution pending |
 
 ### What is implemented
@@ -221,7 +221,9 @@ Each adapter implements `DeploymentProviderAdapter` from `@vaen/shared`:
 - `ProviderStepResult` / `ProviderExecutionResult` structured result model
 - Provider registry with execution ordering
 - Portal action to queue provider execution from a validated deployment run
-- GitHub / Vercel / Domain adapter stubs (return `not_configured` or `not_implemented` honestly)
+- GitHub adapter that creates or reuses a repository and pushes generated `site/` source
+- Vercel adapter that creates or reuses a project and triggers a preview deployment from the GitHub repo
+- Domain adapter stub (returns `not_configured` or `not_implemented` honestly)
 - Worker `deploy_execute` job handler that routes through adapters
 - `deploy_execute` job type added to shared pipeline definitions
 - Results stored in deployment run metadata for audit
@@ -231,7 +233,7 @@ Each adapter implements `DeploymentProviderAdapter` from `@vaen/shared`:
 - GitHub API calls (repo creation, code push)
 - Vercel API calls (project creation, deployment trigger)
 - DNS API calls (subdomain creation, custom domain wiring)
-- Each of these is a separate future PR with real integration tests
+- Domain automation is still a separate future PR with real integration tests
 
 ## GitHub Provider — STATUS: REAL REPO PUSH IMPLEMENTED
 
@@ -266,11 +268,48 @@ GITHUB_ORG=<organization-name>
 - If GitHub succeeds but Vercel/domain remain unconfigured, the deployment run stays `validated` and records provider execution honestly.
 - Real Vercel and domain automation are still future work.
 
+## Vercel Provider — STATUS: REAL PREVIEW DEPLOYMENT IMPLEMENTED
+
+The Vercel provider is now real enough for hosted testing. It can:
+
+1. derive a Vercel project name from the target slug
+2. reuse the project if it already exists
+3. create the project if it does not exist yet
+4. connect the project to the GitHub repo reference from the GitHub provider step
+5. trigger a preview deployment from that repo/ref
+6. record the deployment URL back into `deployment_runs.provider_reference`
+
+### Required Vercel env
+
+```bash
+VERCEL_TOKEN=<token with project/deployment access>
+VERCEL_TEAM_ID=<optional-team-id>
+```
+
+`VERCEL_TEAM_ID` is optional for personal-account scope.
+
+### Practical setup steps
+
+1. ensure the GitHub provider step can create or reuse the repo first
+2. set `VERCEL_TOKEN` on the worker VM
+3. set `VERCEL_TEAM_ID` if the target Vercel project lives under a team
+4. execute providers from a validated deployment run
+5. inspect the latest deployment run for:
+   - provider summary
+   - provider reference (preview deployment URL)
+   - failure summary if the Vercel API rejects project or deployment creation
+
+### Honest limits
+
+- This triggers a real preview deployment URL for testing, not full production promotion.
+- Existing projects linked to a different GitHub repo are treated as `unsupported` rather than being silently relinked.
+- Domain automation is still pending, so custom-domain cutover is not included.
+
 ## Remaining Work For True VM Deployment
 
 1. Run the worker poller under a persistent supervisor on the VM
 2. Provision Playwright/build dependencies on that VM
 3. Decide the shared/generated workspace location and retention policy
-4. Implement real GitHub provider (Octokit, repo management, code push)
-5. Implement real Vercel provider (project creation, deployment trigger)
-6. Implement real domain provider (DNS API, TLS verification)
+4. Decide when preview deployments should be promoted or aliased for production use
+5. Implement real domain provider (DNS API, TLS verification)
+6. Add deployment webhooks or polling for richer Vercel status tracking

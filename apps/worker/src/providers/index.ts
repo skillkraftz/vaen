@@ -55,7 +55,10 @@ export async function executeProviderAdapters(
       continue;
     }
 
-    const result = await adapter.execute(context);
+    const result = await adapter.execute({
+      ...context,
+      priorSteps: steps,
+    });
     steps.push(result);
 
     // If a configured provider failed, abort remaining steps

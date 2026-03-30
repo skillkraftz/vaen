@@ -7,6 +7,7 @@ import {
   ensureGitHubRepository,
   GitHubProviderAdapter,
 } from "../../../worker/src/providers/github";
+import { VercelProviderAdapter } from "../../../worker/src/providers/vercel";
 
 const REPO_ROOT = resolve(__dirname, "../../../..");
 const SRC_ROOT = resolve(__dirname, "..");
@@ -153,7 +154,9 @@ describe("worker provider adapter stubs", () => {
     expect(source).toContain("implements DeploymentProviderAdapter");
     expect(source).toContain('type = "vercel"');
     expect(source).toContain("VERCEL_TOKEN");
-    expect(source).toContain('"not_implemented"');
+    expect(source).toContain("createProject");
+    expect(source).toContain("createDeployment");
+    expect(source).toContain('status: "succeeded"');
   });
 
   it("has Domain adapter stub", () => {
@@ -178,6 +181,7 @@ describe("worker provider adapter stubs", () => {
     expect(source).toContain("GitHubProviderAdapter");
     expect(source).toContain("VercelProviderAdapter");
     expect(source).toContain("DomainProviderAdapter");
+    expect(source).toContain("priorSteps: steps");
   });
 });
 
@@ -350,6 +354,219 @@ describe("github provider helpers", () => {
   });
 });
 
+describe("vercel provider helpers", () => {
+  it("returns not_configured when token is missing", async () => {
+    delete process.env.VERCEL_TOKEN;
+    delete process.env.VERCEL_TEAM_ID;
+
+    const adapter = new VercelProviderAdapter();
+    const result = await adapter.execute({
+      deploymentRunId: "run-1",
+      projectId: "project-1",
+      targetSlug: "flower-city-painting",
+      payload: { framework: "nextjs", buildCommand: "next build", outputDir: ".next" },
+      payloadSummary: {},
+    });
+
+    expect(result.status).toBe("not_configured");
+    expect(result.providerReference).toBeNull();
+  });
+
+  it("reuses an existing vercel project and returns a deployment url", async () => {
+    process.env.VERCEL_TOKEN = "vercel-test";
+    process.env.VERCEL_TEAM_ID = "team_123";
+
+    const adapter = new VercelProviderAdapter({
+      apiClient: {
+        async getProject(name) {
+          return {
+            id: "prj_123",
+            name,
+            framework: "nextjs",
+            link: {
+              type: "github",
+              org: "acme",
+              repo: "vaen-flower-city-painting",
+              productionBranch: "main",
+            },
+          };
+        },
+        async createProject() {
+          throw new Error("should not create");
+        },
+        async createDeployment() {
+          return {
+            id: "dpl_123",
+            url: "flower-city-painting-preview.vercel.app",
+            inspectorUrl: "https://vercel.com/acme/flower-city-painting/dpl_123",
+            status: "BUILDING",
+          };
+        },
+      },
+    });
+
+    const result = await adapter.execute({
+      deploymentRunId: "run-1",
+      projectId: "project-1",
+      targetSlug: "flower-city-painting",
+      payload: {
+        framework: "nextjs",
+        buildCommand: "next build",
+        outputDir: ".next",
+        nodeVersion: "20.x",
+      },
+      payloadSummary: {},
+      priorSteps: [
+        {
+          provider: "github",
+          status: "succeeded",
+          message: "ok",
+          providerReference: "https://github.com/acme/vaen-flower-city-painting",
+          executedAt: new Date().toISOString(),
+          metadata: {
+            org: "acme",
+            repoName: "vaen-flower-city-painting",
+            defaultBranch: "main",
+            commitSha: "abc123",
+            repoUrl: "https://github.com/acme/vaen-flower-city-painting",
+          },
+        },
+      ],
+    });
+
+    expect(result.status).toBe("succeeded");
+    expect(result.providerReference).toBe("https://flower-city-painting-preview.vercel.app");
+    expect(result.metadata).toMatchObject({
+      projectId: "prj_123",
+      projectCreated: false,
+      deploymentId: "dpl_123",
+      linkedRepo: "vaen-flower-city-painting",
+    });
+
+    delete process.env.VERCEL_TOKEN;
+    delete process.env.VERCEL_TEAM_ID;
+  });
+
+  it("creates a new vercel project when missing", async () => {
+    process.env.VERCEL_TOKEN = "vercel-test";
+
+    const adapter = new VercelProviderAdapter({
+      apiClient: {
+        async getProject() {
+          return null;
+        },
+        async createProject(input) {
+          expect(input.repo).toBe("vaen-flower-city-painting");
+          return {
+            id: "prj_new",
+            name: input.name,
+            framework: "nextjs",
+            link: {
+              type: "github",
+              org: input.org,
+              repo: input.repo,
+              productionBranch: input.productionBranch,
+            },
+          };
+        },
+        async createDeployment() {
+          return {
+            id: "dpl_new",
+            url: "https://flower-city-painting-git-main-acme.vercel.app",
+            inspectorUrl: null,
+            status: "QUEUED",
+          };
+        },
+      },
+    });
+
+    const result = await adapter.execute({
+      deploymentRunId: "run-1",
+      projectId: "project-1",
+      targetSlug: "flower-city-painting",
+      payload: { framework: "nextjs", buildCommand: "next build", outputDir: ".next" },
+      payloadSummary: {},
+      priorSteps: [
+        {
+          provider: "github",
+          status: "succeeded",
+          message: "ok",
+          providerReference: "https://github.com/acme/vaen-flower-city-painting",
+          executedAt: new Date().toISOString(),
+          metadata: {
+            org: "acme",
+            repoName: "vaen-flower-city-painting",
+            defaultBranch: "main",
+          },
+        },
+      ],
+    });
+
+    expect(result.status).toBe("succeeded");
+    expect(result.metadata).toMatchObject({
+      projectCreated: true,
+      projectId: "prj_new",
+    });
+
+    delete process.env.VERCEL_TOKEN;
+  });
+
+  it("returns unsupported when the existing project is linked to a different repo", async () => {
+    process.env.VERCEL_TOKEN = "vercel-test";
+
+    const adapter = new VercelProviderAdapter({
+      apiClient: {
+        async getProject(name) {
+          return {
+            id: "prj_conflict",
+            name,
+            framework: "nextjs",
+            link: {
+              type: "github",
+              org: "acme",
+              repo: "other-repo",
+              productionBranch: "main",
+            },
+          };
+        },
+        async createProject() {
+          throw new Error("should not create");
+        },
+        async createDeployment() {
+          throw new Error("should not deploy");
+        },
+      },
+    });
+
+    const result = await adapter.execute({
+      deploymentRunId: "run-1",
+      projectId: "project-1",
+      targetSlug: "flower-city-painting",
+      payload: { framework: "nextjs" },
+      payloadSummary: {},
+      priorSteps: [
+        {
+          provider: "github",
+          status: "succeeded",
+          message: "ok",
+          providerReference: "https://github.com/acme/vaen-flower-city-painting",
+          executedAt: new Date().toISOString(),
+          metadata: {
+            org: "acme",
+            repoName: "vaen-flower-city-painting",
+            defaultBranch: "main",
+          },
+        },
+      ],
+    });
+
+    expect(result.status).toBe("unsupported");
+    expect(result.providerReference).toBeNull();
+
+    delete process.env.VERCEL_TOKEN;
+  });
+});
+
 /* ── Documentation ──────────────────────────────────────────────── */
 
 describe("deployment docs", () => {
@@ -367,6 +584,8 @@ describe("deployment docs", () => {
     expect(source).toContain("VERCEL_TOKEN");
     expect(source).toContain("DNS_PROVIDER_TOKEN");
     expect(source).toContain("GitHub Provider — STATUS: REAL REPO PUSH IMPLEMENTED");
+    expect(source).toContain("Vercel Provider — STATUS: REAL PREVIEW DEPLOYMENT IMPLEMENTED");
     expect(source).toContain("repository URL");
+    expect(source).toContain("preview deployment URL");
   });
 });

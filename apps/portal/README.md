@@ -72,7 +72,7 @@ That page now also shows worker heartbeat status and a small VM setup checklist.
 
 Project pages now also support tracked deployment runs from authoritative revision/export/build state. Those runs validate `deployment-payload.json` and record history without pretending provider automation is finished.
 
-The first real provider adapter is now GitHub: a validated deployment run can create or reuse a repository and push generated site source. Vercel and domain provider execution remain explicitly incomplete.
+The first real provider adapters are now GitHub and Vercel: a validated deployment run can create or reuse a GitHub repository, then create or reuse a Vercel project and trigger a preview deployment URL. Domain provider execution remains explicitly incomplete.
 
 ## Request Truth Model
 

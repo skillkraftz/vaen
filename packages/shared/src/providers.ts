@@ -86,6 +86,8 @@ export interface ProviderExecutionContext {
   payload: Record<string, unknown>;
   /** The deployment payload summary from validation. */
   payloadSummary: Record<string, unknown>;
+  /** Results from earlier provider steps in the same execution run. */
+  priorSteps?: ProviderStepResult[];
 }
 
 // ── Provider registry ───────────────────────────────────────────────
